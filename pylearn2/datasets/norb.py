@@ -9,7 +9,7 @@ NORB dataset(s) by Fu Jie Huang and Yann LeCun.
 """
 
 # Mostly repackaged code from Pylearn 1's datasets/norb_small.py and
-# io/filetensor.py, as well as Pylearn2's original datasets/norb_small.py 
+# io/filetensor.py, as well as Pylearn2's original datasets/norb_small.py
 #
 # Currently only supports the SmallNORB dataset.
 
@@ -29,12 +29,12 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
 
     If instantiated with multi_target=True, labels are vectors of indices
     representing:
-    
+
       [ category, instance, elevation, azimuth, lighting ]
 
     Like with category, there are class methods that map these ints to their
     actual values, e.g:
-    
+
       category = SmallNORB.get_category(label[0])
       elevation = SmallNORB.get_elevation_degrees(label[2])
     """
@@ -49,7 +49,7 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
     @classmethod
     def get_category(cls, scalar_label):
         return cls._categories[int(scalar_label)]
-    
+
     @classmethod
     def get_elevation_degrees(cls, scalar_label):
         scalar_label = int(scalar_label)
@@ -74,7 +74,7 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
                             'elevation':2,
                             'azimuth':3,
                             'lighting':4 }
-                            
+
 
     # Number of labels, for each label type.
     num_labels_by_type = (len(_categories),
@@ -90,22 +90,22 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
     # the Preprocess class.
     def __init__(self, which_set, multi_target = False):
         """
-        :param which_set: one of ['train', 'test'] :param multi_target: If True,
-        each label is an integer labeling the image catergory. If False, each
-        label is a vector: [category, instance, lighting, elevation,
+        :param which_set: one of ['train', 'test'] :param multi_target: If
+        True, each label is an integer labeling the image catergory. If False,
+        each label is a vector: [category, instance, lighting, elevation,
         azimuth]. All labels are given as integers. Use the categories,
-        elevation_degrees, and azimuth_degrees arrays to map from these integers
-        to actual values.
+        elevation_degrees, and azimuth_degrees arrays to map from these
+        integers to actual values.
 
-        :param multi_target: If False, labels will be integers indicating object
-        category. If True, labels will be vectors of integers, indicating [
-        category, instance, elevation, azimuth, lighting ].
+        :param multi_target: If False, labels will be integers indicating
+        object category. If True, labels will be vectors of integers,
+        indicating [ category, instance, elevation, azimuth, lighting ].
         """
 
         assert which_set in ['train', 'test']
 
         self.which_set = which_set
-        
+
         X = SmallNORB.load(which_set, 'dat')
 
         # put things in pylearn2's DenseDesignMatrix format
@@ -122,11 +122,11 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
 
         # TODO: let labels be accessible by key, like y.category, y.elevation,
         # etc.
-        super(SmallNORB,self).__init__(X = X, 
-                                       y = y, 
-                                       view_converter = view_converter)
-        
-        
+        super(SmallNORB, self).__init__(X=X,
+                                        y=y,
+                                        view_converter=view_converter)
+
+
     @classmethod
     def load(cls, which_set, filetype):
         """
@@ -136,7 +136,7 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
         assert which_set in ['train', 'test']
         assert filetype in ['dat', 'cat', 'info']
 
-            
+
         def getPath(which_set):
             dirname = os.path.join(os.getenv('PYLEARN2_DATA_PATH'),
                                    'norb_small/original')
@@ -149,7 +149,7 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
                 (instance_list, which_set + 'ing', filetype)
 
             return os.path.join(dirname, filename)
-                                
+
 
         def parseNORBFile(file_handle, subtensor=None, debug=False):
             """
@@ -166,7 +166,7 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
               underlying file f is big.
 
               read(f, subtensor) <===> read(f)[*subtensor]
-    
+
               Support for subtensors is currently spotty, so check the code to
               see if your particular type of subtensor is supported.
               """
@@ -181,7 +181,7 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
 
             def readHeader(file_handle, debug=False, from_gzip=None):
                 """
-                :param file_handle: an open file handle. 
+                :param file_handle: an open file handle.
                 :type file_handle: a file or gzip.GzipFile object
 
                 :param from_gzip: bool or None
@@ -204,26 +204,26 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
 
                 type_key = readNums(file_handle, 'int32', 1)[0]
                 elem_type, elem_size = key_to_type[type_key]
-                if debug: 
+                if debug:
                     print "header's type key, type, type size: ", \
                         type_key, elem_type, elem_size
                 if elem_type == 'packed matrix':
                     raise NotImplementedError('packed matrix not supported')
 
                 num_dims = readNums(file_handle, 'int32', 1)[0]
-                if debug: 
+                if debug:
                     print '# of dimensions, according to header: ', num_dims
 
                 if from_gzip:
-                    shape = readNums(file_handle, 
+                    shape = readNums(file_handle,
                                      'int32',
                                      max(num_dims, 3))[:num_dims]
                 else:
-                    shape = numpy.fromfile(file_handle, 
+                    shape = numpy.fromfile(file_handle,
                                            dtype='int32',
                                            count=max(num_dims, 3))[:num_dims]
 
-                if debug: 
+                if debug:
                     print 'Tensor shape, as listed in header:', shape
 
                 return elem_type, elem_size, shape
@@ -238,8 +238,8 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
             if isinstance(file_handle, (gzip.GzipFile, bz2.BZ2File)):
                 assert subtensor is None, \
                     "Subtensors on gzip files are not implemented."
-                result = readNums(file_handle, 
-                                  elem_type, 
+                result = readNums(file_handle,
+                                  elem_type,
                                   num_elems*elem_size).reshape(shape)
             elif subtensor is None:
                 result = numpy.fromfile(file_handle,
@@ -252,13 +252,13 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
                     bytes_per_row = numpy.prod(shape[1:]) * elem_size
                     file_handle.seek(beginning+subtensor.start * bytes_per_row)
                 shape[0] = min(shape[0], subtensor.stop) - subtensor.start
-                result = numpy.fromfile(file_handle, 
+                result = numpy.fromfile(file_handle,
                                         dtype=elem_type,
                                         count=num_elems).reshape(shape)
             else:
                 raise NotImplementedError('subtensor access not written yet:',
-                                          subtensor) 
-                
+                                          subtensor)
+
             return result
 
 

@@ -1,0 +1,6 @@
+!obj:pylearn2.train.Train {
+    dataset: &train !obj:pylearn2.datasets.norb.SmallNORB {
+      which_set: "train",
+      multi_target: True
+    }
+}
