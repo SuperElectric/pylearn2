@@ -9,7 +9,9 @@ __maintainer__ = "Ian Goodfellow"
 __email__ = "goodfeli@iro"
 
 import numpy as np
-
+import os.path
+from pylearn2.utils import serial
+from pylearn2.gui.get_weights_report import get_weights_report
 
 class TrainExtension(object):
     """
@@ -171,9 +173,9 @@ class ChannelSmoother(TrainExtension):
         dataset = channel_to_smooth.dataset
 
         monitor.add_channel(name=self.channel_to_publish,
-                ipt=ipt,
-                val=-1.,
-                dataset=dataset)
+                            ipt=ipt,
+                            val=-1.,
+                            dataset=dataset)
 
         self.in_ch = channel_to_smooth
         self.out_ch = channels[self.channel_to_publish]
@@ -192,3 +194,75 @@ class ChannelSmoother(TrainExtension):
 
         self.out_ch.val_record[-1] = mean
         print '\t' + self.channel_to_publish + ': ' + str(mean)
+
+
+class EpochLogger(TrainExtension):
+    """
+    Saves the machine and/or an image of its first-level weights on each epoch.
+    """
+
+    def __init__(self, output_dir, save_models=False, save_images=True):
+
+        output_dir = os.path.abspath(output_dir)
+
+        def is_empty(dirname):
+            return len(os.listdir(dirname)) == 0
+
+        if os.path.exists(output_dir):
+            if not os.path.isdir(output_dir):
+                raise IOError("Output directory %s is not a directory." %
+                              output_dir)
+            elif not is_empty(output_dir):
+                raise IOError("Output directory %s is not empty." % output_dir)
+        else:
+            parent, dirname = os.path.split(output_dir)
+            if parent == '':
+                raise IOError("Are we really writing to the root directory?")
+            os.makedirs(output_dir)
+
+
+        self.output_dir = output_dir
+        self.num_finished_epochs = 0
+        self.save_models = save_models
+        self.save_images = save_images
+
+
+    def on_monitor(self, model, dataset, algorithm):
+        """
+        Overrides TrainExtension's on_monitor, which gets called once before
+        training, and after each epoch.
+        """
+        class SerializationGuard(object):
+
+            def __getstate__(self):
+                raise IOError("You tried to serialize something that should not"
+                              " be serialized.")
+
+
+        save_path = os.path.join(self.output_dir,
+                                 "model_after_%04d_epochs.pkl" %
+                                 self.num_finished_epochs)
+        if os.path.exists(save_path):
+            raise IOError("The output file already exists. "
+                          "This should never happen.")
+
+        if self.save_models:
+            try:
+                # Prevents the dataset from being saved along with the model.
+                dataset._serialization_guard = SerializationGuard()
+
+                serial.save(save_path, model, on_overwrite = 'ignore')
+            finally:
+                dataset._serialization_guard = None
+
+        if self.save_images:
+            # Uses same options as show_weights.py
+            patch_viewer = get_weights_report(model = model,
+                                              rescale = "individual",
+                                              border = False)
+            patch_viewer.save(os.path.join(self.output_dir,
+                                           "weights_after_%04d_epochs.png" %
+                                           self.num_finished_epochs))
+
+        self.num_finished_epochs = 1 + self.num_finished_epochs
+

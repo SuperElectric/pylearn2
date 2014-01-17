@@ -129,8 +129,7 @@ def load_instance_datasets(azimuth_ratio, elevation_ratio):
 
     images = numpy.vstack((train.X, test.X))
     labels = numpy.vstack((train.y, test.y))
-    print("merged dataset: %s images, %s labels" % (images.shape,
-                                                    labels.shape))
+
     new_labels = get_new_labels(labels)
     test_mask = get_testing_rowmask(labels, azimuth_ratio, elevation_ratio)
     train_mask = numpy.logical_not(test_mask)
@@ -221,7 +220,7 @@ def main():
         print("saved %s, %s" % tuple(os.path.split(basepath)[1] + suffix
                                 for suffix in ('.npy', '.pkl')))
 
-    preprocessor_filename = prefix +"_preprocesssor.pkl"
+    preprocessor_filename = prefix +"_preprocessor.pkl"
     serial.save(os.path.join(output_dir, preprocessor_filename),
                 preprocessor)
     print("saved %s" % preprocessor_filename)
