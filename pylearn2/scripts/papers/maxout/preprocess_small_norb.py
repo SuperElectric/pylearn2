@@ -220,6 +220,21 @@ def main():
         print("saved %s, %s" % tuple(os.path.split(basepath)[1] + suffix
                                 for suffix in ('.npy', '.pkl')))
 
+    # Free up memory. Del doesn't necessarily free memory in Python,
+    # but numpy manages its own memory, and del(M) does seem to free M's
+    # memory when M is a numpy array.
+    #
+    # See: http://stackoverflow.com/a/16300177/399397
+    del training_set, testing_set
+
+    print("Saving preprocessor with:\n"
+          "  P_     of shape %s\n"
+          "  inv_P_ of shape %s\n"
+          "  mean_  of shape %s" %
+          tuple(x.shape for x in (preprocessor.P_,
+                                  preprocessor.inv_P_,
+                                  preprocessor.mean_)))
+
     preprocessor_filename = prefix +"_preprocessor.pkl"
     serial.save(os.path.join(output_dir, preprocessor_filename),
                 preprocessor)
