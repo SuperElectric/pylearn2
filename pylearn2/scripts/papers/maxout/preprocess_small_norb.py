@@ -17,7 +17,8 @@ from pylearn2.expr.preprocessing import global_contrast_normalize
 from pylearn2.utils import serial, string_utils
 from pylearn2.datasets import preprocessing
 from pylearn2.datasets.norb import SmallNORB
-from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
+from pylearn2.datasets.dense_design_matrix import (DenseDesignMatrix,
+                                                   DefaultViewConverter)
 
 
 def parse_args():
@@ -72,10 +73,10 @@ def get_new_labels(labels):
             row_mask = logical_and(labels[:, category_index] == category,
                                    labels[:, instance_index] == instance)
             if new_label == 0:
-                examples_per_label = len(numpy.nonzero(row_mask))
+                examples_per_label = len(numpy.nonzero(row_mask)[0])
                 assert examples_per_label != 0
             else:
-                assert len(numpy.nonzero(row_mask)) == examples_per_label
+                assert len(numpy.nonzero(row_mask)[0]) == examples_per_label
 
             result[row_mask] = new_label
             new_label = new_label + 1
@@ -144,7 +145,8 @@ def load_instance_datasets(azimuth_ratio, elevation_ratio):
     test_mask = get_testing_rowmask(labels, azimuth_ratio, elevation_ratio)
     train_mask = numpy.logical_not(test_mask)
 
-    view_converter = train.view_converter
+    #view_converter = train.view_converter
+    view_converter = DefaultViewConverter(shape=[96, 96, 1])
     train = DenseDesignMatrix(X=images[train_mask, :],
                               y=new_labels[train_mask, :],
                               view_converter=view_converter)
