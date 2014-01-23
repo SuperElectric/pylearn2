@@ -10,7 +10,8 @@ dataset, by doing the following:
 """
 
 from __future__ import print_function
-import sys, argparse, numpy, os
+import sys, argparse, os, time
+import numpy, theano
 from numpy import logical_and
 from pylearn2.expr.preprocessing import global_contrast_normalize
 from pylearn2.utils import serial, string_utils
@@ -127,8 +128,17 @@ def load_instance_datasets(azimuth_ratio, elevation_ratio):
     test = SmallNORB('test', True)
     print("read SmallNORB")
 
+    # Select just the first image of the stereo image pairs.
+    num_pixels = 96**2
+    train.X = train.X[:, :num_pixels]
+    test.X = test.X[:, :num_pixels]
+
+    print("train.X, .y: %s, %s" % (str(train.X.shape), str(train.y.shape)))
+
     images = numpy.vstack((train.X, test.X))
     labels = numpy.vstack((train.y, test.y))
+
+    assert str(images.dtype) == theano.config.floatX
 
     new_labels = get_new_labels(labels)
     test_mask = get_testing_rowmask(labels, azimuth_ratio, elevation_ratio)
@@ -142,8 +152,8 @@ def load_instance_datasets(azimuth_ratio, elevation_ratio):
                              y=new_labels[test_mask, :],
                              view_converter=view_converter)
 
-    print("split dataset into %d training examples, %d testing examples." % \
-          (train.X.shape[0], test.X.shape[0]))
+    print("split dataset into %s training examples, %s testing examples." % \
+          (str(train.X.shape), str(test.X.shape)))
 
     return (train, test)
 
@@ -199,12 +209,20 @@ def main():
         dataset.X = global_contrast_normalize(dataset.X, scale=55.0)
 
     preprocessor = preprocessing.ZCA()
-    print("ZCA'ing training_set")
+
+    output_dir = make_output_dir()
+    prefix = 'small_norb_%02d_%02d' % (args.azimuth_ratio,
+                                       args.elevation_ratio)
+    preprocessor_basepath = os.path.join(output_dir, prefix + "_preprocessor")
+    preprocessor.set_matrices_save_path(preprocessor_basepath + '.npz')
+
+    print("ZCA'ing training set")
     training_set.apply_preprocessor(preprocessor=preprocessor, can_fit=True)
     print("ZCA'ing testing set")
+    t1 = time.time()
     testing_set.apply_preprocessor(preprocessor=preprocessor, can_fit=False)
-    print("finished preprocessing")
-    output_dir = make_output_dir()
+    t2 = time.time()
+    print("ZCA of testing set took %g secs" % (t2 - t1))
 
     prefix = 'small_norb_%02d_%02d' % (args.azimuth_ratio,
                                        args.elevation_ratio)
@@ -220,9 +238,10 @@ def main():
         print("saved %s, %s" % tuple(os.path.split(basepath)[1] + suffix
                                 for suffix in ('.npy', '.pkl')))
 
-    # Free up memory. Del doesn't necessarily free memory in Python,
-    # but numpy manages its own memory, and del(M) does seem to free M's
-    # memory when M is a numpy array.
+    # Garbage-collect training_set, testing_set.
+    #
+    # Del doesn't necessarily free memory in Python, but numpy manages its own
+    # memory, and del(M) does seem to free M's memory when M is a numpy array.
     #
     # See: http://stackoverflow.com/a/16300177/399397
     del training_set, testing_set
@@ -235,10 +254,9 @@ def main():
                                   preprocessor.inv_P_,
                                   preprocessor.mean_)))
 
-    preprocessor_filename = prefix +"_preprocessor.pkl"
-    serial.save(os.path.join(output_dir, preprocessor_filename),
-                preprocessor)
-    print("saved %s" % preprocessor_filename)
+    serial.save(preprocessor_basepath + '.pkl', preprocessor)
+    for suffix in ('.npz', '.pkl'):
+        print("saved %s" % (preprocessor_basepath + suffix))
 
 if __name__ == '__main__':
     main()
