@@ -53,35 +53,76 @@ def parse_args():
     return parser.parse_args(sys.argv[1:])
 
 
-def get_new_labels(labels):
+def get_object_ids(label_vectors):
     """
-    Given a NxM matrix of NORB labels, returns a Nx1 matrix of new labels
-    that assigns a unique integer for each (category, instance) pair.
+    Given a NxM matrix of NORB labels, returns a Nx1 matrix of unique IDs for
+    each object.
     """
-    result = numpy.zeros((labels.shape[0], 1), dtype='int')
+
+    def contains_equal_numbers_of_all_objects(object_ids, num_objects):
+        """
+        Returns True iff object_ids contains all numbers from 0 to
+        num_objects-1
+        """
+        assert len(object_ids.shape) == 1
+        assert object_ids.shape[0] > 0
+
+        object_counts = [numpy.count_nonzero(object_ids == i)
+                         for i in xrange(num_objects)]
+
+        return numpy.all(object_counts[1:] == object_counts[0])
+        # contains_object = numpy.zeros((num_objects, ), dtype=bool)
+        # contains_object[object_ids] = True
+        # return contains_object.all()
+
     category_index, instance_index = (SmallNORB.label_type_to_index[n]
                                       for n in ('category', 'instance'))
 
-    num_categories, num_instances = (SmallNORB.num_labels_by_type[x]
-                                     for x in (category_index,
-                                               instance_index))
+    num_categories, num_instances = (SmallNORB.num_labels_by_type[i]
+                                     for i in (category_index, instance_index))
 
-    new_label = 0
-    examples_per_label = 0
-    for category in xrange(num_categories):
-        for instance in xrange(num_instances):
-            row_mask = logical_and(labels[:, category_index] == category,
-                                   labels[:, instance_index] == instance)
-            if new_label == 0:
-                examples_per_label = len(numpy.nonzero(row_mask)[0])
-                assert examples_per_label != 0
-            else:
-                assert len(numpy.nonzero(row_mask)[0]) == examples_per_label
+    categories, instances = (label_vectors[:, i]
+                             for i in (category_index, instance_index))
+    result = categories * num_instances + instances
 
-            result[row_mask] = new_label
-            new_label = new_label + 1
+    # We expect all object IDs to be represented, and represented equally.
+    #
+    # This need not necessarily be true, but we expect it to be true under
+    # current usage, so we include this as a sanity check.
+    assert contains_equal_numbers_of_all_objects(result)
 
-    return result
+    return result[:, numpy.newindex]  # size N vector -> Nx1 matrix
+
+
+# def get_new_labels(labels):
+#     """
+#     Given a NxM matrix of NORB labels, returns a Nx1 matrix of new labels
+#     that assigns a unique integer for each (category, instance) pair.
+#     """
+#     result = numpy.zeros((labels.shape[0], 1), dtype='int')
+#     category_index, instance_index = (SmallNORB.label_type_to_index[n]
+#                                       for n in ('category', 'instance'))
+
+#     num_categories, num_instances = (SmallNORB.num_labels_by_type[x]
+#                                      for x in (category_index,
+#                                                instance_index))
+
+#     new_label = 0
+#     examples_per_label = 0
+#     for category in xrange(num_categories):
+#         for instance in xrange(num_instances):
+#             row_mask = logical_and(labels[:, category_index] == category,
+#                                    labels[:, instance_index] == instance)
+#             if new_label == 0:
+#                 examples_per_label = len(numpy.nonzero(row_mask)[0])
+#                 assert examples_per_label != 0
+#             else:
+#                 assert len(numpy.nonzero(row_mask)[0]) == examples_per_label
+
+#             result[row_mask] = new_label
+#             new_label = new_label + 1
+
+#     return result
 
 
 def get_testing_rowmask(labels, azimuth_ratio, elevation_ratio):
@@ -141,7 +182,7 @@ def load_instance_datasets(azimuth_ratio, elevation_ratio):
 
     assert str(images.dtype) == theano.config.floatX
 
-    new_labels = get_new_labels(labels)
+    new_labels = get_object_ids(labels)
     test_mask = get_testing_rowmask(labels, azimuth_ratio, elevation_ratio)
     train_mask = numpy.logical_not(test_mask)
 

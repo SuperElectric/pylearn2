@@ -9,6 +9,7 @@ import matplotlib
 from matplotlib import pyplot
 from pylearn2.utils import safe_zip
 
+
 def main():
 
     def parse_args():
@@ -31,7 +32,7 @@ def main():
                                          for key in ('labels', 'ground_truth'))
     assert softmax_labels.shape[0] == ground_truth.shape[0]
 
-    hard_labels = softmax_labels.argmax(axis=1)  #[:, numpy.newaxis]
+    hard_labels = softmax_labels.argmax(axis=1)
 
     num_labels = softmax_labels.shape[0]
     num_instances = 50
@@ -45,14 +46,12 @@ def main():
         soft_confusion_matrix[ground_truth_label, :] += soft_label
         hard_confusion_matrix[ground_truth_label, hard_label] += 1.0
 
-    # for confusion_matrix in (soft_confusion_matrix, hard_confusion_matrix):
-    #     confusion_matrix /= float(num_labels)
-
+    # Normalize each row of the confusion matrix by dividing the row by the
+    # number of times that row's object actually occurred in the dataset.
     for instance in range(num_instances):
-        num_instances = numpy.count_nonzero(ground_truth == instance)
+        num_occurences = numpy.count_nonzero(ground_truth == instance)
         for confusion_matrix in (soft_confusion_matrix, hard_confusion_matrix):
-            confusion_matrix[instance, :] /= float(num_instances)
-
+            confusion_matrix[instance, :] /= float(num_occurances)
 
     figure, axes = pyplot.subplots(1, 2, squeeze=True)
     for (plot_index,
