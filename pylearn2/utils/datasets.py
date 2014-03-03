@@ -6,6 +6,7 @@ minibatches from a dataset, or to merge three data with given proportions
 import os
 import functools
 from itertools import repeat
+import warnings
 
 # Third-party imports
 import numpy
@@ -15,7 +16,8 @@ from matplotlib import pyplot
 from mpl_toolkits.mplot3d import Axes3D
 
 # Local imports
-from pylearn2.datasets.utlc import get_constant, sharedX
+from pylearn2.utils import sharedX
+from pylearn2.utils.rng import make_np_rng
 
 ##################################################
 # 3D Visualization
@@ -137,7 +139,7 @@ def nonzero_features(data, combine=None):
 def filter_nonzero(data, combine=None):
     """
     Filter non-zero features of data according to a certain combining function
-    
+
     Parameters
     ----------
     data : list of matrices
@@ -212,7 +214,7 @@ class BatchIterator(object):
 
         # Use a deterministic seed
         self.seed = seed
-        rng = numpy.random.RandomState(seed=self.seed)
+        rng = make_np_rng(seed, which_method="permutation")
         self.permut = rng.permutation(index_tab)
 
     def __iter__(self):
@@ -264,9 +266,15 @@ def blend(dataset, set_proba, **kwargs):
     -------
     WRITEME
     """
+    warnings.warn("pylearn2.utils.datasets.blend is deprecated"
+                  "and will be removed on or after 13 August 2014.",
+                  stacklevel=2)
     iterator = BatchIterator(dataset, set_proba, 1, **kwargs)
     nrow = len(iterator)
-    ncol = get_constant(dataset[0].shape[1])
+    if (isinstance(dataset[0], theano.Variable)):
+        ncol = dataset[0].get_value().shape[1]
+    else:
+        ncol = dataset[0].shape[1]
     if (scipy.sparse.issparse(dataset[0])):
         # Special case: the dataset is sparse
         blocks = [[batch] for batch in iterator]
@@ -282,7 +290,8 @@ def blend(dataset, set_proba, **kwargs):
 
         return sharedX(array, borrow=True)
 
-def minibatch_map(fn, batch_size, input_data, output_data=None, output_width=None):
+def minibatch_map(fn, batch_size, input_data, output_data=None,
+                  output_width=None):
     """
     Apply a function on input_data, one minibatch at a time.
 

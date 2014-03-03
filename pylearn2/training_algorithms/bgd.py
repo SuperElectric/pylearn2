@@ -1,7 +1,8 @@
 """
-.. todo::
-
-    WRITEME
+Module for performing batch gradient methods.
+Technically, SGD and BGD both work with any batch size, but SGD has no line
+search functionality and is thus best suited to small batches, while BGD
+supports line searches and thuse works best with large batches.
 """
 __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2010-2012, Universite de Montreal"
@@ -13,7 +14,6 @@ __email__ = "goodfeli@iro"
 import numpy as np
 from theano import config
 from theano.compat.python2x import OrderedDict
-import theano.tensor as T
 
 from pylearn2.monitor import Monitor
 from pylearn2.optimization.batch_gradient_descent import BatchGradientDescent
@@ -23,9 +23,9 @@ from pylearn2.utils import safe_zip
 from pylearn2.train_extensions import TrainExtension
 from pylearn2.termination_criteria import TerminationCriterion
 from pylearn2.utils import sharedX
-from pylearn2.space import CompositeSpace, NullSpace, Space
+from pylearn2.space import CompositeSpace, NullSpace
 from pylearn2.utils.data_specs import DataSpecsMapping
-from theano import config
+from pylearn2.utils.rng import make_np_rng
 
 
 class BGD(TrainingAlgorithm):
@@ -99,9 +99,7 @@ class BGD(TrainingAlgorithm):
 
         self.bSetup = False
         self.termination_criterion = termination_criterion
-        if seed is None:
-            seed = [2012, 10, 16]
-        self.rng = np.random.RandomState(seed)
+        self.rng = make_np_rng(seed, [2012, 10, 16], which_method=["randn","randint"])
 
     def setup(self, model, dataset):
         """
@@ -190,47 +188,6 @@ class BGD(TrainingAlgorithm):
                     num_batches=self.monitoring_batches,
                     obj_prereqs=obj_prereqs,
                     cost_monitoring_args=fixed_var_descr.fixed_vars)
-
-            # TODO : Why is this commented?
-            '''
-            channels = model.get_monitoring_channels(theano_args)
-            if not isinstance(channels, dict):
-                raise TypeError("model.get_monitoring_channels must return a "
-                                "dictionary, but it returned " + str(channels))
-            channels.update(self.cost.get_monitoring_channels(model, theano_args, ** fixed_var_descr.fixed_vars))
-
-            for dataset_name in self.monitoring_dataset:
-                if dataset_name == '':
-                    prefix = ''
-                else:
-                    prefix = dataset_name + '_'
-                monitoring_dataset = self.monitoring_dataset[dataset_name]
-                self.monitor.add_dataset(dataset=monitoring_dataset,
-                                    mode="sequential",
-                                    batch_size=self.batch_size,
-                                    num_batches=self.monitoring_batches)
-
-                # The monitor compiles all channels for the same dataset into one function, and
-                # runs all prereqs before calling the function. So we only need to register the
-                # on_load_batch prereq once per monitoring dataset.
-                self.monitor.add_channel(prefix + 'objective',ipt=ipt,val=cost_value,
-                        dataset = monitoring_dataset, prereqs = fixed_var_descr.on_load_batch)
-
-                for name in channels:
-                    J = channels[name]
-                    if isinstance(J, tuple):
-                        assert len(J) == 2
-                        J, prereqs = J
-                    else:
-                        prereqs = None
-
-                    self.monitor.add_channel(name= prefix + name,
-                                             ipt=ipt,
-                                             val=J,
-                                             data_specs=data_specs,
-                                             dataset = monitoring_dataset,
-                                             prereqs=prereqs)
-                '''
 
         params = model.get_params()
 

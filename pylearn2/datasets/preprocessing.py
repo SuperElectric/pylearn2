@@ -26,6 +26,7 @@ from pylearn2.space import Conv2DSpace, VectorSpace
 from pylearn2.expr.preprocessing import global_contrast_normalize
 from pylearn2.utils.insert_along_axis import insert_columns
 from pylearn2.utils import sharedX
+from pylearn2.utils.rng import make_np_rng
 
 
 log = logging.getLogger(__name__)
@@ -315,10 +316,7 @@ class ExtractPatches(Preprocessor):
         self.patch_shape = patch_shape
         self.num_patches = num_patches
 
-        if rng is not None:
-            self.start_rng = copy.copy(rng)
-        else:
-            self.start_rng = numpy.random.RandomState([1, 2, 3])
+        self.start_rng = make_np_rng(copy.copy(rng), [1,2,3], which_method="randint")
 
     def apply(self, dataset, can_fit=False):
         rng = copy.copy(self.start_rng)
@@ -773,8 +771,7 @@ class Downsample(object):
 
 class GlobalContrastNormalization(Preprocessor):
     def __init__(self, subtract_mean=True,
-                 scale=1., sqrt_bias=None, use_std=None, min_divisor=1e-8,
-                 std_bias=None, use_norm=None,
+                 scale=1., sqrt_bias=0., use_std=False, min_divisor=1e-8,
                  batch_size=None):
         """
         See the docstring for `global_contrast_normalize` in
@@ -785,73 +782,13 @@ class GlobalContrastNormalization(Preprocessor):
         batch_size : int or None, optional
                      If specified, read, apply and write the transformed data
                      in batches no larger than `batch_size`.
-        std_bias : a deprecated alias for sqrt_bias.
-        use_norm : a deprecated argument that controls the same thing as
-                   use_std, except that use_norm=True means use_std=False.
-        use_std : defaults to True and sqrt_bias defaults to 10 if nothing is
+        use_std : defaults to False and sqrt_bias defaults to 0 if nothing is
                   specified.
-
-        Both of these defaults will change for consistency with
-        pylearn2.expr.preprocessing sometime after October 12, 2013.  The
-        defaults aren't specified as part of the method signature so that we
-        can tell whether the client is using each name for each option.
         """
-
-        if std_bias is not None:
-            warnings.warn("std_bias is deprecated, and may be removed after "
-                          "October 12, 2013. Switch to sqrt_bias.",
-                          stacklevel=2)
-            if sqrt_bias is not None:
-                if std_bias == sqrt_bias:
-                    warnings.warn("You're specifying both std_bias and "
-                                  "sqrt_bias, which are actually aliases for "
-                                  "the same parameter. You're setting them "
-                                  "both to the same thing so it's OK, but you "
-                                  "probably want to change your script to "
-                                  "just specify sqrt_bias.", stacklevel=2)
-                else:
-                    raise ValueError("You specified sqrt_bias and std_bias to "
-                                     "different values, but they are aliases "
-                                     "of each other. Specify only sqrt_bias. "
-                                     "std_bias is a deprecated alias.",
-                                     stacklevel=2)
-            sqrt_bias = std_bias
-
-        if sqrt_bias is None:
-            warnings.warn("You are not specifying a value for sqrt_bias. Note "
-                          "that the default value will change on or after "
-                          "October 12, 2013, to be consistent with "
-                          "pylearn2.expr.preprocessing.")
-            sqrt_bias = 10.
-
-        if use_norm is not None:
-            warnings.warn("use_norm is deprecated, and may be removed after "
-                          "October 12, 2013. Pass the opposite value to "
-                          "use_std.", stacklevel=2)
-            if use_std is not None:
-                if use_std == (not use_norm):
-                    warnings.warn("You're specifying both use_std and "
-                                  "use_norm. You have them set to the "
-                                  "opposite of each other, i.e. both are "
-                                  "requesting the same behavior, so you're "
-                                  "OK, but you probably want to change your "
-                                  "script to only specify one.", stacklevel=2)
-                else:
-                    raise ValueError("use_std conflicts with use_norm.")
-            use_std = not use_norm
-
-        if use_std is None:
-            warnings.warn("You are not specifying a value for use_std. The "
-                          "default of use_std will change on or after October "
-                          "12, 2013 to be consistent with "
-                          "pylearn2.expr.preprocessing.")
-
-            use_std = True
 
         self._subtract_mean = subtract_mean
         self._use_std = use_std
         self._sqrt_bias = sqrt_bias
-        # These were not parameters of the old preprocessor.
         self._scale = scale
         self._min_divisor = min_divisor
         if batch_size is not None:
@@ -869,84 +806,21 @@ class GlobalContrastNormalization(Preprocessor):
                                           min_divisor=self._min_divisor)
             dataset.set_design_matrix(X)
         else:
-            X = dataset.get_design_matrix()
-            data_size = X.shape[0]
+            data = dataset.get_design_matrix()
+            data_size = data.shape[0]
             last = (numpy.floor(data_size / float(self._batch_size)) *
                     self._batch_size)
             for i in xrange(0, data_size, self._batch_size):
-                if i >= last:
-                    stop = i + numpy.mod(data_size, self._batch_size)
-                else:
-                    stop = i + self._batch_size
-                log.info("GCN processing data from %d to %d" % (i, stop))
-                data = self.transform(X[i:stop])
-                dataset.set_design_matrix(data, start=i)
-
-
-class GlobalContrastNormalizationPyTables(object):
-    def __init__(self,
-                 subtract_mean=True,
-                 std_bias=10.0,
-                 use_norm=False,
-                 batch_size=5000):
-        """
-
-        Optionally subtracts the mean of each example
-        Then divides each example either by the standard deviation of the
-        pixels contained in that example or by the norm of that example
-
-        Parameters:
-
-            subtract_mean: boolean, if True subtract the mean of each example
-            std_bias: Add this amount inside the square root when computing
-                      the standard deviation or the norm
-            use_norm: If True uses the norm instead of the standard deviation
-
-
-            The default parameters of subtract_mean = True, std_bias = 10.0,
-            use_norm = False are used in replicating one step of the
-            preprocessing used by Coates, Lee and Ng on CIFAR10 in their paper
-            "An Analysis of Single Layer Networks in Unsupervised Feature
-            Learning"
-        """
-
-        self.subtract_mean = subtract_mean
-        self.std_bias = std_bias
-        self.use_norm = use_norm
-        self._batch_size = batch_size
-        warnings.warn("GlobalContrastNormalizationPyTables has been rolled "
-                      "into GlobalContrastNormalization. This class will "
-                      "disappear after October 12, 2013.")
-
-    def transform(self, X):
-        assert X.dtype == 'float32' or X.dtype == 'float64'
-
-        if self.subtract_mean:
-            X -= X[:].mean(axis=1)[:, None]
-
-        if self.use_norm:
-            scale = numpy.sqrt(numpy.square(X).sum(axis=1) + self.std_bias)
-        else:
-            # use standard deviation
-            scale = numpy.sqrt(numpy.square(X).mean(axis=1) + self.std_bias)
-        eps = 1e-8
-        scale[scale < eps] = 1.
-        X /= scale[:, None]
-        return X
-
-    def apply(self, dataset, can_fit=False):
-        X = dataset.get_design_matrix()
-        data_size = X.shape[0]
-        last = (numpy.floor(data_size / float(self._batch_size)) *
-                self._batch_size)
-        for i in xrange(0, data_size, self._batch_size):
-            if i >= last:
-                stop = i + numpy.mod(data_size, self._batch_size)
-            else:
                 stop = i + self._batch_size
-            print "GCN processing data from %d to %d" % (i, stop)
-            data = self.transform(X[i:stop])
-            dataset.set_design_matrix(data, start=i)
+                log.info("GCN processing data from %d to %d" % (i, stop))
+                X = data[i:stop]
+                X = global_contrast_normalize(X,
+                                              scale=self._scale,
+                                              subtract_mean=self._subtract_mean,
+                                              use_std=self._use_std,
+                                              sqrt_bias=self._sqrt_bias,
+                                              min_divisor=self._min_divisor)
+                dataset.set_design_matrix(X, start=i)
 
 
 class ZCA(Preprocessor):
@@ -1006,7 +880,8 @@ class ZCA(Preprocessor):
         if not hasattr(ZCA._gpu_matrix_dot, 'theano_func'):
             ma, mb = theano.tensor.matrices('A', 'B')
             mc = theano.tensor.dot(ma, mb)
-            ZCA._gpu_matrix_dot.theano_func = theano.function([ma, mb], mc)
+            ZCA._gpu_matrix_dot.theano_func = theano.function([ma, mb], mc,
+                    allow_input_downcast=True)
 
         theano_func = ZCA._gpu_matrix_dot.theano_func
 
@@ -1026,22 +901,37 @@ class ZCA(Preprocessor):
     @staticmethod
     def _gpu_mdmt(mat, diags):
         """
-        Performs the matrix multiplication A * D * A^T.
+        Performs the matrix multiplication M * D * M^T.
 
         First tries to do this on the GPU. If this throws a MemoryError, it
         falls back to the CPU, with a warning message.
         """
 
+        floatX = theano.config.floatX
+
+        # compile theano function
         if not hasattr(ZCA._gpu_mdmt, 'theano_func'):
-            t_mat = theano.tensor.matrix('A')
+            t_mat = theano.tensor.matrix('M')
             t_diags = theano.tensor.vector('D')
             result = theano.tensor.dot(t_mat * t_diags, t_mat.T)
-            ZCA._gpu_mdmt.theano_func = theano.function([t_mat, t_diags],
-                                                        result)
+            ZCA._gpu_mdmt.theano_func = theano.function(
+                [t_mat, t_diags],
+                result,
+                allow_input_downcast=True)
 
         try:
+            # function()-call above had to downcast the data. Emit warnings.
+            if str(mat.dtype) != floatX:
+                warnings.warn('Implicitly converting mat from dtype=%s to '
+                              '%s for gpu' % (mat.dtype, floatX))
+            if str(diags.dtype) != floatX:
+                warnings.warn('Implicitly converting diag from dtype=%s to '
+                              '%s for gpu' % (diags.dtype, floatX))
+
             return ZCA._gpu_mdmt.theano_func(mat, diags)
+
         except MemoryError:
+            # fall back to cpu
             warnings.warn('M * D * M^T was too big to fit on GPU. '
                           'Re-doing with CPU. Consider using '
                           'THEANO_FLAGS="device=cpu" for your next '
@@ -1101,9 +991,16 @@ class ZCA(Preprocessor):
         """
         Used to unpickle.
 
-        state: The dictionary created by __setstate__, presumably unpickled
-        from disk.
+        Parameters
+        ----------
+        state : dict
+            The dictionary created by __setstate__, presumably unpickled
+            from disk.
         """
+
+        # Patch old pickle files
+        if 'matrices_save_path' not in state:
+            state['matrices_save_path'] = None
 
         if state['matrices_save_path'] is not None:
             matrices = numpy.load(state['matrices_save_path'])
@@ -1121,12 +1018,6 @@ class ZCA(Preprocessor):
         If self.store_inverse is true, this also computes self.inv_P_.
 
         X: a matrix where each row is a datum.
-
-        compute_inverese: Computes the inverse of P_, storing it as inv_P_.
-                          This is not always necessary, but ZCA_Dataset
-                          requires inv_P_. If it's not computed here,
-                          ZCA_Dataset will compute it much less efficiently in
-                          its constructor.
         """
         assert X.dtype in ['float32', 'float64']
         assert not numpy.any(numpy.isnan(X))
@@ -1172,7 +1063,6 @@ class ZCA(Preprocessor):
             warnings.warn()
             self.P_ = numpy.dot(eigv * (1.0 / sqrt_eigs), eigv.T)
 
-        self.P_ = ZCA._gpu_mdmt(eigv, 1.0/sqrt_eigs)
         t2 = time.time()
         assert not numpy.any(numpy.isnan(self.P_))
         self.has_fit_ = True
@@ -1207,7 +1097,7 @@ class ZCA(Preprocessor):
 
     def inverse(self, X):
         assert X.ndim == 2
-        return numpy.dot(X, self.inv_P_) + self.mean_
+        return self._gpu_matrix_dot(X, self.inv_P_) + self.mean_
 
 
 class LeCunLCN(ExamplewisePreprocessor):
@@ -1468,7 +1358,8 @@ def lecun_lcn(input, img_shape, kernel_shape, threshold=1e-4):
 
 def gaussian_filter(kernel_shape):
 
-    x = numpy.zeros((kernel_shape, kernel_shape), dtype='float32')
+    x = numpy.zeros((kernel_shape, kernel_shape),
+                    dtype=theano.config.floatX)
 
     def gauss(x, y, sigma=2.0):
         Z = 2 * numpy.pi * sigma**2
@@ -1501,7 +1392,7 @@ class ShuffleAndSplit(Preprocessor):
     def apply(self, dataset, can_fit=False):
         start = self.start
         stop = self.stop
-        rng = numpy.random.RandomState(self.seed)
+        rng = make_np_rng(self.seed, which_method="randint")
         X = dataset.X
         y = dataset.y
 

@@ -1,8 +1,7 @@
 """
-.. todo::
-
-    WRITEME
+A module defining the Dataset class.
 """
+
 
 class Dataset(object):
     """Abstract interface for Datasets."""
@@ -104,7 +103,7 @@ class Dataset(object):
         .. todo::
 
             WRITEME properly
-        
+
         X: a tensor in the same space as the data
         returns the same tensor shifted and scaled by a transformation
         that maps the data range to [-1, 1] so that it can be displayed

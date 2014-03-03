@@ -360,9 +360,8 @@ class SparseMatPCA(_PCABase):
 
 class OnlinePCA(_PCABase):
     """
-    Online PCA implementation. Requires pylearn1.
+    Online PCA implementation.
     """
-
     def __init__(self, minibatch_size=500, **kwargs):
         """
         .. todo::
@@ -384,11 +383,9 @@ class OnlinePCA(_PCABase):
         -------
         WRITEME
         """
-
         num_components = min(self.num_components, X.shape[1])
 
-        from pylearn.algorithms import pca_online_estimator
-        pca_estimator = pca_online_estimator.PcaOnlineEstimator(X.shape[1],
+        pca_estimator = PcaOnlineEstimator(X.shape[1],
             n_eigen=num_components,
             minibatch_size=self.minibatch_size,
             centering=False
@@ -595,6 +592,8 @@ class SparsePCA(_PCABase):
 
 
 
+#############################################################################
+
 class PcaOnlineEstimator(object):
     """
     Online estimation of the leading eigen values/vectors of the covariance of
@@ -787,9 +786,8 @@ class PcaOnlineEstimator(object):
 
         return [eigvals, eigvecs]
 
+#############################################################################
 
-
-##################################################
 if __name__ == "__main__":
     """
     Load a dataset; compute a PCA transformation matrix from the training
@@ -798,7 +796,7 @@ if __name__ == "__main__":
     """
 
     import argparse
-    from pylearn2.utils import load_data, get_constant
+    from pylearn2.utils import load_data
 
     parser = argparse.ArgumentParser(
         description="Transform the output of a model by Principal Component"
@@ -855,7 +853,7 @@ if __name__ == "__main__":
     train_data, valid_data, test_data = map(lambda(x):
                                             x.get_value(borrow=True), data)
     print >> sys.stderr, "Dataset shapes:", map(lambda(x):
-                                                get_constant(x.shape), data)
+                                                x.get_value().shape, data)
     # PCA base-class constructor arguments.
     conf = {
         'num_components': args.num_components,

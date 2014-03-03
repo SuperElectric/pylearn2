@@ -1,7 +1,5 @@
 """
-.. todo::
-
-    WRITEME
+Utilities for working with data format specifications.
 """
 from pylearn2.space import CompositeSpace, NullSpace, Space
 from pylearn2.utils import safe_zip
@@ -114,6 +112,11 @@ class DataSpecsMapping(object):
             # "nested" should actually be a single element
             idx = mapping
             if isinstance(nested, tuple):
+                if len(nested) != 1:
+                    raise ValueError("When mapping is an int, we expect "
+                            "nested to be a single element. But mapping is "
+                            + str(mapping) + " and nested is a tuple of "
+                            "length " + str(len(nested)))
                 nested, = nested
 
             if rval[idx] is None:
@@ -241,7 +244,8 @@ class DataSpecsMapping(object):
 
         Parameters
         ----------
-        flat : WRITEME
+        flat : Space or tuple
+            WRITEME
 
         Returns
         -------

@@ -11,6 +11,7 @@ from pylearn2.models.s3c import S3C, E_Step, Grad_M_Step
 from pylearn2.monitor import _err_ambig_data
 from pylearn2.monitor import _err_no_data
 from pylearn2.monitor import Monitor
+from pylearn2.monitor import push_monitor
 from pylearn2.space import VectorSpace
 from pylearn2.testing.datasets import ArangeDataset
 from pylearn2.training_algorithms.default import DefaultTrainingAlgorithm
@@ -357,6 +358,37 @@ def test_serialize_twice():
 
     assert x == y
 
+def test_save_load_save():
+
+    """
+    Test that a monitor can be saved, then loaded, and then the loaded
+    copy can be saved again.
+    This only tests that the serialization and deserialization processes
+    don't raise an exception. It doesn't test for correctness at all.
+    """
+
+    model = DummyModel(1)
+    monitor = Monitor.get_monitor(model)
+
+    num_examples = 2
+    num_features = 3
+    num_batches = 1
+    batch_size = 2
+
+    dataset = DummyDataset(num_examples, num_features)
+    monitor.add_dataset(dataset=dataset,
+                            num_batches=num_batches, batch_size=batch_size)
+    vis_batch = T.matrix()
+    mean = vis_batch.mean()
+    data_specs = (monitor.model.get_input_space(),
+                  monitor.model.get_input_source())
+    monitor.add_channel(name='mean', ipt=vis_batch, val=mean, dataset=dataset,
+                        data_specs=data_specs)
+
+    saved = to_string(monitor)
+    monitor = from_string(saved)
+    saved_again = to_string(monitor)
+
 def test_valid_after_serialize():
 
     # Test that serializing the monitor does not ruin it
@@ -512,6 +544,24 @@ def test_ambig_data():
         assert exc_message(e) == _err_ambig_data
         return
     assert False
+
+def test_transfer_experience():
+
+    # Makes sure the transfer_experience flag of push_monitor works
+
+    model = DummyModel(num_features = 3)
+    monitor = Monitor.get_monitor(model)
+    monitor.report_batch(2)
+    monitor.report_batch(3)
+    monitor.report_epoch()
+    model = push_monitor(model, "old_monitor", transfer_experience=True)
+    assert model.old_monitor is monitor
+    monitor = model.monitor
+    assert monitor.get_epochs_seen() == 1
+    assert monitor.get_batches_seen() == 2
+    assert monitor.get_epochs_seen() == 1
+
+
 
 
 if __name__ == '__main__':

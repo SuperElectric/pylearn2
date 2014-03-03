@@ -8,18 +8,12 @@ __authors__ = "Li Yao"
 import theano
 import theano.sparse
 from theano import tensor
-from pylearn2.autoencoder import DenoisingAutoencoder
+from pylearn2.models.autoencoder import DenoisingAutoencoder
 from pylearn2.space import VectorSpace
 from theano.sparse.sandbox.sp2 import sampling_dot
 
 from pylearn2.expr.basic import theano_norms
 
-if 0:
-    print 'WARNING: using SLOW rng'
-    RandomStreams = tensor.shared_randomstreams.RandomStreams
-else:
-    import theano.sandbox.rng_mrg
-    RandomStreams = theano.sandbox.rng_mrg.MRG_RandomStreams
 
 class Linear(object):
     """

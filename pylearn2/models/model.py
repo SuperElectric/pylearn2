@@ -6,15 +6,14 @@ __license__ = "3-clause BSD"
 __maintainer__ = "Ian Goodfellow"
 __email__ = "goodfeli@iro"
 
-import warnings
-
-import numpy as np
+from itertools import izip as izip_no_length_check
 
 from theano.compat.python2x import OrderedDict
 from theano import tensor as T
-from theano import shared
 
 from pylearn2.space import NullSpace
+from pylearn2.utils import function
+from pylearn2.utils.track_version import MetaLibVersion
 
 
 class Model(object):
@@ -22,9 +21,15 @@ class Model(object):
     A class representing a model with learnable parameters.
     """
 
+    __metaclass__ = MetaLibVersion
+    _test_batch_size = 2
+
     def get_default_cost(self):
         """
-        Returns the default cost to use with this model.
+        Returns
+        -------
+        default_cost : Cost
+            The default cost to use with this model.
         """
 
         raise NotImplementedError(str(type(self))+ " does not implement get_default_cost.")
@@ -81,11 +86,19 @@ class Model(object):
 
     def get_weights_view_shape(self):
         """
-        .. todo::
-
-            WRITEME
+        Returns
+        -------
+        shape : tuple
+            Returns a tuple containing two ints. These are used as the
+            `grid_shape` argument to `PatchViewer` when displaying the
+            weights of this model. This can be useful when there is
+            some geometric significance to the order of your weight
+            vectors. For example, the `Maxout` model makes sure that all of
+            the filters for the same hidden unit appear on the same row
+            of the display.
         """
-        raise NotImplementedError(str(type(self))+" does not implement get_weights_view_shape (perhaps by design)")
+        raise NotImplementedError(str(type(self))+" does not implement "
+                "get_weights_view_shape (perhaps by design)")
 
     def get_monitoring_channels(self, data):
         """
@@ -100,7 +113,7 @@ class Model(object):
 
         Returns
         -------
-        channels : dict
+        channels : OrderedDict
             A dictionary with strings as keys, mapping channel names to \
             symbolic values that depend on the variables in `data`.
 
@@ -124,34 +137,64 @@ class Model(object):
         when no monitoring channels are defined, or when none of the channels
         actually need data (for instance, if they only monitor functions
         of the model's parameters).
+
+        WRITEME properly
         """
         return (NullSpace(), '')
 
     def set_batch_size(self, batch_size):
         """
-        .. todo::
-
-            WRITEME
+        Parameters
+        ----------
+        batch_size : int
+            Sets the batch size used by the model.
+            If None, allows the model to use any batch size.
         """
         pass
 
+
     def get_weights(self):
         """
-        .. todo::
-
-            WRITEME
+        Returns
+        -------
+        weights : ndarray
+            Returns any matrix that is analogous to the weights of the first
+            layer of an MLP, such as the dictionary of a sparse coding model.
+            This implementation raises NotImplementedError. For models where
+            this method is not conceptually applicable, do not override it.
+            Format should be compatible with the return value of
+            self.get_weights_format.
         """
 
-        raise NotImplementedError(str(type(self))+" does not implement get_weights (perhaps by design)")
+        raise NotImplementedError(str(type(self))+" does not implement "
+                "get_weights (perhaps by design)")
+
+    def get_weights_format(self):
+        """
+        Returns
+        -------
+        format : tuple
+            Either ('v', 'h') or ('h', 'v'). ('v', 'h') means self.get_weights
+            returns a matrix of shape (num visible units, num hidden units),
+            while ('h', 'v') means it returns the transpose of this.
+        """
+
+        return ('v', 'h')
 
     def get_weights_topo(self):
         """
-        .. todo::
-
-            WRITEME
+        Returns
+        -------
+        weights : ndarray
+            Same as the return value of `get_weights` but formatted as a 4D
+            tensor with the axes being (hidden units, rows, columns,
+            channels). Only applicable for models where the weights can be
+            viewed as 2D-multichannel, and the number of channels is either
+            1 or 3 (because they will be visualized as grayscale or RGB color).
         """
 
-        raise NotImplementedError(str(type(self))+" does not implement get_weights_topo (perhaps by design)")
+        raise NotImplementedError(str(type(self))+" does not implement "
+                "get_weights_topo (perhaps by design)")
 
 
     def score(self, V):
@@ -184,9 +227,13 @@ class Model(object):
 
     def get_lr_scalers(self):
         """
-        .. todo::
-
-            WRITEME
+        Returns
+        -------
+        lr_scalers : OrderedDict
+            A dictionary mapping the parameters of the model to floats. The
+            learning rate will be multiplied by the float for each parameter.
+            If a parameter does not appear in the dictionary, it will use
+            the global learning rate with no scaling.
         """
         return OrderedDict()
 
@@ -211,10 +258,6 @@ class Model(object):
         updates : dict
             A dictionary mapping shared variables to symbolic values they \
             will be updated to
-
-        Returns
-        -------
-        WRITEME
         """
 
         pass
@@ -403,7 +446,6 @@ class Model(object):
             WRITEME
         """
         self.names_to_del = set()
-        self._test_batch_size = 2
 
     def get_test_batch_size(self):
         """
@@ -413,6 +455,17 @@ class Model(object):
         size or to keep the memory usage of testing under control.)
         """
         return self._test_batch_size
+
+    def print_versions(self, print_theano_config=False):
+        """
+        Print version of the various Python packages and basic information
+        about the experiment setup (e.g. cpu, os)
+        e.g. numpy:1.6.1 | pylearn:a6e634b83d | pylearn2:57a156beb0
+             CPU: x86_64
+             OS: Linux-2.6.35.14-106.fc14.x86_64-x86_64-with-fedora-14-Laughlin
+        """
+        self.libv.print_versions()
+        self.libv.print_exp_env_info(print_theano_config)
 
     def register_names_to_del(self, names):
         """
@@ -436,48 +489,17 @@ class Model(object):
             assert all(isinstance(n, basestring) for n in iter(names))
         except (TypeError, AssertionError):
             raise ValueError('Invalid names argument')
+        # Quick check in case __init__ was never called, e.g. by a derived class.
+        if not hasattr(self, 'names_to_del'):
+            self.names_to_del = set()
         self.names_to_del = self.names_to_del.union(names)
 
-    def set_dtype(self, dtype, parent_name = ""):
+    def enforce_constraints(self):
         """
-        Sets the dtype of any shared variables.
-
-        Parameters
-        ----------
-        dtype : object or str
-            A NumPy dtype object, or string representing a known dtype.
-        parent_name : WRITEME
+        Enforces all constraints encoded by self.censor_updates.
         """
-
-        warnings.warn("""This method is not safe.
-                To change the dtype of a shared variable it is necessary to
-                allocate a new shared variable. When this method changes
-                the type of a shared variable, other objects might keep
-                pointing at the old shared variable. For example, in a
-                DBM two different RBM objects might share the same shared
-                variable to represent the bias term of one layer of the
-                DBM. Calling set_dtype on the DBM would result in both
-                RBMs having their own shared variable for that bias term.""")
-
-        for field in dir(self):
-            obj = getattr(self, field)
-            if hasattr(obj, 'get_value'):
-                setattr(self, field, shared(np.cast[dtype](obj.get_value()),name = obj.name))
-            if hasattr(obj, 'set_dtype'):
-                if obj.set_dtype.im_self is not None:
-                    obj.set_dtype(dtype, parent_name + '.' + field)
-
-            if isinstance(obj, tuple):
-                raise NotImplementedError("tuples aren't mutable so we need to write code to replace the whole thing if any of its elements needs replacing")
-
-            if isinstance(obj,list):
-                for i, elem in enumerate(obj):
-                    if hasattr(elem, 'get_value'):
-                        obj[i] =  shared(np.cast[dtype](elem.get_value()), name = elem.name)
-                    elif hasattr(elem, 'set_dtype'):
-                        elem.set_dtype(dtype, parent_name + '.' + field + '[]')
-
-        for param in self.get_params():
-            if param.type.dtype != dtype:
-                raise AssertionError(str(self)+' failed to set '+str(param)+\
-                        'of type '+str(type(param))+' to '+str(dtype))
+        params = self.get_params()
+        updates = OrderedDict(izip_no_length_check(params, params))
+        self.censor_updates(updates)
+        f = function([], updates=updates)
+        f()
