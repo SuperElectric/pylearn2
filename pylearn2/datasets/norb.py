@@ -100,10 +100,10 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
         parameters
         ----------
 
-        which_set: str
+        which_set : str
             Must be 'train' or 'test'.
 
-        multi_target: bool
+        multi_target : bool
             If False, each label is an integer labeling the image catergory. If
             True, each label is a vector: [category, instance, lighting,
             elevation, azimuth]. All labels are given as integers. Use the
@@ -197,13 +197,18 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
 
             def readHeader(file_handle, debug=False, from_gzip=None):
                 """
-                :param file_handle: an open file handle.
-                :type file_handle: a file or gzip.GzipFile object
+                parameters
+                ----------
 
-                :param from_gzip: bool or None
-                :type from_gzip: if None determine the type of file handle.
+                file_handle : file or gzip.GzipFile
+                An open file handle.
 
-                :returns: data type, element size, rank, shape, size
+
+                from_gzip : bool or None
+                If None determine the type of file handle.
+
+                returns : tuple
+                (data type, element size, shape)
                 """
 
                 if from_gzip is None:
@@ -320,15 +325,17 @@ class StereoViewConverter(object):
         """
         The arguments describe how the data is laid out in the design matrix.
 
-        shape: A tuple of 4 ints, describing the shape of each datum.
-               This is the size of each axis in <axes>, excluding the 'b' axis.
+        shape : tuple
+          A tuple of 4 ints, describing the shape of each datum.
+          This is the size of each axis in <axes>, excluding the 'b' axis.
 
-        axes: tuple of the following elements in any order:
-          'b'  batch axis)
-          's'  stereo axis)
-           0   image axis 0 (row)
-           1   image axis 1 (column)
-          'c'  channel axis
+        axes : tuple
+          A tuple of the following elements in any order:
+            'b'  batch axis)
+            's'  stereo axis)
+             0   image axis 0 (row)
+             1   image axis 1 (column)
+            'c'  channel axis
         """
         shape = tuple(shape)
 
