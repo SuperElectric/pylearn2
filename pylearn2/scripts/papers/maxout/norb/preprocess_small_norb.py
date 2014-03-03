@@ -30,7 +30,7 @@ def parse_args():
                                      "Preprocesses the SmallNORB dataset "
                                      "into DenseDesignMatrices suitable "
                                      "for instance recognition "
-                                     "experiements.")
+                                     "experiments.")
     parser.add_argument("-a",
                         "--azimuth_ratio",
                         type=int,
@@ -53,45 +53,6 @@ def parse_args():
     return parser.parse_args(sys.argv[1:])
 
 
-def get_object_ids(label_vectors):
-    """
-    Given a NxM matrix of NORB labels, returns a Nx1 matrix of unique IDs for
-    each object.
-    """
-
-    def contains_equal_numbers_of_all_objects(object_ids, num_objects):
-        """
-        Returns True iff object_ids contains all numbers from 0 to
-        num_objects-1
-        """
-        assert len(object_ids.shape) == 1
-        assert object_ids.shape[0] > 0
-
-        object_counts = [numpy.count_nonzero(object_ids == i)
-                         for i in xrange(num_objects)]
-
-        return numpy.all(object_counts[1:] == object_counts[0])
-        # contains_object = numpy.zeros((num_objects, ), dtype=bool)
-        # contains_object[object_ids] = True
-        # return contains_object.all()
-
-    category_index, instance_index = (SmallNORB.label_type_to_index[n]
-                                      for n in ('category', 'instance'))
-
-    num_categories, num_instances = (SmallNORB.num_labels_by_type[i]
-                                     for i in (category_index, instance_index))
-
-    categories, instances = (label_vectors[:, i]
-                             for i in (category_index, instance_index))
-    result = categories * num_instances + instances
-
-    # We expect all object IDs to be represented, and represented equally.
-    #
-    # This need not necessarily be true, but we expect it to be true under
-    # current usage, so we include this as a sanity check.
-    assert contains_equal_numbers_of_all_objects(result)
-
-    return result[:, numpy.newindex]  # size N vector -> Nx1 matrix
 
 
 # def get_new_labels(labels):
@@ -152,18 +113,33 @@ def get_testing_rowmask(labels, azimuth_ratio, elevation_ratio):
     return result
 
 
-def load_instance_datasets(azimuth_ratio, elevation_ratio):
+def load_instance_datasets(azimuth_ratio, elevation_ratio, which_image):
     """
-    Repackages the NORB database as an instance-recognition database with 50
-    distinct instances. Returns two DenseDesignMatrix instances; the training
-    and testing sets.
+    Repackages the NORB database training and testing sets by merging them,
+    retaining just the left or just the right stereo images, then splitting
+    them into two by interleaved azimuth and elevation angles.
 
-    The original NORB database uses distinct objects for training and testing.
-    This would be meaningless in an instance recognition database. Therefore,
-    this function merges the two datasets, then for each object, it selects
-    every <azimuth_ratio>'th azimuth and <elevation_ratio>'th elevation image
-    to be in the testing set.
+    Parameters
+    ----------
+
+    azimuth_ratio : int
+    If azimuth_ratio=N, then every Nth azimuth will be used in the testing set,
+    and the other images will be used in training set.
+
+    elevation_ratio : int
+    If elevation_ratio=N, then every Nth elevation will be used in the testing
+    set, and the other images will be used in training set.
+
+    which_image : int
+    Must be 0 or 1. Selects whether to use left or right images, respectively.
+
+    Returns
+    -------
+    (test_set, training_set): tuple of DenseDesignMatrix'es
     """
+    if which_image not in (0, 1):
+        raise ValueError("which_image must be 0 or 1, but was %d" %
+                         which_image)
 
     print("Reading SmallNORB")
     train = SmallNORB('train', True)
@@ -171,9 +147,17 @@ def load_instance_datasets(azimuth_ratio, elevation_ratio):
     print("read SmallNORB")
 
     # Select just the first image of the stereo image pairs.
-    num_pixels = 96**2
-    train.X = train.X[:, :num_pixels]
-    test.X = test.X[:, :num_pixels]
+    image_shape = SmallNORB.original_image_shape + (1, )
+    num_pixels = numpy.prod(image_shape)
+
+    for db in (train, test):
+        assert db.X.shape[1] == num_pixels * 2  # * 2, because of stereo pairs
+
+    # Use just one of the two stereo images
+    col_start = which_image * num_pixels
+    col_end = col_start + num_pixels
+    train.X = train.X[:, col_start:col_end]
+    test.X = test.X[:, col_start:col_end]
 
     print("train.X, .y: %s, %s" % (str(train.X.shape), str(train.y.shape)))
 
@@ -182,20 +166,17 @@ def load_instance_datasets(azimuth_ratio, elevation_ratio):
 
     assert str(images.dtype) == theano.config.floatX
 
-    new_labels = get_object_ids(labels)
+    # new_labels = get_object_ids(labels)
     test_mask = get_testing_rowmask(labels, azimuth_ratio, elevation_ratio)
     train_mask = numpy.logical_not(test_mask)
 
-    #view_converter = train.view_converter
-    view_converter = DefaultViewConverter(shape=[96, 96, 1])
-    train = DenseDesignMatrix(X=images[train_mask, :],
-                              y=new_labels[train_mask, :],
-                              view_converter=view_converter)
-    test = DenseDesignMatrix(X=images[test_mask, :],
-                             y=new_labels[test_mask, :],
-                             view_converter=view_converter)
+    view_converter = DefaultViewConverter(shape=image_shape)
+    train, test = (DenseDesignMatrix(X=images[row_mask, :],
+                                     y=labels[row_mask, :],
+                                     view_converter=view_converter)
+                   for row_mask in (train_mask, test_mask))
 
-    print("split dataset into %s training examples, %s testing examples." % \
+    print("split dataset into %s training examples, %s testing examples." %
           (str(train.X.shape), str(test.X.shape)))
 
     return (train, test)
@@ -234,7 +215,7 @@ deserializing large numpy arrays.
 
 The ZCA whitening preprocessor takes a long time to compute, and therefore is
 stored for later use as preprocessor_M_N.pkl.
-""")
+""" % os.path.split(__file__)[1])
 
     return output_dir
 
@@ -243,8 +224,10 @@ def main():
     """ Top-level main() funtion. """
 
     args = parse_args()
+
     training_set, testing_set = load_instance_datasets(args.azimuth_ratio,
-                                                       args.elevation_ratio)
+                                                       args.elevation_ratio,
+                                                       which_image=0)
 
     for dataset in (training_set, testing_set):
         # Subtracts each image's mean intensity. Scale of 55.0 taken from
@@ -279,7 +262,7 @@ def main():
         dataset.use_design_loc(basepath + '.npy')
         serial.save(basepath + '.pkl', dataset)
         print("saved %s, %s" % tuple(os.path.split(basepath)[1] + suffix
-                                for suffix in ('.npy', '.pkl')))
+                                     for suffix in ('.npy', '.pkl')))
 
     # Garbage-collect training_set, testing_set.
     #
