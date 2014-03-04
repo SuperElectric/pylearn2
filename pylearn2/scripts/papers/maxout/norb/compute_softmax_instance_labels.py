@@ -159,12 +159,9 @@ def main():
                   ('features', 'targets'))
 
     model_function = get_model_function(model, batch_size)
-    all_labels = numpy.zeros(test_set.y.shape, dtype=floatX)
-    all_expected_labels = numpy.zeros([test_set.y.shape[0]], dtype=int)
-    # num_errors = 0
+    all_computed_ids = numpy.zeros(test_set.y.shape, dtype=floatX)
+    all_expected_ids = numpy.zeros([test_set.y.shape[0]], dtype=int)
     num_data = 0
-
-    # computed_labels = numpy.zeros(test_set.y.shape, floatX)
 
     for batch_number, (image, expected_label) in \
             enumerate(test_set.iterator(mode='sequential',
@@ -172,25 +169,15 @@ def main():
                                         data_specs=data_specs,
                                         return_tuple=True)):
 
-        label = model_function(image)
+        computed_id = model_function(image)
 
         start_index = batch_number * batch_size
         end_index = min(start_index + batch_size, test_set.y.shape[0])
-        all_labels[start_index:end_index, :] = label
+        all_computed_ids[start_index:end_index, :] = label
 
-        expected_label = convert_from_onehot(expected_label)
-        all_expected_labels[start_index:end_index] = expected_label
+        expected_id = convert_from_onehot(expected_id)
+        all_expected_ids[start_index:end_index] = expected_id
 
-        # soft_confusion_matrix[expected_label[:, 0], :] += label
-        # # confusion_matrix += numpy.einsum('ij,ik->jk', label, label)
-        # # computed_labels[start_index:end_index, :] = label
-        # # print "image, expected label, and label shapes: ", \
-        # #       image.shape, expected_label.shape, label.shape
-
-        # label = convert_from_onehot(label, binary=False)
-        # hard_confusion_matrix[tuple(expected_label[:, 0]),
-        #                       tuple(label[:, 0])] += 1.0
-        # num_errors += numpy.count_nonzero(label != expected_label)
         num_data += label.shape[0]
         print "Processed %g %% of %d images" % \
               (100.0 * float(num_data) / test_set.y.shape[0],
@@ -199,8 +186,6 @@ def main():
     numpy.savez(args.output,
                 labels=all_labels,
                 ground_truth=all_expected_labels)
-    # soft_confusion_matrix /= float(num_data)
-    # hard_confusion_matrix /= float(num_data)
 
 
 if __name__ == '__main__':
