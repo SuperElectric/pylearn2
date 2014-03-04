@@ -707,6 +707,14 @@ class SimplyTypedSpace(Space):
     def dtype(self, new_dtype):
         self._dtype = super(SimplyTypedSpace, self)._clean_dtype_arg(new_dtype)
 
+    def __setstate__(self, state_dict):
+        self.__dict__.update(state_dict)
+
+        # When unpickling a Space that was pickled before Spaces had dtypes,
+        # we need to set the _dtype to the default value.
+        if not '_dtype' in state_dict:
+            self._dtype = theano.config.floatX
+
 
 class IndexSpace(SimplyTypedSpace):
     """
@@ -1063,13 +1071,13 @@ class VectorSpace(SimplyTypedSpace):
                 self.sparse == other.sparse and
                 self.dtype == other.dtype)
 
-    # def __hash__(self):
-    #     """
-    #     .. todo::
+    def __hash__(self):
+        """
+        .. todo::
 
-    #         WRITEME
-    #     """
-    #     return hash((type(self), self.dim, self.sparse, self.dtype))
+            WRITEME
+        """
+        return hash((type(self), self.dim, self.sparse, self.dtype))
 
     @functools.wraps(Space._validate_impl)
     def _validate_impl(self, is_numeric, batch):
@@ -1229,17 +1237,18 @@ class Conv2DSpace(SimplyTypedSpace):
                 self.axes == other.axes and
                 self.dtype == other.dtype)
 
-    # def __hash__(self):
-    #     """
-    #     .. todo::
 
-    #         WRITEME
-    #     """
-    #     return hash((type(self),
-    #                  self.shape,
-    #                  self.num_channels,
-    #                  self.axes,
-    #                  self.dtype))
+    def __hash__(self):
+        """
+        .. todo::
+
+            WRITEME
+        """
+        return hash((type(self),
+                     self.shape,
+                     self.num_channels,
+                     self.axes,
+                     self.dtype))
 
     @functools.wraps(Space.get_origin)
     def get_origin(self):
@@ -1461,13 +1470,13 @@ class CompositeSpace(Space):
                     my_component, other_component in
                     zip(self.components, other.components)))
 
-    # def __hash__(self):
-    #     """
-    #     .. todo::
+    def __hash__(self):
+        """
+        .. todo::
 
-    #         WRITEME
-    #     """
-    #     return hash((type(self), tuple(self.components)))
+            WRITEME
+        """
+        return hash((type(self), tuple(self.components)))
 
     def __str__(self):
         """
@@ -1860,13 +1869,13 @@ class NullSpace(Space):
         """
         return type(self) == type(other)
 
-    # def __hash__(self):
-    #     """
-    #     .. todo::
+    def __hash__(self):
+        """
+        .. todo::
 
-    #         WRITEME
-    #     """
-    #     return hash(type(self))
+            WRITEME
+        """
+        return hash(type(self))
 
     @property
     def dtype(self):
