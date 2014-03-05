@@ -51,7 +51,7 @@ def main():
     for instance in range(num_instances):
         num_occurences = numpy.count_nonzero(ground_truth == instance)
         for confusion_matrix in (soft_confusion_matrix, hard_confusion_matrix):
-            confusion_matrix[instance, :] /= float(num_occurances)
+            confusion_matrix[instance, :] /= float(num_occurences)
 
     figure, axes = pyplot.subplots(1, 2, squeeze=True)
     for (plot_index,

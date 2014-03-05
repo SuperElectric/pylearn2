@@ -2,7 +2,7 @@
 Defines the pylearn2.scripts.papers.maxout.norb module.
 """
 
-import os, pickle
+import os, pickle, sys
 import numpy
 from pylearn2.datasets.norb import SmallNORB
 
@@ -38,8 +38,8 @@ def SmallNORB_labels_to_object_ids(label_vectors):
         assert len(object_ids.shape) == 1
         assert object_ids.shape[0] > 0
 
-        object_counts = [numpy.count_nonzero(object_ids == i)
-                         for i in xrange(num_objects)]
+        object_counts = numpy.array([numpy.count_nonzero(object_ids == i)
+                                     for i in xrange(num_objects)], int)
 
         return numpy.all(object_counts[1:] == object_counts[0])
 
@@ -59,7 +59,12 @@ def SmallNORB_labels_to_object_ids(label_vectors):
     # This need not necessarily be true, but we expect it to be true under
     # current usage, so we include this as a sanity check.
     num_objects = num_categories * num_instances
-    assert contains_equal_numbers_of_all_objects(result, num_objects)
+
+    if not contains_equal_numbers_of_all_objects(result, num_objects):
+        for object_id in xrange(num_objects):
+            print "contains %d of object %d" % \
+                  (numpy.count_nonzero(result==object_id), object_id)
+        sys.exit(1)
 
     return result[:, numpy.newaxis]  # size N vector -> Nx1 matrix
 

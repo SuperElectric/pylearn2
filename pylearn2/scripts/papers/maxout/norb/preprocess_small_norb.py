@@ -239,8 +239,6 @@ def main():
     output_dir = make_output_dir()
     prefix = 'small_norb_%02d_%02d' % (args.azimuth_ratio,
                                        args.elevation_ratio)
-    preprocessor_basepath = os.path.join(output_dir, prefix + "_preprocessor")
-    preprocessor.set_matrices_save_path(preprocessor_basepath + '.npz')
 
     print("ZCA'ing training set")
     training_set.apply_preprocessor(preprocessor=preprocessor, can_fit=True)
@@ -253,6 +251,10 @@ def main():
     prefix = 'small_norb_%02d_%02d' % (args.azimuth_ratio,
                                        args.elevation_ratio)
 
+    for ds in (training_set, testing_set):
+        print("ds.y.shape: ", ds.y.shape)
+
+    # Saves testing & training datasets
     for dataset, name in zip((training_set, testing_set), ('train', 'test')):
 
         # The filename, minus the suffix
@@ -272,15 +274,19 @@ def main():
     # See: http://stackoverflow.com/a/16300177/399397
     del training_set, testing_set
 
-    print("Saving preprocessor with:\n"
-          "  P_     of shape %s\n"
-          "  inv_P_ of shape %s\n"
-          "  mean_  of shape %s" %
-          tuple(x.shape for x in (preprocessor.P_,
-                                  preprocessor.inv_P_,
-                                  preprocessor.mean_)))
+    # print("Saving preprocessor with:\n"
+    #       "  P_     of shape %s\n"
+    #       "  inv_P_ of shape %s\n"
+    #       "  mean_  of shape %s" %
+    #       tuple(x.shape for x in (preprocessor.P_,
+    #                               preprocessor.inv_P_,
+    #                               preprocessor.mean_)))
 
+    # Saves preprocessor
+    preprocessor_basepath = os.path.join(output_dir, prefix + "_preprocessor")
+    preprocessor.set_matrices_save_path(preprocessor_basepath + '.npz')
     serial.save(preprocessor_basepath + '.pkl', preprocessor)
+
     for suffix in ('.npz', '.pkl'):
         print("saved %s" % (preprocessor_basepath + suffix))
 
