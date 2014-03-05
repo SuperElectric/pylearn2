@@ -26,6 +26,66 @@ def main():
 
         return parser.parse_args()
 
+    def plot_worst_softmax(softmax_labels, ground_truth, one_or_more_axes):
+        def wrongness(softmax_labels, ground_truth):
+            """
+            Returns a scalar measure of wrongness of a softmax label.
+            Wrongness is 0 if argmax(softmax) == ground_truth.
+            If argmax(softmax) != ground_truth, returns the squared distance
+            between softmax and onehot(ground_truth).
+
+            One drawback to this metric is that it doesn't penalize correct
+            softmaxes that are very close to wrong, i.e. softmaxes whose
+            second-largest element is very close to the largest element.
+
+            Maybe we can also plot a different wrongness that is a pure
+            distance metric from the onehot ground truth, and doesn't care if
+            the argmax(softmax) is correct.
+            """
+
+            wrong_rowmask = (numpy.argmax(softmax_labels, axis=1) !=
+                             ground_truth)
+
+            softmax_labels = softmax_labels(wrong_rowmask)
+            ground_truth = ground_truth(wrong_rowmask)
+            differences = softmax_labels - get_onehot(ground_truth)
+
+            result = numpy.zeros(ground_truth.shape[0], dtype=float)
+            result[wrong_rowmask] = (differences**2).sum(axis=1)
+
+            return result
+
+        if isinstance(one_or_more_axes, matplotlib.axes.Axes):
+            one_or_more_axes = (one_or_more_axes, )
+        else:
+            assert isinstance(one_or_more_axes, (tuple, list))
+
+        wrongnesses = wrongness(softmax_labels, ground_truth)
+
+        # Row indices, in descending order of wrongness
+        sorted_row_indices = numpy.argsort(wrongnesses)[::-1]
+        softmax_labels = softmax_labels[sorted_row_indices]
+        ground_truth = ground_truth[sorted_row_indices]
+
+        num_bars = 10  # plot only the top <num_bars> softmax scores
+
+        # use zip instead of safe_zip to iterate only over the first N
+        # softmaxes, where N = # of axes
+        for softmax, ground_truth, axes in zip(softmax_labels,
+                                               ground_truth,
+                                               one_or_more_axes):
+            # column indices (object IDs) in descending order of softmax score
+            sorted_ids = numpy.argsort(softmax)[:-num_bars:-1]
+            softmax = softmax[sorted_ids]
+            axes.bar(left=numpy.arange(num_bars),
+                     height=softmax)
+            axes.set_xticklabels(str(i) for i in sorted_ids)
+            axes.set_ylabel('softmax')
+            axes.set_xlabel('object ID')
+            axes.set_title("object with id %d" % ground_truth)
+
+
+
     args = parse_args()
     input_dict = numpy.load(args.input)
     softmax_labels, ground_truth = tuple(input_dict[key]
@@ -53,12 +113,14 @@ def main():
         for confusion_matrix in (soft_confusion_matrix, hard_confusion_matrix):
             confusion_matrix[instance, :] /= float(num_occurences)
 
-    figure, axes = pyplot.subplots(1, 2, squeeze=True)
+    figure, axes = pyplot.subplots(1, 3, squeeze=True)
+
+    # plots the confusion matrices
     for (plot_index,
          plot_axes,
          confusion_matrix,
          title) in safe_zip(range(2),
-                            axes,
+                            axes[:2],
                             (soft_confusion_matrix, hard_confusion_matrix),
                             ('softmax', 'binary')):
 
@@ -66,6 +128,9 @@ def main():
                          norm=matplotlib.colors.no_norm(),
                          interpolation='nearest')
         plot_axes.set_title(title)
+
+    # plots the worst softmax(es)
+    plot_worst_softmax(softmax_labels, ground_truth, axes[2])
 
     pyplot.show()
 

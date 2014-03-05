@@ -117,10 +117,10 @@ def main():
 
         preprocessor = serial.load(get_preprocessor_path(dataset_path))
 
-        return  (ZCA_Dataset(preprocessed_dataset=dataset,
-                             preprocessor=preprocessor,
-                             axes=['c', 0, 1, 'b']),
-                 original_labels)
+        return (ZCA_Dataset(preprocessed_dataset=dataset,
+                            preprocessor=preprocessor,
+                            axes=['c', 0, 1, 'b']),
+                original_labels)
         # return yaml_parse.load(
         #     """!obj:pylearn2.datasets.zca_dataset.ZCA_Dataset {
         #     preprocessed_dataset: !pkl: "%s",

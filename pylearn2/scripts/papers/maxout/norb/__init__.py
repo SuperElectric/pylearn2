@@ -69,22 +69,24 @@ def SmallNORB_labels_to_object_ids(label_vectors):
     return result[:, numpy.newaxis]  # size N vector -> Nx1 matrix
 
 
-def get_instance_dataset(pickle_filepath):
-    """
-    Reads a (preprocessed) SmallNORB dataset from a .pkl file, and replaces its
-    SmallNORB labels with object ID integers.
-    """
+# def get_instance_dataset(pickle_filepath):
+#     """
+#     Reads a (preprocessed) SmallNORB dataset from a .pkl file, and replaces its
+#     SmallNORB labels with object ID integers.
+#     """
 
-    if os.path.splitext(pickle_filepath)[1] != '.pkl':
-        raise ValueError("Expected a pickle file with suffix '.pkl', but got "
-                         "filepath '%s'" % pickle_filepath)
+#     if os.path.splitext(pickle_filepath)[1] != '.pkl':
+#         raise ValueError("Expected a pickle file with suffix '.pkl', but got "
+#                          "filepath '%s'" % pickle_filepath)
 
-    design_matrix = pickle.load(open(pickle_filepath, 'rb'))
+#     design_matrix = pickle.load(open(pickle_filepath, 'rb'))
 
-    if design_matrix.y.shape[1] != len(SmallNORB.num_labels_by_type):
-        raise ValueError("Expected SmallNORB labels to have length %d, but "
-                         "got %d" % (len(SmallNORB.num_labels_by_type),
-                                     design_matrix.y.shape[1]))
+#     if design_matrix.y.shape[1] != len(SmallNORB.num_labels_by_type):
+#         raise ValueError("Expected SmallNORB labels to have length %d, but "
+#                          "got %d" % (len(SmallNORB.num_labels_by_type),
+#                                      design_matrix.y.shape[1]))
 
-    design_matrix.y = SmallNORB_labels_to_object_ids(design_matrix.y)
-    return design_matrix
+#     design_matrix.y = SmallNORB_labels_to_object_ids(design_matrix.y)
+#     return design_matrix
+
+
