@@ -43,29 +43,45 @@ def main():
             the argmax(softmax) is correct.
             """
 
+            def get_onehot(int_label, num_labels):
+                assert len(int_label.shape) == 1
+                result = numpy.zeros((int_label.shape[0], num_labels),
+                                     dtype=float)
+                result[:, int_label] = 1.0
+                return result
+
+            result = numpy.zeros(ground_truth.shape[0], dtype=float)
+
             wrong_rowmask = (numpy.argmax(softmax_labels, axis=1) !=
                              ground_truth)
 
-            softmax_labels = softmax_labels(wrong_rowmask)
-            ground_truth = ground_truth(wrong_rowmask)
-            differences = softmax_labels - get_onehot(ground_truth)
+            softmax_labels = softmax_labels[wrong_rowmask, :]
+            ground_truth = ground_truth[wrong_rowmask]
+            differences = softmax_labels - get_onehot(ground_truth,
+                                                      softmax_labels.shape[1])
 
-            result = numpy.zeros(ground_truth.shape[0], dtype=float)
-            result[wrong_rowmask] = (differences**2).sum(axis=1)
+            result[wrong_rowmask, :] = (differences**2).sum(axis=1)
 
             return result
 
         if isinstance(one_or_more_axes, matplotlib.axes.Axes):
             one_or_more_axes = (one_or_more_axes, )
         else:
-            assert isinstance(one_or_more_axes, (tuple, list))
+            assert isinstance(one_or_more_axes, (tuple, list, numpy.ndarray)), "type: %s" % type(one_or_more_axes)
 
         wrongnesses = wrongness(softmax_labels, ground_truth)
 
+
         # Row indices, in descending order of wrongness
         sorted_row_indices = numpy.argsort(wrongnesses)[::-1]
-        softmax_labels = softmax_labels[sorted_row_indices]
+        softmax_labels = softmax_labels[sorted_row_indices, :]
         ground_truth = ground_truth[sorted_row_indices]
+
+        # num_wrong = numpy.count_nonzero(wrongnesses)
+        num_wrong = 500 
+        one_or_more_axes[0].imshow(softmax_labels[:num_wrong, :],
+                                   interpolation='nearest')
+        return
 
         num_bars = 10  # plot only the top <num_bars> softmax scores
 
@@ -75,11 +91,13 @@ def main():
                                                ground_truth,
                                                one_or_more_axes):
             # column indices (object IDs) in descending order of softmax score
-            sorted_ids = numpy.argsort(softmax)[:-num_bars:-1]
+            sorted_ids = numpy.argsort(softmax)[::-1][:num_bars]
             softmax = softmax[sorted_ids]
+            print "sorted_ids.shape: ", sorted_ids.shape
+            print "softmax.shape: ", softmax.shape
             axes.bar(left=numpy.arange(num_bars),
                      height=softmax)
-            axes.set_xticklabels(str(i) for i in sorted_ids)
+            axes.set_xticklabels(tuple(str(i) for i in sorted_ids))
             axes.set_ylabel('softmax')
             axes.set_xlabel('object ID')
             axes.set_title("object with id %d" % ground_truth)
@@ -130,7 +148,8 @@ def main():
         plot_axes.set_title(title)
 
     # plots the worst softmax(es)
-    plot_worst_softmax(softmax_labels, ground_truth, axes[2])
+    # axes[-1].imshow(softmax_labels[:100, :], interpolation='nearest')
+    plot_worst_softmax(softmax_labels, ground_truth, axes[2:])
 
     pyplot.show()
 
