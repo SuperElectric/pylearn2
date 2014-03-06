@@ -28,7 +28,7 @@ def main():
 
     axes_to_heatmap = {}
 
-    def plot_heatmap(heatmap, axes, row_ids=None):
+    def plot_heatmap(heatmap, axes, row_ids=None, col_ids=None):
         axes.imshow(heatmap,
                     norm=matplotlib.colors.no_norm(),
                     interpolation='nearest')
@@ -36,19 +36,29 @@ def main():
         if row_ids is None:
             row_ids = numpy.arange(heatmap.shape[0], dtype=int)
 
-        axes_to_heatmap[axes] = {'heatmap': heatmap, 'row_ids': row_ids}
+        axes_to_heatmap[axes] = {'heatmap': heatmap,
+                                 'row_ids': row_ids,
+                                 'col_ids': col_ids}
 
     def on_mouse_motion(event):
         if event.inaxes in axes_to_heatmap.keys():
             heatmap = axes_to_heatmap[event.inaxes]['heatmap']
             row_ids = axes_to_heatmap[event.inaxes]['row_ids']
+            col_ids = axes_to_heatmap[event.inaxes]['col_ids']
 
             # xdata, ydata actually start at -.5, -.5 in the upper-left corner
+#            print "event.ydata = %0.1f" % event.ydata
             row = int(event.ydata + .5)
             col = int(event.xdata + .5)
-            row_obj = row_ids[int(event.ydata)]
+            row_obj = row_ids[row]
+
+            if col_ids is None:
+                col_obj = col
+            else:
+                col_obj = col_ids[row, col]
+
             print "row obj: %g, col obj: %g, val: %g" % (row_obj,
-                                                         col,
+                                                         col_obj,
                                                          heatmap[row, col])
 
     def plot_worst_softmax(softmax_labels, ground_truth, one_or_more_axes):
@@ -176,34 +186,45 @@ def main():
     figure, all_axes = pyplot.subplots(2, 4, squeeze=False)
 
     # plots the confusion matrices
-    for (plot_index,
-         plot_axes,
+    for (plot_axes,
          confusion_matrix,
-         title) in safe_zip(range(2),
-                            all_axes[0, :2],
+         title) in safe_zip(all_axes[0, :2],
                             (soft_confusion_matrix, hard_confusion_matrix),
                             ('softmax', 'binary')):
 
         plot_heatmap(confusion_matrix, plot_axes)
         plot_axes.set_title(title)
 
-    plot_heatmap(numpy.abs(hard_confusion_matrix - soft_confusion_matrix),
-                 all_axes[0, 2])
+    difference_of_confusions = numpy.abs(hard_confusion_matrix -
+                                         soft_confusion_matrix)
+    print "max difference of confusions: %g" % difference_of_confusions.max()
+    plot_heatmap(difference_of_confusions, all_axes[0, 2])
     all_axes[0, 2].set_title('difference')
 
     def plot_confusion_spread(confusion_matrix, most_confused_objects, axis):
         # confusion_matrix = confusion_matrix.copy()
         # numpy.fill_diagonal(confusion_matrix, 0.0)
         sorted_confusions = confusion_matrix[most_confused_objects, :]
+
+        # sorts columns in ascending order
+        sorted_column_indices = numpy.argsort(sorted_confusions, axis=1)
+        sorted_column_indices = sorted_column_indices[:, ::-1]
+
+        # re-doing sort out of laziness, rather than figuring out how to
+        # properly plug in the above indices. (-_-;)
         sorted_confusions.sort(axis=1)  # sorts columns in ascending order
         sorted_confusions = sorted_confusions[:, ::-1]  # descending order
 
         assert (sorted_confusions >= 0.0).all()
         nonzero_columns = sorted_confusions.sum(axis=0) > 0.0
 
-        plot_heatmap(sorted_confusions[:, nonzero_columns],
+        sorted_confusions = sorted_confusions[:, nonzero_columns]
+        sorted_column_indices = sorted_column_indices[:, nonzero_columns]
+
+        plot_heatmap(sorted_confusions,
                      axis,
-                     row_ids=most_confused_objects)
+                     row_ids=most_confused_objects,
+                     col_ids=sorted_column_indices)
         axis.set_title('Confusion spread')
         axis.set_xticklabels(())
         axis.set_yticklabels(())
