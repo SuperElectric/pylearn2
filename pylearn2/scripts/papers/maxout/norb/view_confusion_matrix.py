@@ -40,26 +40,6 @@ def main():
                                  'row_ids': row_ids,
                                  'col_ids': col_ids}
 
-    def on_mouse_motion(event):
-        if event.inaxes in axes_to_heatmap.keys():
-            heatmap = axes_to_heatmap[event.inaxes]['heatmap']
-            row_ids = axes_to_heatmap[event.inaxes]['row_ids']
-            col_ids = axes_to_heatmap[event.inaxes]['col_ids']
-
-            # xdata, ydata actually start at -.5, -.5 in the upper-left corner
-#            print "event.ydata = %0.1f" % event.ydata
-            row = int(event.ydata + .5)
-            col = int(event.xdata + .5)
-            row_obj = row_ids[row]
-
-            if col_ids is None:
-                col_obj = col
-            else:
-                col_obj = col_ids[row, col]
-
-            print "row obj: %g, col obj: %g, val: %g" % (row_obj,
-                                                         col_obj,
-                                                         heatmap[row, col])
 
     def plot_worst_softmax(softmax_labels, ground_truth, one_or_more_axes):
         def wrongness(softmax_labels, ground_truth):
@@ -183,7 +163,40 @@ def main():
         for confusion_matrix in (soft_confusion_matrix, hard_confusion_matrix):
             confusion_matrix[instance, :] /= float(num_occurences)
 
-    figure, all_axes = pyplot.subplots(2, 4, squeeze=False)
+    figure, all_axes = pyplot.subplots(3, 4)
+    default_status_text = "mouseover heatmaps for object ids and probabiliies"
+    status_text = figure.text(.1, .05, default_status_text)
+
+
+    def on_mouse_motion(event):
+        original_text = status_text.get_text()
+
+        if event.inaxes in axes_to_heatmap.keys():
+            heatmap = axes_to_heatmap[event.inaxes]['heatmap']
+            row_ids = axes_to_heatmap[event.inaxes]['row_ids']
+            col_ids = axes_to_heatmap[event.inaxes]['col_ids']
+
+            # xdata, ydata actually start at -.5, -.5 in the upper-left corner
+#            print "event.ydata = %0.1f" % event.ydata
+            row = int(event.ydata + .5)
+            col = int(event.xdata + .5)
+            row_obj = row_ids[row]
+
+            if col_ids is None:
+                col_obj = col
+            else:
+                col_obj = col_ids[row, col]
+
+            status_text.set_text("row obj: %g, col obj: %g, val: %g" %
+                                 (row_obj, col_obj, heatmap[row, col]))
+        else:
+            status_text.set_text(default_status_text)
+
+        if status_text != original_text:
+            figure.canvas.draw()
+
+    def on_mousedown(event):
+        pass
 
     # plots the confusion matrices
     for (plot_axes,
@@ -262,6 +275,7 @@ def main():
     # plot_worst_softmax(softmax_labels, ground_truth, axes[2:])
 
     figure.canvas.mpl_connect('motion_notify_event', on_mouse_motion)
+    figure.canvas.mpl_connect('button_press_event', on_mousedown)
 
     pyplot.show()
 
