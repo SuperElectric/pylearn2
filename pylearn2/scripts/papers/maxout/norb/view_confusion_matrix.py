@@ -142,7 +142,8 @@ def main():
             misclassification_rates[most_confused_objects]
 
         nonzero_rowmask = sorted_misclassification_rates > 0.0
-        return most_confused_objects[nonzero_rowmask, :]
+        # print "shapes: ", most_confused_objects.shape, nonzero_rowmask.shape
+        return most_confused_objects[nonzero_rowmask]
 
 
     args = parse_args()
@@ -216,6 +217,7 @@ def main():
     # use of zip rather than safe_zip intentional here
     for (axes, object_id) in zip(all_axes[1, :], most_confused_objects):
         row_mask = ground_truth == object_id
+        actual_ids = ground_truth[row_mask]
         softmaxes = softmax_labels[row_mask, :]
         correctness_probability = softmaxes[:, object_id]
         sorted_row_indices = numpy.argsort(correctness_probability)
@@ -224,9 +226,12 @@ def main():
         row_mask = correctness_probability[sorted_row_indices] < 0.1
         sorted_row_indices = sorted_row_indices[row_mask]
         softmaxes = softmaxes[sorted_row_indices, :]
+        actual_ids = actual_ids[sorted_row_indices]
 
-        plot_heatmap(softmaxes, axes, row_ids=sorted_row_indices)
-        axes.set_title("Softmaxes of object %d" % object_id)
+        plot_heatmap(softmaxes, axes, row_ids=actual_ids)
+        axes.set_title("Softmaxes of\nobject %d" % object_id)
+        axes.set_yticklabels(())
+        axes.set_xticklabels(())
 
 
     # axes[-1].imshow(confusion_matrix[most_confused_objects, :],
