@@ -28,12 +28,28 @@ def main():
 
     axes_to_heatmap = {}
 
-    def plot_heatmap(heatmap, axes):
+    def plot_heatmap(heatmap, axes, row_ids=None):
         axes.imshow(heatmap,
                     norm=matplotlib.colors.no_norm(),
                     interpolation='nearest')
 
-        axes_to_heatmap[axes] = heatmap
+        if row_ids is None:
+            row_ids = numpy.arange(heatmap.shape[0], dtype=int)
+
+        axes_to_heatmap[axes] = {'heatmap': heatmap, 'row_ids': row_ids}
+
+    def on_mouse_motion(event):
+        if event.inaxes in axes_to_heatmap.keys():
+            heatmap = axes_to_heatmap[event.inaxes]['heatmap']
+            row_ids = axes_to_heatmap[event.inaxes]['row_ids']
+
+            # xdata, ydata actually start at -.5, -.5 in the upper-left corner
+            row = int(event.ydata + .5)
+            col = int(event.xdata + .5)
+            row_obj = row_ids[int(event.ydata)]
+            print "row obj: %g, col obj: %g, val: %g" % (row_obj,
+                                                         col,
+                                                         heatmap[row, col])
 
     def plot_worst_softmax(softmax_labels, ground_truth, one_or_more_axes):
         def wrongness(softmax_labels, ground_truth):
@@ -156,14 +172,14 @@ def main():
         for confusion_matrix in (soft_confusion_matrix, hard_confusion_matrix):
             confusion_matrix[instance, :] /= float(num_occurences)
 
-    figure, axes = pyplot.subplots(2, 4, squeeze=False)
+    figure, all_axes = pyplot.subplots(2, 4, squeeze=False)
 
     # plots the confusion matrices
     for (plot_index,
          plot_axes,
          confusion_matrix,
          title) in safe_zip(range(2),
-                            axes[0, :2],
+                            all_axes[0, :2],
                             (soft_confusion_matrix, hard_confusion_matrix),
                             ('softmax', 'binary')):
 
@@ -171,8 +187,8 @@ def main():
         plot_axes.set_title(title)
 
     plot_heatmap(numpy.abs(hard_confusion_matrix - soft_confusion_matrix),
-                 axes[0, 2])
-    axes[0, 2].set_title('difference')
+                 all_axes[0, 2])
+    all_axes[0, 2].set_title('difference')
 
     def plot_confusion_spread(confusion_matrix, most_confused_objects, axis):
         # confusion_matrix = confusion_matrix.copy()
@@ -185,8 +201,9 @@ def main():
         nonzero_columns = sorted_confusions.sum(axis=0) > 0.0
 
         plot_heatmap(sorted_confusions[:, nonzero_columns],
-                     axis)
-        axis.set_title('Confusion spread (normalized colors)')
+                     axis,
+                     row_ids=most_confused_objects)
+        axis.set_title('Confusion spread')
         axis.set_xticklabels(())
         axis.set_yticklabels(())
 
@@ -194,17 +211,22 @@ def main():
     most_confused_objects = get_most_confused_objects(hard_confusion_matrix)
     plot_confusion_spread(hard_confusion_matrix,
                           most_confused_objects,
-                          axes[0, -1])
+                          all_axes[0, -1])
 
-    def on_mouse_motion(event):
-        heatmap_axes = tuple(axes[0, :])
+    # use of zip rather than safe_zip intentional here
+    for (axes, object_id) in zip(all_axes[1, :], most_confused_objects):
+        row_mask = ground_truth == object_id
+        softmaxes = softmax_labels[row_mask, :]
+        correctness_probability = softmaxes[:, object_id]
+        sorted_row_indices = numpy.argsort(correctness_probability)
 
-        if event.inaxes in axes_to_heatmap.keys(): #heatmap_axes:
-            heatmap = axes_to_heatmap[event.inaxes]
-            row = int(event.ydata)
-            col = int(event.xdata)
-            print "row: %d, col: %d, val: %g" % (row, col, heatmap[row, col])
+        # Only include the worst rows
+        row_mask = correctness_probability[sorted_row_indices] < 0.1
+        sorted_row_indices = sorted_row_indices[row_mask]
+        softmaxes = softmaxes[sorted_row_indices, :]
 
+        plot_heatmap(softmaxes, axes, row_ids=sorted_row_indices)
+        axes.set_title("Softmaxes of object %d" % object_id)
 
 
     # axes[-1].imshow(confusion_matrix[most_confused_objects, :],
