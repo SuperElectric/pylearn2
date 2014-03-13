@@ -15,6 +15,7 @@ import theano.tensor as T
 import theano
 from theano import function, shared, config
 floatX = config.floatX
+from pylearn2.utils.rng import make_np_rng
 
 
 class DifferentiableSparseCoding(object):
@@ -22,15 +23,19 @@ class DifferentiableSparseCoding(object):
     .. todo::
 
         WRITEME
+    
+    Parameters
+    ----------
+    nvis : WRITEME
+    nhid : WRITEME
+    init_lambda : WRITEME
+    init_p : WRITEME
+    init_alpha : WRITEME
+    learning_rate : WRITEME
     """
     def __init__(self, nvis, nhid,
             init_lambda,
             init_p, init_alpha, learning_rate):
-        """
-        .. todo::
-
-            WRITEME
-        """
         self.nvis = int(nvis)
         self.nhid = int(nhid)
         self.init_lambda = float(init_lambda)
@@ -42,7 +47,7 @@ class DifferentiableSparseCoding(object):
 
         self.predictor_learning_rate = self.learning_rate
 
-        self.rng = N.random.RandomState([1,2,3])
+        self.rng = make_np_rng(None, [1,2,3], which_method="randn")
 
         self.error_record = []
         self.ERROR_RECORD_MODE_MONITORING = 0

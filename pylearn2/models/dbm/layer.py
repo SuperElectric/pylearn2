@@ -8,12 +8,11 @@ import time
 import warnings
 import numpy as np
 
-from theano import tensor as T, tensor, function, config
+from theano import tensor as T, function, config
 import theano
 from theano.compat import OrderedDict
 from theano.gof.op import get_debug_values
 from theano.printing import Print
-from theano.sandbox.rng_mrg import MRG_RandomStreams
 
 from pylearn2.expr.nnet import sigmoid_numpy
 from pylearn2.expr.probabilistic_max_pooling import max_pool_channels, max_pool_b01c, max_pool, max_pool_c01b
@@ -23,7 +22,10 @@ from pylearn2.linear.matrixmul import MatrixMul
 from pylearn2.models import Model
 from pylearn2.models.dbm import init_sigmoid_bias_from_marginals
 from pylearn2.space import VectorSpace, CompositeSpace, Conv2DSpace, Space
+from pylearn2.utils import is_block_gradient
 from pylearn2.utils import sharedX, safe_zip, py_integer_types, block_gradient
+from pylearn2.utils.rng import make_theano_rng
+from pylearn2.utils import safe_union
 
 
 class Layer(Model):
@@ -308,25 +310,23 @@ class BinaryVector(VisibleLayer):
     """
     A DBM visible layer consisting of binary random variables living
     in a VectorSpace.
-    """
 
+    Parameters
+    ----------
+    nvis : int
+        Dimension of the space
+    bias_from_marginals : pylearn2.datasets.dataset.Dataset
+        Dataset, whose marginals are used to initialize the visible biases
+    center : bool
+        WRITEME
+    copies : int
+        WRITEME
+    """
     def __init__(self,
             nvis,
             bias_from_marginals = None,
             center = False,
-            copies = 1):
-        """
-        Parameters
-        ----------
-        nvis : int
-            Dimension of the space
-        bias_from_marginals : pylearn2.datasets.dataset.Dataset
-            Dataset, whose marginals are used to initialize the visible biases
-        center : bool
-            WRITEME
-        copies : int
-            WRITEME
-        """
+            copies = 1, learn_init_inpainting_state = False):
 
         self.__dict__.update(locals())
         del self.self
@@ -350,9 +350,10 @@ class BinaryVector(VisibleLayer):
 
     def get_biases(self):
         """
-        .. todo::
-
-            WRITEME
+        Returns
+        -------
+        biases : ndarray
+            The numpy value of the biases
         """
         return self.bias.get_value()
 
@@ -494,6 +495,113 @@ class BinaryVector(VisibleLayer):
 
         return rval * self.copies
 
+    def init_inpainting_state(self, V, drop_mask, noise = False, return_unmasked = False):
+
+        assert drop_mask is None or drop_mask.ndim > 1
+
+        unmasked = T.nnet.sigmoid(self.bias.dimshuffle('x',0))
+        # this condition is needed later if unmasked is used as V_hat
+        assert unmasked.ndim == 2
+        # this condition is also needed later if unmasked is used as V_hat
+        assert hasattr(unmasked.owner.op, 'scalar_op')
+        if drop_mask is not None:
+            masked_mean = unmasked * drop_mask
+        else:
+            masked_mean = unmasked
+        if not hasattr(self, 'learn_init_inpainting_state'):
+            self.learn_init_inpainting_state = 0
+        if not self.learn_init_inpainting_state:
+            masked_mean = block_gradient(masked_mean)
+        masked_mean.name = 'masked_mean'
+
+        if noise:
+            theano_rng = theano.sandbox.rng_mrg.MRG_RandomStreams(42)
+            # we want a set of random mean field parameters, not binary samples
+            unmasked = T.nnet.sigmoid(theano_rng.normal(avg = 0.,
+                    std = 1., size = masked_mean.shape,
+                    dtype = masked_mean.dtype))
+            masked_mean = unmasked * drop_mask
+            masked_mean.name = 'masked_noise'
+
+        if drop_mask is None:
+            rval = masked_mean
+        else:
+            masked_V  = V  * (1-drop_mask)
+            rval = masked_mean + masked_V
+        rval.name = 'init_inpainting_state'
+
+        if return_unmasked:
+            assert unmasked.ndim > 1
+            return rval, unmasked
+
+        return rval
+
+
+    def inpaint_update(self, state_above, layer_above, drop_mask = None, V = None, return_unmasked = False):
+
+        msg = layer_above.downward_message(state_above)
+        mu = self.bias
+
+        z = msg + mu
+        z.name = 'inpainting_z_[unknown_iter]'
+
+        unmasked = T.nnet.sigmoid(z)
+
+        if drop_mask is not None:
+            rval = drop_mask * unmasked + (1-drop_mask) * V
+        else:
+            rval = unmasked
+
+        rval.name = 'inpainted_V[unknown_iter]'
+
+        if return_unmasked:
+            owner = unmasked.owner
+            assert owner is not None
+            op = owner.op
+            assert hasattr(op, 'scalar_op')
+            assert isinstance(op.scalar_op, T.nnet.sigm.ScalarSigmoid)
+            return rval, unmasked
+
+        return rval
+
+
+    def recons_cost(self, V, V_hat_unmasked, drop_mask = None, use_sum=False):
+
+        if use_sum:
+            raise NotImplementedError()
+
+        V_hat = V_hat_unmasked
+
+        assert hasattr(V_hat, 'owner')
+        owner = V_hat.owner
+        assert owner is not None
+        op = owner.op
+        block_grad = False
+        if is_block_gradient(op):
+            assert isinstance(op.scalar_op, theano.scalar.Identity)
+            block_grad = True
+            real, = owner.inputs
+            owner = real.owner
+            op = owner.op
+
+        if not hasattr(op, 'scalar_op'):
+            raise ValueError("Expected V_hat_unmasked to be generated by an Elemwise op, got "+str(op)+" of type "+str(type(op)))
+        assert isinstance(op.scalar_op, T.nnet.sigm.ScalarSigmoid)
+        z ,= owner.inputs
+        if block_grad:
+            z = block_gradient(z)
+
+        if V.ndim != V_hat.ndim:
+            raise ValueError("V and V_hat_unmasked should have same ndim, but are %d and %d." % (V.ndim, V_hat.ndim))
+        unmasked_cost = V * T.nnet.softplus(-z) + (1 - V) * T.nnet.softplus(z)
+        assert unmasked_cost.ndim == V_hat.ndim
+
+        if drop_mask is None:
+            masked_cost = unmasked_cost
+        else:
+            masked_cost = drop_mask * unmasked_cost
+
+        return masked_cost.mean()
 
 class BinaryVectorMaxPool(HiddenLayer):
     """
@@ -501,6 +609,26 @@ class BinaryVectorMaxPool(HiddenLayer):
     It has two sublayers, the detector layer and the pooling
     layer. The detector layer is its downward state and the pooling
     layer is its upward state.
+
+    Parameters
+    ----------
+    detector_layer_dim : WRITEME
+    pool_size : WRITEME
+    layer_name : WRITEME
+    irange : WRITEME
+    sparse_init : WRITEME
+    sparse_stdev : WRITEME
+    include_prob : float
+        Probability of including a weight element in the set of weights \
+        initialized to U(-irange, irange). If not included it is \
+        initialized to 0.
+    init_bias : WRITEME
+    W_lr_scale : WRITEME
+    b_lr_scale : WRITEME
+    center : WRITEME
+    mask_weights : WRITEME
+    max_col_norm : WRITEME
+    copies : WRITEME
     """
     # TODO: this layer uses (pooled, detector) as its total state,
     #       which can be confusing when listing all the states in
@@ -523,27 +651,6 @@ class BinaryVectorMaxPool(HiddenLayer):
             mask_weights = None,
             max_col_norm = None,
             copies = 1):
-        """
-        Parameters
-        ----------
-        detector_layer_dim : WRITEME
-        pool_size : WRITEME
-        layer_name : WRITEME
-        irange : WRITEME
-        sparse_init : WRITEME
-        sparse_stdev : WRITEME
-        include_prob : float
-            Probability of including a weight element in the set of weights \
-            initialized to U(-irange, irange). If not included it is \
-            initialized to 0.
-        init_bias : WRITEME
-        W_lr_scale : WRITEME
-        b_lr_scale : WRITEME
-        center : WRITEME
-        mask_weights : WRITEME
-        max_col_norm : WRITEME
-        copies : WRITEME
-        """
         self.__dict__.update(locals())
         del self.self
 
@@ -1150,7 +1257,7 @@ class BinaryVectorMaxPool(HiddenLayer):
         h_state = sharedX(empty_input)
         p_state = sharedX(empty_output)
 
-        theano_rng = MRG_RandomStreams(numpy_rng.randint(2 ** 16))
+        theano_rng = make_theano_rng(None, numpy_rng.randint(2 ** 16), which_method="binomial")
 
         default_z = T.zeros_like(h_state) + self.b
 
@@ -1325,19 +1432,6 @@ class Softmax(HiddenLayer):
                  max_col_norm = None,
                  copies = 1, center = False,
                  learn_init_inpainting_state = True):
-        """
-        .. todo::
-
-            WRITEME
-        """
-        """
-            copies: We regard the layer as being replicated so that there
-                   are <copies> instances of it.
-                   All sample and mean field states are the *average* of
-                   all of these copies, and the weights to each copy are
-                   tied.
-        """
-
         if isinstance(W_lr_scale, str):
             W_lr_scale = float(W_lr_scale)
 
@@ -1687,7 +1781,8 @@ class Softmax(HiddenLayer):
 
         default_z = T.zeros_like(h_state) + self.b
 
-        theano_rng = MRG_RandomStreams(numpy_rng.randint(2 ** 16))
+        theano_rng = make_theano_rng(None, numpy_rng.randint(2 ** 16),
+                                     which_method="binomial")
 
         h_exp = T.nnet.softmax(default_z)
 
@@ -1812,7 +1907,7 @@ class Softmax(HiddenLayer):
             WRITEME
         """
         if noise:
-            theano_rng = MRG_RandomStreams(2012+10+30)
+            theano_rng = make_theano_rng(None, 2012+10+30, which_method="binomial")
             return T.nnet.softmax(theano_rng.normal(avg=0., size=Y.shape, std=1., dtype='float32'))
         rval =  T.nnet.softmax(self.b)
         if not hasattr(self, 'learn_init_inpainting_state'):
@@ -1834,9 +1929,25 @@ class Softmax(HiddenLayer):
 
 class GaussianVisLayer(VisibleLayer):
     """
-    .. todo::
+    Implements a visible layer that is conditionally gaussian with
+    diagonal variance. The layer lives in a Conv2DSpace.
 
-        WRITEME
+    Parameters
+    ----------
+    rows, cols, channels: WRITEME
+        the shape of the space
+    init_beta: WRITEME
+        the initial value of the precision parameter
+    min_beta: WRITEME
+        clip beta so it is at least this big (default 1)
+    init_mu: WRITEME
+        the initial value of the mean parameter
+    tie_beta: WRITEME
+        None or a string specifying how to tie beta 'locations' = tie beta
+        across locations, ie beta should be a vector with one elem per channel
+    tie_mu: WRITEME
+        None or a string specifying how to tie mu 'locations' = tie mu across
+        locations, ie mu should be a vector with one elem per channel
     """
     def __init__(self,
             rows = None,
@@ -1852,32 +1963,6 @@ class GaussianVisLayer(VisibleLayer):
             bias_from_marginals = None,
             beta_lr_scale = 'by_sharing',
             axes = ('b', 0, 1, 'c')):
-        """
-        .. todo::
-
-            WRITEME
-        """
-        """
-            Implements a visible layer that is conditionally gaussian with
-            diagonal variance. The layer lives in a Conv2DSpace.
-
-            rows, cols, channels: the shape of the space
-
-            init_beta: the initial value of the precision parameter
-            min_beta: clip beta so it is at least this big (default 1)
-
-            init_mu: the initial value of the mean parameter
-
-            tie_beta: None or a string specifying how to tie beta
-                      'locations' = tie beta across locations, ie
-                                    beta should be a vector with one
-                                    elem per channel
-            tie_mu: None or a string specifying how to tie mu
-                    'locations' = tie mu across locations, ie
-                                  mu should be a vector with one
-                                  elem per channel
-
-        """
 
         warnings.warn("GaussianVisLayer math very faith based, need to finish working through gaussian.lyx")
 
@@ -1893,17 +1978,22 @@ class GaussianVisLayer(VisibleLayer):
 
         if init_mu is None:
             init_mu = 0.
-
         if nvis is None:
             assert rows is not None
             assert cols is not None
             assert channels is not None
             self.space = Conv2DSpace(shape=[rows,cols], num_channels=channels, axes=axes)
+            # To make GaussianVisLayer compatible with any axis ordering
+            self.batch_axis=list(axes).index('b')  
+            self.axes_to_sum = range(len(axes))
+            self.axes_to_sum.remove(self.batch_axis)
         else:
             assert rows is None
             assert cols is None
             assert channels is None
             self.space = VectorSpace(nvis)
+            self.axes_to_sum = 1
+            self.batch_axis = None
         self.input_space = self.space
 
         origin = self.space.get_origin()
@@ -1923,6 +2013,8 @@ class GaussianVisLayer(VisibleLayer):
             mu_origin = np.zeros((self.space.num_channels,))
         self.mu = sharedX( mu_origin + init_mu, name = 'mu')
         assert self.mu.ndim == mu_origin.ndim
+        
+
 
     def get_monitoring_channels(self):
         """
@@ -1992,8 +2084,13 @@ class GaussianVisLayer(VisibleLayer):
             updates[self.beta] = T.clip(updated_beta,
                     self.min_beta,1e6)
 
+    def set_biases(self, bias):
+        """
+        set mean parameter
 
-
+        :param bias: Vector of size nvis
+        """
+        self.mu = sharedX(bias, name = 'mu')
 
     def broadcasted_mu(self):
         """
@@ -2087,7 +2184,7 @@ class GaussianVisLayer(VisibleLayer):
         masked_mu.name = 'masked_mu'
 
         if noise:
-            theano_rng = theano.sandbox.rng_mrg.MRG_RandomStreams(42)
+            theano_rng = make_theano_rng(None, 42, which_method="binomial")
             unmasked = theano_rng.normal(avg = 0.,
                     std = 1., size = masked_mu.shape,
                     dtype = masked_mu.dtype)
@@ -2110,19 +2207,13 @@ class GaussianVisLayer(VisibleLayer):
 
             WRITEME
         """
-        raise NotImplementedError("need to support axes")
-        raise NotImplementedError("wasn't implemeneted before axes either")
         assert state_below is None
         assert average_below is None
         self.space.validate(state)
         if average:
             raise NotImplementedError(str(type(self))+" doesn't support integrating out variational parameters yet.")
         else:
-            if self.nvis is None:
-                axis = (1,2,3)
-            else:
-                axis = 1
-            rval =  0.5 * (self.beta * T.sqr(state - self.mu)).sum(axis=axis)
+            rval =  0.5 * (self.beta * T.sqr(state - self.mu)).sum(axis=self.axes_to_sum)
         assert rval.ndim == 1
         return rval
 
@@ -2146,7 +2237,6 @@ class GaussianVisLayer(VisibleLayer):
         else:
             rval = z
 
-
         rval.name = 'inpainted_V[unknown_iter]'
 
         if return_unmasked:
@@ -2162,17 +2252,14 @@ class GaussianVisLayer(VisibleLayer):
 
             WRITEME
         """
-        raise NotImplementedError("need to support axes")
 
         assert state_below is None
         msg = layer_above.downward_message(state_above)
         mu = self.mu
 
         z = msg + mu
-
         rval = theano_rng.normal(size = z.shape, avg = z, dtype = z.dtype,
-                       std = 1. / T.sqrt(self.beta) )
-
+                       std = 1. / T.sqrt(self.beta))
         return rval
 
     def recons_cost(self, V, V_hat_unmasked, drop_mask = None, use_sum=False):
@@ -2230,7 +2317,6 @@ class GaussianVisLayer(VisibleLayer):
 
             WRITEME
         """
-        raise NotImplementedError("need to support axes")
 
         shape = [num_examples]
 
@@ -2247,7 +2333,6 @@ class GaussianVisLayer(VisibleLayer):
 
         sample *= 1./np.sqrt(self.beta.get_value())
         sample += self.mu.get_value()
-
         rval = sharedX(sample, name = 'v_sample_shared')
 
         return rval
@@ -2299,6 +2384,11 @@ class GaussianVisLayer(VisibleLayer):
 
 
 class ConvMaxPool(HiddenLayer):
+    """
+    .. todo::
+
+        WRITEME
+    """
     def __init__(self,
              output_channels,
             kernel_rows,
@@ -2313,11 +2403,6 @@ class ConvMaxPool(HiddenLayer):
             init_bias = 0.,
             border_mode = 'valid',
             output_axes = ('b', 'c', 0, 1)):
-        """
-        .. todo::
-
-            WRITEME
-        """
         self.__dict__.update(locals())
         del self.self
 
@@ -2753,7 +2838,8 @@ class ConvMaxPool(HiddenLayer):
 
         default_z = T.zeros_like(h_state) + self.broadcasted_bias()
 
-        theano_rng = MRG_RandomStreams(numpy_rng.randint(2 ** 16))
+        theano_rng = make_theano_rng(None, numpy_rng.randint(2 ** 16),
+                                     which_method="binomial")
 
         p_exp, h_exp, p_sample, h_sample = self.max_pool(
                 z = default_z,
@@ -2832,19 +2918,6 @@ class ConvC01B_MaxPool(HiddenLayer):
             init_bias = 0.,
             pad = 0,
             partial_sum = 1):
-        """
-        .. todo::
-
-            WRITEME properly
-
-        Like ConvMaxPool but using cuda convnet for the backend.
-
-        kernel_shape: two-element list or tuple of ints specifying
-                    rows and columns of kernel
-                    currently the two must be the same
-        output_channels: the number of convolutional channels in the
-            output and pooling layer.
-        """
         self.__dict__.update(locals())
         del self.self
 
@@ -3254,7 +3327,8 @@ class ConvC01B_MaxPool(HiddenLayer):
 
         default_z = T.zeros_like(h_state) + self.broadcasted_bias()
 
-        theano_rng = MRG_RandomStreams(numpy_rng.randint(2 ** 16))
+        theano_rng = make_theano_rng(None, numpy_rng.randint(2 ** 16),
+                                     which_method="binomial")
 
         p_exp, h_exp, p_sample, h_sample = self.max_pool(
                 z = default_z,
@@ -3325,6 +3399,10 @@ class BVMP_Gaussian(BinaryVectorMaxPool):
     external factor influencing how this layer behaves.
     Gradient can still flow to beta, but it will only be included in
     the parameters list if some class other than this layer includes it.
+
+    .. todo::
+
+        WRITEME : parameter list
     """
 
     def __init__(self,
@@ -3343,16 +3421,6 @@ class BVMP_Gaussian(BinaryVectorMaxPool):
             mask_weights = None,
             max_col_norm = None,
             copies = 1):
-        """
-        .. todo::
-
-            WRITEME properly
-
-        include_prob: probability of including a weight element in the set
-                of weights initialized to U(-irange, irange). If not included
-                it is initialized to 0.
-        """
-
         warnings.warn("BVMP_Gaussian math is very faith-based, need to complete gaussian.lyx")
 
         args = locals()
@@ -3495,7 +3563,8 @@ class BVMP_Gaussian(BinaryVectorMaxPool):
         h_state = sharedX(empty_input)
         p_state = sharedX(empty_output)
 
-        theano_rng = MRG_RandomStreams(numpy_rng.randint(2 ** 16))
+        theano_rng = make_theano_rng(None, numpy_rng.randint(2 ** 16),
+                                     which_method="binomial")
 
         default_z = T.zeros_like(h_state) + self.b
 
@@ -3639,3 +3708,262 @@ class BVMP_Gaussian(BinaryVectorMaxPool):
         h.name = self.layer_name + '_h_' + iter_name
 
         return p, h
+
+class CompositeLayer(HiddenLayer):
+    """
+        A Layer constructing by aligning several other Layer
+        objects side by side
+
+        Parameters
+        ----------
+        components: WRITEME
+            A list of layers that are combined to form this layer
+        inputs_to_components: None or dict mapping int to list of int
+            Should be None unless the input space is a CompositeSpace
+            If inputs_to_components[i] contains j, it means input i will
+            be given as input to component j.
+            If an input dodes not appear in the dictionary, it will be given
+            to all components.
+
+            This field allows one CompositeLayer to have another as input
+            without forcing each component to connect to all members
+            of the CompositeLayer below. For example, you might want to
+            have both densely connected and convolutional units in all
+            layers, but a convolutional unit is incapable of taking a
+            non-topological input space.
+    """
+
+
+    def __init__(self, layer_name, components, inputs_to_components = None):
+        self.layer_name = layer_name
+
+        self.components = list(components)
+        assert isinstance(components, list)
+        for component in components:
+            assert isinstance(component, HiddenLayer)
+        self.num_components = len(components)
+        self.components = list(components)
+
+        if inputs_to_components is None:
+            self.inputs_to_components = None
+        else:
+            if not isinstance(inputs_to_components, dict):
+                raise TypeError("CompositeLayer expected inputs_to_components to be a dict, got "+str(type(inputs_to_components)))
+            self.inputs_to_components = OrderedDict()
+            for key in inputs_to_components:
+                assert isinstance(key, int)
+                assert key >= 0
+                value = inputs_to_components[key]
+                assert isinstance(value, list)
+                assert all([isinstance(elem, int) for elem in value])
+                assert min(value) >= 0
+                assert max(value) < self.num_components
+                self.inputs_to_components[key] = list(value)
+
+    def set_input_space(self, space):
+
+        self.input_space = space
+
+        if not isinstance(space, CompositeSpace):
+            assert self.inputs_to_components is None
+            self.routing_needed = False
+        else:
+            if self.inputs_to_components is None:
+                self.routing_needed = False
+            else:
+                self.routing_needed = True
+                assert max(self.inputs_to_components) < space.num_components
+                # Invert the dictionary
+                self.components_to_inputs = OrderedDict()
+                for i in xrange(self.num_components):
+                    inputs = []
+                    for j in xrange(space.num_components):
+                        if i in self.inputs_to_components[j]:
+                            inputs.append(i)
+                    if len(inputs) < space.num_components:
+                        self.components_to_inputs[i] = inputs
+
+        for i, component in enumerate(self.components):
+            if self.routing_needed and i in self.components_to_inputs:
+                cur_space = space.restrict(self.components_to_inputs[i])
+            else:
+                cur_space = space
+
+            component.set_input_space(cur_space)
+
+        self.output_space = CompositeSpace([ component.get_output_space() for component in self.components ])
+
+    def make_state(self, num_examples, numpy_rng):
+        return tuple(component.make_state(num_examples, numpy_rng) for
+                component in self.components)
+
+    def get_total_state_space(self):
+        return CompositeSpace([component.get_total_state_space() for component in self.components])
+
+    def set_batch_size(self, batch_size):
+        for component in self.components:
+            component.set_batch_size(batch_size)
+
+    def set_dbm(self, dbm):
+        for component in self.components:
+            component.set_dbm(dbm)
+
+    def mf_update(self, state_below, state_above, layer_above = None, double_weights = False, iter_name = None):
+
+        rval = []
+
+        for i, component in enumerate(self.components):
+            if self.routing_needed and i in self.components_to_inputs:
+                cur_state_below =self.input_space.restrict_batch(state_below, self.components_to_inputs[i])
+            else:
+                cur_state_below = state_below
+
+            class RoutingLayer(object):
+                def __init__(self, idx, layer):
+                    self.__dict__.update(locals())
+                    del self.self
+                    self.layer_name = 'route_'+str(idx)+'_'+layer.layer_name
+
+                def downward_message(self, state):
+                    return self.layer.downward_message(state)[self.idx]
+
+            if layer_above is not None:
+                cur_layer_above = RoutingLayer(i, layer_above)
+            else:
+                cur_layer_above = None
+
+            mf_update = component.mf_update(state_below = cur_state_below,
+                                            state_above = state_above,
+                                            layer_above = cur_layer_above,
+                                            double_weights = double_weights,
+                                            iter_name = iter_name)
+
+            rval.append(mf_update)
+
+        return tuple(rval)
+
+    def init_mf_state(self):
+        return tuple([component.init_mf_state() for component in self.components])
+
+
+    def get_weight_decay(self, coeffs):
+        return sum([component.get_weight_decay(coeff) for component, coeff
+            in safe_zip(self.components, coeffs)])
+
+    def upward_state(self, total_state):
+
+        return tuple([component.upward_state(elem)
+            for component, elem in
+            safe_zip(self.components, total_state)])
+
+    def downward_state(self, total_state):
+
+        return tuple([component.downward_state(elem)
+            for component, elem in
+            safe_zip(self.components, total_state)])
+
+    def downward_message(self, downward_state):
+
+        if isinstance(self.input_space, CompositeSpace):
+            num_input_components = self.input_space.num_components
+        else:
+            num_input_components = 1
+
+        rval = [ None ] * num_input_components
+
+        def add(x, y):
+            if x is None:
+                return y
+            if y is None:
+                return x
+            return x + y
+
+        for i, packed in enumerate(safe_zip(self.components, downward_state)):
+            component, state = packed
+            if self.routing_needed and i in self.components_to_inputs:
+                input_idx = self.components_to_inputs[i]
+            else:
+                input_idx = range(num_input_components)
+
+            partial_message = component.downward_message(state)
+
+            if len(input_idx) == 1:
+                partial_message = [ partial_message ]
+
+            assert len(input_idx) == len(partial_message)
+
+            for idx, msg in safe_zip(input_idx, partial_message):
+                rval[idx] = add(rval[idx], msg)
+
+        if len(rval) == 1:
+            rval = rval[0]
+        else:
+            rval = tuple(rval)
+
+        self.input_space.validate(rval)
+
+        return rval
+
+    def get_l1_act_cost(self, state, target, coeff, eps):
+        return sum([ comp.get_l1_act_cost(s, t, c, e) \
+            for comp, s, t, c, e in safe_zip(self.components, state, target, coeff, eps)])
+
+    def get_range_rewards(self, state, coeffs):
+        return sum([comp.get_range_rewards(s, c)
+            for comp, s, c in safe_zip(self.components, state, coeffs)])
+
+    def get_params(self):
+        return reduce(lambda x, y: safe_union(x, y),
+                [component.get_params() for component in self.components])
+
+    def get_weights_topo(self):
+        print 'Get topological weights for which layer?'
+        for i, component in enumerate(self.components):
+            print i,component.layer_name
+        x = raw_input()
+        return self.components[int(x)].get_weights_topo()
+
+    def get_monitoring_channels_from_state(self, state):
+        rval = OrderedDict()
+
+        for layer, s in safe_zip(self.components, state):
+            d = layer.get_monitoring_channels_from_state(s)
+            for key in d:
+                rval[layer.layer_name+'_'+key] = d[key]
+
+        return rval
+
+    def sample(self, state_below = None, state_above = None,
+            layer_above = None,
+            theano_rng = None):
+        rval = []
+
+        for i, component in enumerate(self.components):
+            if self.routing_needed and i in self.components_to_inputs:
+                cur_state_below =self.input_space.restrict_batch(state_below, self.components_to_inputs[i])
+            else:
+                cur_state_below = state_below
+
+            class RoutingLayer(object):
+                def __init__(self, idx, layer):
+                    self.__dict__.update(locals())
+                    del self.self
+                    self.layer_name = 'route_'+str(idx)+'_'+layer.layer_name
+
+                def downward_message(self, state):
+                    return self.layer.downward_message(state)[self.idx]
+
+            if layer_above is not None:
+                cur_layer_above = RoutingLayer(i, layer_above)
+            else:
+                cur_layer_above = None
+
+            sample = component.sample(state_below = cur_state_below,
+                                            state_above = state_above,
+                                            layer_above = cur_layer_above,
+                                            theano_rng = theano_rng)
+
+            rval.append(sample)
+
+        return tuple(rval)
+

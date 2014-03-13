@@ -12,11 +12,15 @@ import warnings
 import numpy
 import scipy
 import theano
-from matplotlib import pyplot
-from mpl_toolkits.mplot3d import Axes3D
+try:
+    from matplotlib import pyplot
+    from mpl_toolkits.mplot3d import Axes3D
+except ImportError:
+    warnings.warn("Could not import some dependencies.")
 
 # Local imports
 from pylearn2.utils import sharedX
+from pylearn2.utils.rng import make_np_rng
 
 ##################################################
 # 3D Visualization
@@ -213,7 +217,7 @@ class BatchIterator(object):
 
         # Use a deterministic seed
         self.seed = seed
-        rng = numpy.random.RandomState(seed=self.seed)
+        rng = make_np_rng(seed, which_method="permutation")
         self.permut = rng.permutation(index_tab)
 
     def __iter__(self):

@@ -57,10 +57,17 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
 
     @classmethod
     def get_category(cls, scalar_label):
+        """
+        Returns the category string corresponding to an integer category label.
+        """
         return cls._categories[int(scalar_label)]
 
     @classmethod
     def get_elevation_degrees(cls, scalar_label):
+        """
+        Returns the elevation, in degrees, corresponding to an integer
+        elevation label.
+        """
         scalar_label = int(scalar_label)
         assert scalar_label >= 0
         assert scalar_label < 9
@@ -68,6 +75,10 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
 
     @classmethod
     def get_azimuth_degrees(cls, scalar_label):
+        """
+        Returns the azimuth, in degrees, corresponding to an integer
+        label.
+        """
         scalar_label = int(scalar_label)
         assert scalar_label >= 0
         assert scalar_label <= 34

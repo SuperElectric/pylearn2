@@ -33,6 +33,7 @@ from pylearn2.datasets.dataset import Dataset
 from pylearn2.datasets import control
 from pylearn2.space import CompositeSpace, Conv2DSpace, VectorSpace, IndexSpace
 from pylearn2.utils import safe_zip
+from pylearn2.utils.rng import make_np_rng
 from theano import config
 
 
@@ -49,7 +50,109 @@ def ensure_tables():
 class DenseDesignMatrix(Dataset):
     """
     A class for representing datasets that can be stored as a dense design
-    matrix, such as MNIST or CIFAR10.
+    matrix (and optionally, associated targets).
+
+
+    Parameters
+    ----------
+    X : ndarray, 2-dimensional, optional
+        Should be supplied if `topo_view` is not. A design \
+        matrix of shape (number examples, number features) \
+        that defines the dataset.
+    topo_view : ndarray, optional
+        Should be supplied if X is not.  An array whose first \
+        dimension is of length number examples. The remaining \
+        dimensions are examples with topological significance, \
+        e.g. for images the remaining axes are rows, columns, \
+        and channels.
+    y : ndarray, optional
+
+        Targets for each example (e.g., class ids, values to be predicted
+        in a regression task).
+
+        Currently three formats are supported:
+
+        - None:
+            Pass `None` if there are no target values. In this case the
+            dataset may not be some tasks such as supervised learning
+            or evaluation of a supervised learning system, but it can
+            be used for some other tasks. For example, a supervised
+            learning system can make predictions on it, or an unsupervised
+            learning system can be trained on it.
+        - 1D ndarray of integers:
+            This format may be used when the targets are class labels.
+            In this format, the array should have one entry for each
+            example. Each entry should be an integer, in the range
+            [0, N) where N is the number of classes.
+            This is the format that the `SVM` class expects.
+        - 2D ndarray, data type optional:
+            This is the most common format and can be used for a variety
+            of problem types. Each row of the matrix becomes the target
+            for a different example. Specific models / costs can interpret
+            this target vector differently. For example, the `Linear`
+            output layer for the `MLP` class expects the target for each
+            example to be a vector of real-valued regression targets. (It
+            can be a vector of size one if you only have one regression
+            target). The `Softmax` output layer of the `MLP` class expects
+            the target to be a vector of N elements, where N is the number
+            of classes, and expects all but one of the elements to 0. One
+            element should have value 1., and the index of this element
+            identifies the target class.
+    view_converter : object, optional
+        An object for converting between the design matrix \
+        stored internally and the topological view of the data.
+    rng : object, optional
+        A random number generator used for picking random \
+        indices into the design matrix when choosing minibatches.
+    max_labels : int, optional
+        If y contains labels (usually an IndexSpace) then max_labels \
+        must be passed to indicate the total number of possible labels \
+        e.g. 10 for MNIST, or the size of your target vocabulary in a \
+        language model. Note that this is the same as the size of the \
+        output layer in the case the target labels are formatted as \
+        one-hot vectors (in a VectorSpace).
+
+    See Also
+    --------
+    DenseDesignMatrixPytables : Use this class if your data is too big to fit
+        in memory.
+
+    Notes
+    -----
+    - What kind of data can be stored in this way?
+        A design matrix is a matrix where each row contains a single
+        example. Each column within the row is a feature of that example.
+
+        By dense, we mean that every entry in the matrix is explicitly given a
+        value.
+
+        Examples of datasets that can be stored this way include MNIST and
+        CIFAR10.
+
+        Some datasets cannot be stored as a design matrix. For example, a
+        collection of images, each image having a different size, can't be
+        stored in this way, because we can't reshape each image to the same
+        length of matrix row.
+
+        Some datasets can, conceptually, be represented as a design matrix, but
+        it may not be efficient to store them as dense matrices. For example,
+        a dataset of sentences with a bag of words representation, might have a
+        very high number of features but most of the values are zero, so it
+        would be better to store the data as a sparse matrix.
+
+    - What if my examples aren't best thought of as vectors?
+        The DenseDesignMatrix class supports two views of the data, the "design
+        matrix view" in which each example is just a vector, and the
+        "topological view" in which each example is formatted using some kind
+        of data structure with meaningful topology. For example, a dataset of
+        images can be viewed as a design matrix where each row contains a
+        flattened version of each image, or it can be viewed as a 4D tensor,
+        where each example is a 3D subtensor, with one axis corresponding to
+        rows of the image, one axis corresponding to columns of the image, and
+        one axis corresponding to the color channels. This structure can be
+        thought of as having meaningful topology because neighboring
+        coordinates on the row and column axes correspond to neighboring
+        pixels in the image.
     """
     _default_seed = (17, 2, 946)
 
@@ -58,35 +161,6 @@ class DenseDesignMatrix(Dataset):
                  rng=_default_seed, preprocessor=None, fit_preprocessor=False,
                  max_labels=None):
         """
-        Parameters
-        ----------
-        X : ndarray, 2-dimensional, optional
-            Should be supplied if `topo_view` is not. A design \
-            matrix of shape (number examples, number features) \
-            that defines the dataset.
-        topo_view : ndarray, optional
-            Should be supplied if X is not.  An array whose first \
-            dimension is of length number examples. The remaining \
-            dimensions are xamples with topological significance, \
-            e.g. for images the remaining axes are rows, columns, \
-            and channels.
-        y : ndarray, 1-dimensional(?), optional
-            Labels or targets for each example. The semantics here \
-            are not quite nailed down for this yet.
-        view_converter : object, optional
-            An object for converting between the design matrix \
-            stored internally and the data that will be returned \
-            by iterators.
-        rng : object, optional
-            A random number generator used for picking random \
-            indices into the design matrix when choosing minibatches.
-        max_labels : int, optional
-            If y contains labels (usually an IndexSpace) then max_labels \
-            must be passed to indicate the total number of possible labels \
-            e.g. 10 for MNIST, or the size of your target vocabulary in a \
-            language model. Note that this is the same as the size of the \
-            output layer in the case the target labels are formatted as \
-            one-hot vectors (in a VectorSpace).
         """
         self.X = X
         self.y = y
@@ -140,10 +214,7 @@ class DenseDesignMatrix(Dataset):
 
         self.compress = False
         self.design_loc = None
-        if hasattr(rng, 'random_integers'):
-            self.rng = rng
-        else:
-            self.rng = np.random.RandomState(rng)
+        self.rng = make_np_rng(rng, which_method="random_integers")
         # Defaults for iterators
         self._iter_mode = resolve_iterator_class('sequential')
         self._iter_topo = False
@@ -161,15 +232,17 @@ class DenseDesignMatrix(Dataset):
 
         if topo is not None or targets is not None:
             if data_specs is not None:
-                raise ValueError("In DenseDesignMatrix.iterator, both "
-                                 "the `data_specs` argument and deprecated "
-                                 "arguments `topo` or `targets` were "
-                                 "provided.", (data_specs, topo, targets))
+                raise ValueError('In DenseDesignMatrix.iterator, both the '
+                                 '"data_specs" argument and deprecated '
+                                 'arguments "topo" or "targets" were '
+                                 'provided.',
+                                 (data_specs, topo, targets))
 
             warnings.warn("Usage of `topo` and `target` arguments are being "
                           "deprecated, and will be removed around November "
                           "7th, 2013. `data_specs` should be used instead.",
                           stacklevel=2)
+
             # build data_specs from topo and targets if needed
             if topo is None:
                 topo = getattr(self, '_iter_topo', False)
@@ -213,14 +286,14 @@ class DenseDesignMatrix(Dataset):
 
             convert = []
             for sp, src in safe_zip(sub_spaces, sub_sources):
-                if (src == 'features' and
-                        getattr(self, 'view_converter', None) is not None):
+                if src == 'features' and \
+                   getattr(self, 'view_converter', None) is not None:
                     conv_fn = (lambda batch, self=self, space=sp:
-                               self.view_converter.get_formatted_batch(
-                                   batch,
-                                   space))
+                               self.view_converter.get_formatted_batch(batch,
+                                                                       space))
                 else:
                     conv_fn = None
+
                 convert.append(conv_fn)
 
         # TODO: Refactor
@@ -240,18 +313,22 @@ class DenseDesignMatrix(Dataset):
         if rng is None and mode.stochastic:
             rng = self.rng
         return FiniteDatasetIterator(self,
-                                     mode(self.X.shape[0], batch_size,
-                                          num_batches, rng),
+                                     mode(self.X.shape[0],
+                                          batch_size,
+                                          num_batches,
+                                          rng),
                                      data_specs=data_specs,
                                      return_tuple=return_tuple,
                                      convert=convert)
 
     def get_data(self):
         """
-        Returns all the data, as it is internally stored.
-
-        The definition and format of these data are described in
-        `self.get_data_specs()`.
+        Returns
+        -------
+        data : numpy matrix or 2-tuple of matrices
+            Returns all the data, as it is internally stored.
+            The definition and format of these data are described in
+            `self.get_data_specs()`.
         """
         if self.y is None:
             return self.X
@@ -540,7 +617,8 @@ class DenseDesignMatrix(Dataset):
         """
 
         if 'default_rng' not in dir(self):
-            self.default_rng = np.random.RandomState([17, 2, 946])
+            self.default_rng = make_np_rng(None, [17, 2, 946],
+                    which_method="random_integers")
         self.rng = copy.copy(self.default_rng)
 
     def apply_preprocessor(self, preprocessor, can_fit=False):
@@ -728,9 +806,9 @@ class DenseDesignMatrix(Dataset):
             idx = self.rng.randint(self.X.shape[0] - batch_size + 1)
         except ValueError:
             if batch_size > self.X.shape[0]:
-                raise ValueError("Requested "+str(batch_size)+" examples"
-                                 "from a dataset containing only " +
-                                 str(self.X.shape[0]))
+                raise ValueError("Requested %d examples from a dataset "
+                                 "containing only %d." %
+                                 (batch_size, self.X.shape[0]))
             raise
         rx = self.X[idx:idx + batch_size, :]
         if include_labels:
@@ -832,7 +910,7 @@ class DenseDesignMatrix(Dataset):
         self.y = self.y - min_class
 
         if self.y.min() < 0:
-            raise ValueError("We do not support negative classes. You can use"
+            raise ValueError("We do not support negative classes. You can use "
                              "the min_class argument to remap negative "
                              "classes to positive values, but we require this "
                              "to be done explicitly so you are aware of the "
@@ -910,8 +988,12 @@ class DenseDesignMatrixPyTables(DenseDesignMatrix):
 
     _default_seed = (17, 2, 946)
 
-    def __init__(self, X=None, topo_view=None, y=None,
-                 view_converter=None, axes=('b', 0, 1, 'c'),
+    def __init__(self,
+                 X=None,
+                 topo_view=None,
+                 y=None,
+                 view_converter=None,
+                 axes=('b', 0, 1, 'c'),
                  rng=_default_seed):
         """
         Parameters
@@ -931,19 +1013,22 @@ class DenseDesignMatrixPyTables(DenseDesignMatrix):
             are not quite nailed down for this yet.
         view_converter : object, optional
             An object for converting between design matrices and \
-            topological views.
+            topological views. Currently DefaultViewConverter is \
+            the only type available but later we may want to add \
+            one that uses the retina encoding that the U of T group \
+            uses.
         rng : object, optional
             A random number generator used for picking random \
             indices into the design matrix when choosing minibatches.
         """
 
-        super(DenseDesignMatrixPyTables, self).__init__(
-            X=X,
-            topo_view=topo_view,
-            y=y,
-            view_converter=view_converter,
-            axes=axes,
-            rng=rng)
+        super_self = super(DenseDesignMatrixPyTables, self)
+        super_self.__init__(X=X,
+                            topo_view=topo_view,
+                            y=y,
+                            view_converter=view_converter,
+                            axes=axes,
+                            rng=rng)
         ensure_tables()
         if not hasattr(self, 'filters'):
             self.filters = tables.Filters(complib='blosc', complevel=5)
@@ -1205,10 +1290,11 @@ class DefaultViewConverter(object):
         Reformat batch from the internal storage format into dspace.
         """
         if isinstance(dspace, VectorSpace):
-            # If a VectorSpace is requested, batch should already be
-            # in that space.
-            dspace.np_validate(batch)
-            return batch
+            # If a VectorSpace is requested, batch should already be in that
+            # space. We call np_format_as anyway, in case the batch needs to be
+            # cast to dspace.dtype. This also validates the batch shape, to
+            # check that it's a valid batch in dspace.
+            return dspace.np_format_as(batch, dspace)
         elif isinstance(dspace, Conv2DSpace):
             # design_mat_to_topo_view will return a batch formatted
             # in a Conv2DSpace, but not necessarily the right one.
@@ -1218,6 +1304,7 @@ class DefaultViewConverter(object):
                               "directly, please use the set_axes() method "
                               "instead." % self.__class__.__name__)
                 self._update_topo_space()
+
             return self.topo_space.np_format_as(topo_batch, dspace)
         else:
             raise ValueError("%s does not know how to format a batch into "
@@ -1272,9 +1359,9 @@ def from_dataset(dataset, num_examples):
         # dataset.X is None This logic should be removed whenever we implement
         # lazy loading
 
-        if isinstance(dataset, DenseDesignMatrix) \
-           and dataset.X is None \
-           and not control.get_load_data():
+        if isinstance(dataset, DenseDesignMatrix) and \
+           dataset.X is None and \
+           not control.get_load_data():
             warnings.warn("from_dataset wasn't able to make subset of "
                           "dataset, using the whole thing")
             return DenseDesignMatrix(X=None,
@@ -1289,9 +1376,23 @@ def from_dataset(dataset, num_examples):
 
 def dataset_range(dataset, start, stop):
     """
-    .. todo::
+    Returns a new dataset formed by extracting a range of examples from an
+    existing dataset.
 
-        WRITEME
+    Parameters
+    ----------
+    dataset : DenseDesignMatrix
+        The existing dataset to extract examples from.
+    start : int
+        Extract examples starting at this index.
+    stop : int
+        Stop extracting examples at this index. Do not include this index
+        itself (like the python `range` builtin)
+
+    Returns
+    -------
+    sub_dataset : DenseDesignMatrix
+        The new dataset containing examples [start, stop).
     """
 
     if dataset.X is None:

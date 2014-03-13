@@ -13,6 +13,7 @@ from pylearn2.models.dbm import flatten
 from pylearn2.models.dbm.inference_procedure import WeightDoubling
 from pylearn2.models.dbm.sampling_procedure import GibbsEvenOdd
 from pylearn2.utils import safe_zip, safe_izip
+from pylearn2.utils.rng import make_np_rng
 
 
 class DBM(Model):
@@ -21,26 +22,27 @@ class DBM(Model):
 
     See "Deep Boltzmann Machines" by Ruslan Salakhutdinov and Geoffrey Hinton
     for details.
+
+    Parameters
+    ----------
+    batch_size : int
+        The batch size the model should use. Some convolutional \
+        LinearTransforms require a compile-time hardcoded batch size, \
+        otherwise this would not be part of the model specification.
+    visible_layer : WRITEME
+        The visible layer of the DBM.
+    hidden_layers : list
+        The hidden layers. A list of HiddenLayer objects. The first \
+        layer in the list is connected to the visible layer. 
+    niter : int
+        Number of mean field iterations for variational inference \
+        for the positive phase. 
+    sampling_procedure : WRITEME
+    inference_procedure : WRITEME
     """
 
     def __init__(self, batch_size, visible_layer, hidden_layers, niter,
                  sampling_procedure=None, inference_procedure=None):
-        """
-        Parameters
-        ----------
-        batch_size : int
-            The batch size the model should use. Some convolutional \
-            LinearTransforms require a compile-time hardcoded batch size, \
-            otherwise this would not be part of the model specification.
-        visible_layer : WRITEME
-            The visible layer of the DBM.
-        hidden_layers : list
-            WRITEME
-        niter : int
-            WRITEME
-        sampling_procedure : WRITEME
-        inference_procedure : WRITEME
-        """
         self.__dict__.update(locals())
         del self.self
         assert len(hidden_layers) >= 1
@@ -190,7 +192,7 @@ class DBM(Model):
 
             WRITEME
         """
-        self.rng = np.random.RandomState([2012, 10, 17])
+        self.rng = make_np_rng(None, [2012, 10, 17], which_method="uniform")
 
     def setup_inference_procedure(self):
         """
@@ -657,3 +659,7 @@ class DBM(Model):
                 drop_mask = None, V = None)
 
         return recons
+
+    def do_inpainting(self, *args, **kwargs):
+        self.setup_inference_procedure()
+        return self.inference_procedure.do_inpainting(*args, **kwargs)

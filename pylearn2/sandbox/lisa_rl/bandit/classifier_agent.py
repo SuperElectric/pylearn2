@@ -3,11 +3,11 @@ __author__ = "Ian Goodfellow"
 import time
 
 from theano import function
-from theano.sandbox.rng_mrg import MRG_RandomStreams
 import theano.tensor as T
 
 from pylearn2.sandbox.lisa_rl.bandit.agent import Agent
 from pylearn2.utils import sharedX
+from pylearn2.utils.rng import make_theano_rng
 
 class ClassifierAgent(Agent):
     """
@@ -25,16 +25,20 @@ class ClassifierAgent(Agent):
     to the classification task, so that any loss in performance
     comes only from needing to explore to discover the correct
     action for for each input.
+
+    .. todo::
+
+        WRITEME : parameter list
+
+    Parameters
+    ----------
+    stochastic: bool
+        If True, samples actions from P(y | x) otherwise, uses argmax_y P(y |x)
     """
 
     def __init__(self, mlp, learning_rule, init_learning_rate, cost,
             update_callbacks, stochastic=False, epsilon=None, neg_target=False,
             ignore_wrong=False, epsilon_stochastic=None):
-        """
-
-            stochastic: if True, samples actions from P(y | x)
-                otherwise, uses argmax_y P(y |x)
-        """
         self.__dict__.update(locals())
         del self.self
 
@@ -51,7 +55,7 @@ class ClassifierAgent(Agent):
         X = T.matrix()
         y_hat = self.mlp.fprop(X)
 
-        theano_rng = MRG_RandomStreams(2013 + 11 + 20)
+        theano_rng = make_theano_rng(None, 2013+11+20, which_method="multinomial")
         if self.stochastic:
             a = theano_rng.multinomial(pvals=y_hat, dtype='float32')
         else:

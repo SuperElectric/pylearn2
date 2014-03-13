@@ -16,6 +16,8 @@ from pylearn2.linear.linear_transform import LinearTransform
 import functools
 import numpy as np
 from pylearn2.utils import sharedX
+from pylearn2.utils.rng import make_np_rng
+
 
 class MatrixMul(LinearTransform):
     """
@@ -26,7 +28,8 @@ class MatrixMul(LinearTransform):
 
     The TheanoLinear version does a bunch of extra undocumented reshaping,
     concatenating, etc. that looks like it's probably meant to allow converting
-    between Spaces without warning. Since the reshape and concatenate operations
+    between Spaces without warning. Since the reshape and concatenate
+    operations
     are always inserted whether they're needed or not, this can cause annoying
     things like the reshape breaking if you change the shape of W, bugs in
     Theano's optimization system being harder to avoid, etc.
@@ -67,18 +70,15 @@ class MatrixMul(LinearTransform):
         return T.dot(x, self._W.T)
 
 
-def make_local_rfs(dataset, nhid, rf_shape, stride, irange = .05, draw_patches = False, rng = None):
+def make_local_rfs(dataset, nhid, rf_shape, stride, irange = .05,
+        draw_patches = False, rng = None):
     """
-    .. todo::
-
-        WRITEME properly
-
     Initializes a weight matrix with local receptive fields
 
     Parameters
     ----------
     dataset : pylearn2.datasets.dataset.Dataset
-        Dataset defining the topology of the space (needed to convert 2D \
+        Dataset defining the topology of the space (needed to convert 2D
         patches into subsets of pixels in a 1D filter vector)
     nhid : int
         Number of hidden units to make filters for
@@ -90,6 +90,11 @@ def make_local_rfs(dataset, nhid, rf_shape, stride, irange = .05, draw_patches =
         If draw_patches is False, weights are initialized in U(-irange,irange)
     draw_patches : bool
         If True, weights are drawn from random examples
+
+    Returns
+    -------
+    weights : ndarray
+        2D ndarray containing the desired weights.
     """
     s = dataset.view_shape()
     height, width, channels = s
@@ -98,11 +103,11 @@ def make_local_rfs(dataset, nhid, rf_shape, stride, irange = .05, draw_patches =
     last_row = s[0] - rf_shape[0]
     last_col = s[1] - rf_shape[1]
 
-    rng = np.random.RandomState([2012,07,18])
+    rng = make_np_rng(rng, [2012,07,18], which_method='uniform')
 
 
     if stride is not None:
-        #local_rf_stride specified, make local_rfs on a grid
+        # local_rf_stride specified, make local_rfs on a grid
         assert last_row % stride[0] == 0
         num_row_steps = last_row / stride[0] + 1
 
@@ -112,7 +117,8 @@ def make_local_rfs(dataset, nhid, rf_shape, stride, irange = .05, draw_patches =
         total_rfs = num_row_steps * num_col_steps
 
         if nhid % total_rfs != 0:
-            raise ValueError('nhid modulo total_rfs should be 0, but we get %d modulo %d = %d' % (nhid, total_rfs, nhid % total_rfs))
+            raise ValueError('nhid modulo total_rfs should be 0, but we get '
+                    '%d modulo %d = %d' % (nhid, total_rfs, nhid % total_rfs))
 
         filters_per_rf = nhid / total_rfs
 

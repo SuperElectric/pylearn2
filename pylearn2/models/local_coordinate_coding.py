@@ -9,6 +9,7 @@ from pylearn2.optimization import linear_cg as cg
 from pylearn2.optimization.feature_sign import feature_sign_search
 import numpy as N
 import theano.tensor as T
+from pylearn2.utils.rng import make_np_rng
 
 
 class LocalCoordinateCoding(object):
@@ -16,17 +17,18 @@ class LocalCoordinateCoding(object):
     .. todo::
 
         WRITEME
+    
+    Parameters
+    ----------
+    nvis : WRITEME
+    nhid : WRITEME
+    coeff : WRITEME
     """
     def __init__(self, nvis, nhid, coeff):
-        """
-        .. todo::
-
-            WRITEME
-        """
         self.nvis = nvis
         self.nhid = nhid
         self.coeff = float(coeff)
-        self.rng = N.random.RandomState([1, 2, 3])
+        self.rng = make_np_rng(None, [1, 2, 3], which_method="randn")
 
         self.redo_everything()
 

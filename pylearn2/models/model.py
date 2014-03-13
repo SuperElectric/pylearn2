@@ -23,35 +23,40 @@ class Model(object):
 
     __metaclass__ = MetaLibVersion
     _test_batch_size = 2
-    
+
     def get_default_cost(self):
         """
-        Returns the default cost to use with this model.
+        Returns
+        -------
+        default_cost : Cost
+            The default cost to use with this model.
         """
 
-        raise NotImplementedError(str(type(self))+ " does not implement get_default_cost.")
+        raise NotImplementedError(str(type(self)) +
+                                  " does not implement get_default_cost.")
 
     def train_all(self, dataset):
         """
-        If implemented, performs one epoch of training.
-        This method is useful for models with highly specialized training
-        algorithms for which is does not make much sense to factor the training
-        code into a separate class. It is also useful for implementors that want
-        to make their model trainable without enforcing compatibility with
-        pylearn2 TrainingAlgorithms.
+        If implemented, performs one epoch of training.  This method is useful
+        for models with highly specialized training algorithms for which is
+        does not make much sense to factor the training code into a separate
+        class. It is also useful for implementors that want to make their model
+        trainable without enforcing compatibility with pylearn2
+        TrainingAlgorithms.
 
         Parameters
         ----------
         dataset: pylearn2.datasets.dataset.Dataset
             Dataset object to draw training data from
         """
-        raise NotImplementedError(str(type(self))+" does not implement train_all.")
+        raise NotImplementedError(str(type(self)) +
+                                  " does not implement train_all.")
 
     def continue_learning(self):
         """
-        If train_all is used to train the model, this method is used to determine
-        when the training process has converged. This method is called after the
-        monitor has been run on the latest parameters.
+        If train_all is used to train the model, this method is used to
+        determine when the training process has converged. This method is
+        called after the monitor has been run on the latest parameters.
 
         Returns
         -------
@@ -59,8 +64,8 @@ class Model(object):
             True if training should continue
         """
 
-        raise NotImplementedError(str(type(self))+" does not implement continue_learning.")
-
+        raise NotImplementedError(str(type(self)) +
+                                  " does not implement continue_learning.")
 
     def train_batch(self, dataset, batch_size):
         """
@@ -83,11 +88,19 @@ class Model(object):
 
     def get_weights_view_shape(self):
         """
-        .. todo::
-
-            WRITEME
+        Returns
+        -------
+        shape : tuple
+            Returns a tuple containing two ints. These are used as the
+            `grid_shape` argument to `PatchViewer` when displaying the
+            weights of this model. This can be useful when there is
+            some geometric significance to the order of your weight
+            vectors. For example, the `Maxout` model makes sure that all of
+            the filters for the same hidden unit appear on the same row
+            of the display.
         """
-        raise NotImplementedError(str(type(self))+" does not implement get_weights_view_shape (perhaps by design)")
+        raise NotImplementedError(str(type(self)) + " does not implement "
+                                  "get_weights_view_shape (perhaps by design)")
 
     def get_monitoring_channels(self, data):
         """
@@ -102,7 +115,7 @@ class Model(object):
 
         Returns
         -------
-        channels : dict
+        channels : OrderedDict
             A dictionary with strings as keys, mapping channel names to \
             symbolic values that depend on the variables in `data`.
 
@@ -126,35 +139,63 @@ class Model(object):
         when no monitoring channels are defined, or when none of the channels
         actually need data (for instance, if they only monitor functions
         of the model's parameters).
+
+        WRITEME properly
         """
         return (NullSpace(), '')
 
     def set_batch_size(self, batch_size):
         """
-        .. todo::
-
-            WRITEME
+        Parameters
+        ----------
+        batch_size : int
+            Sets the batch size used by the model.
+            If None, allows the model to use any batch size.
         """
         pass
 
     def get_weights(self):
         """
-        .. todo::
-
-            WRITEME
+        Returns
+        -------
+        weights : ndarray
+            Returns any matrix that is analogous to the weights of the first
+            layer of an MLP, such as the dictionary of a sparse coding model.
+            This implementation raises NotImplementedError. For models where
+            this method is not conceptually applicable, do not override it.
+            Format should be compatible with the return value of
+            self.get_weights_format.
         """
 
-        raise NotImplementedError(str(type(self))+" does not implement get_weights (perhaps by design)")
+        raise NotImplementedError(str(type(self)) + " does not implement "
+                                  "get_weights (perhaps by design)")
+
+    def get_weights_format(self):
+        """
+        Returns
+        -------
+        format : tuple
+            Either ('v', 'h') or ('h', 'v'). ('v', 'h') means self.get_weights
+            returns a matrix of shape (num visible units, num hidden units),
+            while ('h', 'v') means it returns the transpose of this.
+        """
+
+        return ('v', 'h')
 
     def get_weights_topo(self):
         """
-        .. todo::
-
-            WRITEME
+        Returns
+        -------
+        weights : ndarray
+            Same as the return value of `get_weights` but formatted as a 4D
+            tensor with the axes being (hidden units, rows, columns,
+            channels). Only applicable for models where the weights can be
+            viewed as 2D-multichannel, and the number of channels is either
+            1 or 3 (because they will be visualized as grayscale or RGB color).
         """
 
-        raise NotImplementedError(str(type(self))+" does not implement get_weights_topo (perhaps by design)")
-
+        raise NotImplementedError(str(type(self)) + " does not implement "
+                                  "get_weights_topo (perhaps by design)")
 
     def score(self, V):
         """
@@ -186,9 +227,13 @@ class Model(object):
 
     def get_lr_scalers(self):
         """
-        .. todo::
-
-            WRITEME
+        Returns
+        -------
+        lr_scalers : OrderedDict
+            A dictionary mapping the parameters of the model to floats. The
+            learning rate will be multiplied by the float for each parameter.
+            If a parameter does not appear in the dictionary, it will use
+            the global learning rate with no scaling.
         """
         return OrderedDict()
 
@@ -213,10 +258,6 @@ class Model(object):
         updates : dict
             A dictionary mapping shared variables to symbolic values they \
             will be updated to
-
-        Returns
-        -------
-        WRITEME
         """
 
         pass
@@ -399,19 +440,14 @@ class Model(object):
         self.__dict__.update(d)
 
     def __init__(self):
-        """
-        .. todo::
-
-            WRITEME
-        """
         self.names_to_del = set()
-   
+
     def get_test_batch_size(self):
         """
-        Batches of examples used to initialize X.tag.test_value should have this
-        many examples if used as input to the model.  (The model
-        specifies the number of examples in case it needs a fixed batch
-        size or to keep the memory usage of testing under control.)
+        Batches of examples used to initialize X.tag.test_value should have
+        this many examples if used as input to the model.  (The model specifies
+        the number of examples in case it needs a fixed batch size or to keep
+        the memory usage of testing under control.)
         """
         return self._test_batch_size
 
@@ -419,7 +455,11 @@ class Model(object):
         """
         Print version of the various Python packages and basic information
         about the experiment setup (e.g. cpu, os)
-        e.g. numpy:1.6.1 | pylearn:a6e634b83d | pylearn2:57a156beb0
+        e.g.
+
+        .. code-block::  none
+
+             numpy:1.6.1 | pylearn:a6e634b83d | pylearn2:57a156beb0
              CPU: x86_64
              OS: Linux-2.6.35.14-106.fc14.x86_64-x86_64-with-fedora-14-Laughlin
         """
@@ -448,7 +488,8 @@ class Model(object):
             assert all(isinstance(n, basestring) for n in iter(names))
         except (TypeError, AssertionError):
             raise ValueError('Invalid names argument')
-        # Quick check in case __init__ was never called, e.g. by a derived class.
+        # Quick check in case __init__ was never called, e.g. by a derived
+        # class.
         if not hasattr(self, 'names_to_del'):
             self.names_to_del = set()
         self.names_to_del = self.names_to_del.union(names)

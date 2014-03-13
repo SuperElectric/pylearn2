@@ -31,12 +31,11 @@ __maintainer__ = "Ian Goodfellow"
 
 import numpy as np
 
-from collections import OrderedDict
+from theano.compat.python2x import OrderedDict
 
 from theano import function
 from theano.gof.op import get_debug_values
 from theano.compile.sharedvalue import SharedVariable
-from theano.sandbox.rng_mrg import MRG_RandomStreams
 import theano.tensor as T
 import warnings
 
@@ -47,6 +46,7 @@ from pylearn2.models.dbm.layer import HiddenLayer, VisibleLayer
 from pylearn2.space import Conv2DSpace
 from pylearn2.space import VectorSpace
 from pylearn2.utils import sharedX
+from pylearn2.utils.rng import make_theano_rng
 
 
 def init_tanh_bias_from_marginals(dataset, use_y=False):
@@ -79,24 +79,23 @@ class IsingVisible(VisibleLayer):
     in a `VectorSpace`, with values in {-1, 1}.
 
     Implements the energy function term :math:`-\mathbf{b}^T \mathbf{h}`.
+
+    Parameters
+    ----------
+    nvis : int
+        The dimension of the space
+    beta : theano shared variable
+        Shared variable representing a multiplicative factor of the \
+        energy function (the inverse temperature)
+    learn_beta : boolean, optional
+        Whether or not the inverse temperature should be considered as a \
+        learned parameter
+    bias_from_marginals : `pylearn2.datasets.dataset.Dataset`, optional
+        A dataset whose marginals are used to initialize the visible \
+        biases
     """
 
     def __init__(self, nvis, beta, learn_beta=False, bias_from_marginals=None):
-        """
-        Parameters
-        ----------
-        nvis : int
-            The dimension of the space
-        beta : theano shared variable
-            Shared variable representing a multiplicative factor of the \
-            energy function (the inverse temperature)
-        learn_beta : boolean, optional
-            Whether or not the inverse temperature should be considered as a \
-            learned parameter
-        bias_from_marginals : `pylearn2.datasets.dataset.Dataset`, optional
-            A dataset whose marginals are used to initialize the visible \
-            biases
-        """
         if not isinstance(beta, SharedVariable):
             raise ValueError("beta needs to be a theano shared variable.")
         self.__dict__.update(locals())
@@ -251,8 +250,29 @@ class IsingHidden(HiddenLayer):
 
     where :math:`\mathbf{W}` and :math:`\mathbf{b}` are parameters of this
     layer, and :math:`\mathbf{v}` is the upward state of the layer below.
-    """
 
+    Parameters
+    ----------
+    dim : WRITEME
+    layer_name : WRITEME
+    beta : theano shared variable
+        Shared variable representing a multiplicative factor of the energy
+        function (the inverse temperature)
+    learn_beta : boolean, optional
+        Whether or not the inverse temperature should be considered as a
+        learned parameter
+    irange : WRITEME
+    sparse_init : WRITEME
+    sparse_stdev : WRITEME
+    include_prob : float, optional
+        Probability of including a weight element in the set of weights
+        initialized to U(-irange, irange). If not included it is
+        initialized to 0.
+    init_bias : WRITEME
+    W_lr_scale : WRITEME
+    b_lr_scale : WRITEME
+    max_col_norm : WRITEME
+    """
     def __init__(self,
                  dim,
                  layer_name,
@@ -266,24 +286,6 @@ class IsingHidden(HiddenLayer):
                  W_lr_scale=None,
                  b_lr_scale=None,
                  max_col_norm=None):
-        """
-        .. todo::
-
-            WRITEME properly
-
-        Parameters
-        ----------
-        include_prob : float, optional
-            Probability of including a weight element in the set of weights
-            initialized to U(-irange, irange). If not included it is
-            initialized to 0.
-        beta : theano shared variable
-            Shared variable representing a multiplicative factor of the energy
-            function (the inverse temperature)
-        learn_beta : boolean, optional
-            Whether or not the inverse temperature should be considered as a
-            learned parameter
-        """
         if not isinstance(beta, SharedVariable):
             raise ValueError("beta needs to be a theano shared variable.")
         self.__dict__.update(locals())
@@ -787,29 +789,27 @@ class BoltzmannIsingVisible(VisibleLayer):
     Notes
     -----
     All parameter noise/clipping is handled by BoltzmannIsingHidden.
-    """
 
+    .. todo::
+
+        WRITEME properly
+
+    Parameters
+    ----------
+    nvis : int
+        Number of visible units
+    beta : theano shared variable
+        Shared variable representing a multiplicative factor of the energy
+        function (the inverse temperature)
+    learn_beta : boolean, optional
+        Whether or not the inverse temperature should be considered
+            as a learned parameter
+    bias_from_marginals : `pylearn2.datasets.dataset.Dataset`, optional
+        A dataset whose marginals are used to initialize the visible
+        biases
+    """
     def __init__(self, nvis, beta, learn_beta=False, bias_from_marginals=None,
                  sampling_b_stdev=None, min_ising_b=None, max_ising_b=None):
-        """
-        .. todo::
-
-            WRITEME properly
-
-        Parameters
-        ----------
-        nvis : int
-            Number of visible units
-        beta : theano shared variable
-            Shared variable representing a multiplicative factor of the energy
-            function (the inverse temperature)
-        learn_beta : boolean, optional
-            Whether or not the inverse temperature should be considered
-                as a learned parameter
-        bias_from_marginals : `pylearn2.datasets.dataset.Dataset`, optional
-            A dataset whose marginals are used to initialize the visible
-            biases
-        """
 
         if not isinstance(beta, SharedVariable):
             raise ValueError("beta needs to be a theano shared " +
@@ -888,8 +888,7 @@ class BoltzmannIsingVisible(VisibleLayer):
             updates[self.boltzmann_bias] = bhn
 
         if self.noisy_sampling_b is not None:
-            theano_rng = \
-                MRG_RandomStreams(self.dbm.rng.randint(2**16))
+            theano_rng = make_theano_rng(None, self.dbm.rng.randint(2**16), which_method="normal")
 
             b = updates[self.boltzmann_bias]
             W_above = updates[self.layer_above.W]
@@ -919,7 +918,7 @@ class BoltzmannIsingVisible(VisibleLayer):
                     sharedX(np.zeros((self.dbm.batch_size, self.nvis)))
 
             if self.noisy_sampling_b is not None:
-                theano_rng = MRG_RandomStreams(self.dbm.rng.randint(2**16))
+                theano_rng = make_theano_rng(None, self.dbm.rng.randint(2**16), which_method="normal")
 
                 b = self.boltzmann_bias
                 W_above = self.layer_above.W
@@ -1106,7 +1105,22 @@ class BoltzmannIsingHidden(HiddenLayer):
     """
     An IsingHidden whose parameters are defined in Boltzmann machine space.
     """
+    """
+    .. todo::
 
+        WRITEME properly
+
+    Parameters
+    ----------
+    beta : theano shared variable
+        Shared variable representing a multiplicative factor of the energy
+        function (the inverse temperature)
+    learn_beta : boolean, optional
+        Whether or not the inverse temperature should be considered as a
+        learned parameter
+    bias_from_marginals : `pylearn2.datasets.dataset.Dataset`, optional
+        A dataset whose marginals are used to initialize the visible biases
+    """
     def __init__(self,
                  dim,
                  layer_name,
@@ -1128,31 +1142,6 @@ class BoltzmannIsingHidden(HiddenLayer):
                  max_ising_W=None,
                  sampling_W_stdev=None,
                  sampling_b_stdev=None):
-        """
-        .. todo::
-
-            WRITEME properly
-
-        include_prob: probability of including a weight element in the set
-                 of weights initialized to U(-irange, irange). If not
-                 included it is initialized to 0.
-        beta: shared variable representing a multiplicative factor of
-                 the energy function (the inverse temperature)
-        learn_beta: whether or not the inverse temperature should be considered
-                 as a learned parameter
-
-        Parameters
-        ----------
-        beta : theano shared variable
-            Shared variable representing a multiplicative factor of the energy
-            function (the inverse temperature)
-        learn_beta : boolean, optional
-            Whether or not the inverse temperature should be considered
-                as a learned parameter
-        bias_from_marginals : `pylearn2.datasets.dataset.Dataset`, optional
-            A dataset whose marginals are used to initialize the visible
-            biases
-        """
         if not isinstance(beta, SharedVariable):
             raise ValueError("beta needs to be a theano shared variable.")
         self.__dict__.update(locals())
@@ -1324,7 +1313,7 @@ class BoltzmannIsingHidden(HiddenLayer):
             updates[self.boltzmann_b] = bhn
 
         if self.noisy_sampling_W is not None:
-            theano_rng = MRG_RandomStreams(self.dbm.rng.randint(2**16))
+            theano_rng = make_theano_rng(None, self.dbm.rng.randint(2**16), which_method="normal")
 
             W = updates[self.W]
             ising_W = 0.25 * W
@@ -1366,7 +1355,7 @@ class BoltzmannIsingHidden(HiddenLayer):
                     sharedX(np.zeros((self.dbm.batch_size, self.dim)))
 
             if self.noisy_sampling_b is not None:
-                theano_rng = MRG_RandomStreams(self.dbm.rng.randint(2**16))
+                theano_rng = make_theano_rng(None, self.dbm.rng.randint(2**16), which_method="normal")
 
                 b = self.boltzmann_b
                 if self.layer_above is not None:
