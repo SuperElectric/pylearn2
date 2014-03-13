@@ -9,7 +9,7 @@ import numpy, theano
 from pylearn2.models.mlp import MLP
 from pylearn2.space import VectorSpace, CompositeSpace
 from pylearn2.utils import serial
-from pylearn2.config import yaml_parse
+# from pylearn2.config import yaml_parse
 from pylearn2.datasets.zca_dataset import ZCA_Dataset
 from pylearn2.scripts.papers.maxout.norb import SmallNORB_labels_to_object_ids
 # from pylearn2.datasets.zca_dataset import ZCA_Dataset
@@ -137,21 +137,21 @@ def main():
         output_symbol = model.fprop(input_symbol)
         return theano.function([input_symbol, ], output_symbol)
 
-    def convert_from_onehot(onehot_labels):
-        """
-        Converts a BxL matrix (B = batch size, L = # of possible labels)
-        of one-hot label vectors, and returns a Bx1 matrix where each
-        row just contains the index of the nonzero element in that row.
+    # def convert_from_onehot(onehot_labels):
+    #     """
+    #     Converts a BxL matrix (B = batch size, L = # of possible labels)
+    #     of one-hot label vectors, and returns a Bx1 matrix where each
+    #     row just contains the index of the nonzero element in that row.
 
-        For binary one-hot labels (one 1, 0s elsewhere), use binary=True.
-        For continuous one-hot labels (e.g. the output of a softmax), use
-        binary=False.
-        """
-        nonzero_indices = onehot_labels.nonzero()
-        assert len(nonzero_indices) == len(onehot_labels.shape)
-        assert all(len(i) == onehot_labels.shape[0]
-                   for i in nonzero_indices)
-        return nonzero_indices[-1]
+    #     For binary one-hot labels (one 1, 0s elsewhere), use binary=True.
+    #     For continuous one-hot labels (e.g. the output of a softmax), use
+    #     binary=False.
+    #     """
+    #     nonzero_indices = onehot_labels.nonzero()
+    #     assert len(nonzero_indices) == len(onehot_labels.shape)
+    #     assert all(len(i) == onehot_labels.shape[0]
+    #                for i in nonzero_indices)
+    #     return nonzero_indices[-1]
 
     args = parse_args()
     test_set = load_small_norb_instance_dataset(args.dataset)
@@ -173,7 +173,7 @@ def main():
     model_function = get_model_function(model, batch_size)
     print "test_set.y.shape: ", test_set.y.shape
     all_computed_ids = numpy.zeros(test_set.y.shape, dtype=floatX)
-    all_expected_ids = numpy.zeros([test_set.y.shape[0]], dtype=int)
+    # all_expected_ids = numpy.zeros([test_set.y.shape[0]], dtype=int)
     num_data = 0
 
     for batch_number, (image, norb_label) in \
@@ -183,14 +183,14 @@ def main():
                                     return_tuple=True)):
 
         computed_id = model_function(image)
-        expected_id = SmallNORB_labels_to_object_ids(norb_label)
+        # expected_id = SmallNORB_labels_to_object_ids(norb_label)
 
         start_index = batch_number * batch_size
         end_index = min(start_index + batch_size, test_set.y.shape[0])
         all_computed_ids[start_index:end_index, :] = computed_id
 
-        expected_id = convert_from_onehot(expected_id)
-        all_expected_ids[start_index:end_index] = expected_id
+        # expected_id = convert_from_onehot(expected_id)
+        # all_expected_ids[start_index:end_index] = expected_id
 
         num_data += computed_id.shape[0]
         print "Processed %g %% of %d images" % \
@@ -199,7 +199,7 @@ def main():
 
     numpy.savez(args.output,
                 softmaxes=all_computed_ids,
-                actual_ids=all_expected_ids,
+                # actual_ids=all_expected_ids,
                 norb_labels=test_set.y)
 
 
