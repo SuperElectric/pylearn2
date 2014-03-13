@@ -164,6 +164,10 @@ def load_instance_datasets(azimuth_ratio, elevation_ratio, which_image):
     images = numpy.vstack((train.X, test.X))
     labels = numpy.vstack((train.y, test.y))
 
+    # Free some memory
+    del train
+    del test
+
     assert str(images.dtype) == theano.config.floatX
 
     # new_labels = get_object_ids(labels)
@@ -176,6 +180,8 @@ def load_instance_datasets(azimuth_ratio, elevation_ratio, which_image):
                                      view_converter=view_converter)
                    for row_mask in (train_mask, test_mask))
 
+    print("after re-splitting, train.X, .y: %s, %s" % (str(train.X.shape),
+                                                       str(train.y.shape)))
     print("split dataset into %s training examples, %s testing examples." %
           (str(train.X.shape), str(test.X.shape)))
 

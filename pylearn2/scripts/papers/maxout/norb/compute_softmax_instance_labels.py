@@ -111,7 +111,7 @@ def main():
             return base_path + 'preprocessor.pkl'
 
         dataset = serial.load(dataset_path)
-
+        print "dataset.y.shape = ", dataset.y.shape
         preprocessor = serial.load(get_preprocessor_path(dataset_path))
 
         return ZCA_Dataset(preprocessed_dataset=dataset,
