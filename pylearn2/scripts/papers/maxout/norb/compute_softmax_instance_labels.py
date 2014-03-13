@@ -94,9 +94,8 @@ def main():
 
         returns: dataset, original_labels
           dataset: ZCA_Dataset
-            The labels are one-hot object ID vectors.
-          original_labels: Nx5 ndarray
-            The original NORB labels that were replaced by the object IDs.
+            The labels are the original NORB label vectors.
+            Use SmallNORB_Labels_to_object_ids() to convert to object IDs.
         """
 
         def get_preprocessor_path(dataset_path):
@@ -112,15 +111,12 @@ def main():
             return base_path + 'preprocessor.pkl'
 
         dataset = serial.load(dataset_path)
-        original_labels = dataset.y
-        dataset.y = SmallNORB_labels_to_object_ids(original_labels)
 
         preprocessor = serial.load(get_preprocessor_path(dataset_path))
 
-        return (ZCA_Dataset(preprocessed_dataset=dataset,
-                            preprocessor=preprocessor,
-                            axes=['c', 0, 1, 'b']),
-                original_labels)
+        return ZCA_Dataset(preprocessed_dataset=dataset,
+                           preprocessor=preprocessor,
+                           axes=['c', 0, 1, 'b'])
         # return yaml_parse.load(
         #     """!obj:pylearn2.datasets.zca_dataset.ZCA_Dataset {
         #     preprocessed_dataset: !pkl: "%s",
@@ -158,10 +154,10 @@ def main():
         return nonzero_indices[-1]
 
     args = parse_args()
-    test_set, norb_labels = load_small_norb_instance_dataset(args.dataset)
+    test_set = load_small_norb_instance_dataset(args.dataset)
 
     print "test_set.y.shape: ", test_set.y.shape
-    print "norb_labels.shape: ", norb_labels.shape
+    # print "norb_labels.shape: ", norb_labels.shape
     model = serial.load(args.model)
 
     # This is just a sanity check. It's not necessarily true; it's just
@@ -180,15 +176,14 @@ def main():
     all_expected_ids = numpy.zeros([test_set.y.shape[0]], dtype=int)
     num_data = 0
 
-    for batch_number, norb_label, (image, expected_id) in \
-        izip(xrange(norb_labels.shape[0]),
-             norb_labels,
-             test_set.iterator(mode='sequential',
-                               batch_size=batch_size,
-                               data_specs=data_specs,
-                               return_tuple=True)):
+    for batch_number, (image, norb_label) in \
+        enumerate(test_set.iterator(mode='sequential',
+                                    batch_size=batch_size,
+                                    data_specs=data_specs,
+                                    return_tuple=True)):
 
         computed_id = model_function(image)
+        expected_id = SmallNORB_labels_to_object_ids(norb_label)
 
         start_index = batch_number * batch_size
         end_index = min(start_index + batch_size, test_set.y.shape[0])
@@ -205,7 +200,7 @@ def main():
     numpy.savez(args.output,
                 softmaxes=all_computed_ids,
                 actual_ids=all_expected_ids,
-                labels=labels)
+                norb_labels=test_set.y)
 
 
 if __name__ == '__main__':

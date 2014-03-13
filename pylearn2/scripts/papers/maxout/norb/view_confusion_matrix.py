@@ -56,7 +56,7 @@ def main():
 
             return {'row_obj': row_obj,
                     'col_obj': col_obj,
-                    'heatmap': heatmap,
+                    'value': heatmap[row, col],
                     'label': label}
 
 
@@ -171,10 +171,11 @@ def main():
 
     args = parse_args()
     input_dict = numpy.load(args.input)
-    softmax_labels, ground_truth = tuple(input_dict[key]
-                                         for key in ('labels', 'ground_truth'))
-    assert softmax_labels.shape[0] == ground_truth.shape[0]
+    softmax_labels, norb_labels = tuple(input_dict[key] for key
+                                        in ('softmaxes', 'norb_labels'))
+    assert softmax_labels.shape[0] == norb_labels.shape[0]
 
+    ground_truth = SmallNORB_labels_to_object_ids(norb_labels)
     hard_labels = softmax_labels.argmax(axis=1)
 
     num_labels = softmax_labels.shape[0]
@@ -204,12 +205,19 @@ def main():
     def on_mouse_motion(event):
         original_text = status_text.get_text()
 
-        row_obj, col_obj, heatmap = get_objects_pointed_at(event)
-        if row_obj is None:
+        picked = get_objects_pointed_at(event)
+        if picked is None:
             status_text.set_text(default_status_text)
         else:
-            status_text.set_text("row obj: %g, col obj: %g, val: %g" %
-                                 (row_obj, col_obj, heatmap[row, col]))
+            text = ("row obj: %g, col obj: %g, val: %g" %
+                    tuple(picked[key] for key in ('row_obj',
+                                                  'col_obj',
+                                                  'value')))
+            label = picked['label']
+            if label is not None:
+                text = text + "\nImage label: %d %d %d %d %d" % tuple(label)
+
+            status_text.set_text(text)
 
 #         if event.inaxes in axes_to_heatmap.keys():
 #             heatmap = axes_to_heatmap[event.inaxes]['heatmap']
@@ -298,21 +306,32 @@ def main():
                           most_confused_objects,
                           all_axes[0, -1])
 
+    #
+    # Plot the worst image-specific softmaxes of the most confused objects
+    #
+
     # use of zip rather than safe_zip intentional here
     for (axes, object_id) in zip(all_axes[1, :], most_confused_objects):
         row_mask = ground_truth == object_id
+
+        # Find the current object's NORB labels, object ids, and softmaxes
+        actual_norb_labels = norb_labels[row_mask]
         actual_ids = ground_truth[row_mask]
+        assert (actual_ids == object_id).all()
         softmaxes = softmax_labels[row_mask, :]
-        correctness_probability = softmaxes[:, object_id]
-        sorted_row_indices = numpy.argsort(correctness_probability)
+
+        # Sort these rows by softmax's correctness (worst first).
+        correctness = softmaxes[:, object_id]
+        sorted_row_indices = numpy.argsort(correctness)
 
         # Only include the worst rows
-        row_mask = correctness_probability[sorted_row_indices] < 0.1
+        row_mask = correctness[sorted_row_indices] < 0.1
         sorted_row_indices = sorted_row_indices[row_mask]
         softmaxes = softmaxes[sorted_row_indices, :]
         actual_ids = actual_ids[sorted_row_indices]
+        actual_labels = actual_labels[sorted_row_indices]
 
-        plot_heatmap(softmaxes, axes, row_ids=actual_ids)
+        plot_heatmap(softmaxes, axes, row_ids=actual_ids, labels=actual_labels)
         axes.set_title("Softmaxes of\nobject %d" % object_id)
         axes.set_yticklabels(())
         axes.set_xticklabels(())
