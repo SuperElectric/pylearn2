@@ -95,7 +95,7 @@ def main():
         returns: dataset, original_labels
           dataset: ZCA_Dataset
             The labels are one-hot object ID vectors.
-          labels: Nx5 ndarray
+          original_labels: Nx5 ndarray
             The original NORB labels that were replaced by the object IDs.
         """
 
@@ -180,11 +180,13 @@ def main():
     all_expected_ids = numpy.zeros([test_set.y.shape[0]], dtype=int)
     num_data = 0
 
-    for batch_number, (image, expected_id) in \
-            enumerate(test_set.iterator(mode='sequential',
-                                        batch_size=batch_size,
-                                        data_specs=data_specs,
-                                        return_tuple=True)):
+    for batch_number, norb_label, (image, expected_id) in \
+        izip(xrange(norb_labels.shape[0]),
+             norb_labels,
+             test_set.iterator(mode='sequential',
+                               batch_size=batch_size,
+                               data_specs=data_specs,
+                               return_tuple=True)):
 
         computed_id = model_function(image)
 
@@ -201,8 +203,9 @@ def main():
                test_set.y.shape[0])
 
     numpy.savez(args.output,
-                labels=all_computed_ids,
-                ground_truth=all_expected_ids)
+                softmaxes=all_computed_ids,
+                actual_ids=all_expected_ids,
+                labels=labels)
 
 
 if __name__ == '__main__':

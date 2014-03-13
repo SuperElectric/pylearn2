@@ -28,7 +28,39 @@ def main():
 
     axes_to_heatmap = {}
 
-    def plot_heatmap(heatmap, axes, row_ids=None, col_ids=None):
+    def get_objects_pointed_at(mouse_event):
+        """
+        Returns (row_id, col_id, heatmap).
+        """
+
+        if not event.inaxes in axes_to_heatmap.keys():
+            # Mouse isn't pointing at a heatmap.
+            return None
+        else:
+            heatmap = axes_to_heatmap[event.inaxes]['heatmap']
+            row_ids = axes_to_heatmap[event.inaxes]['row_ids']
+            col_ids = axes_to_heatmap[event.inaxes]['col_ids']
+            labels = axes_to_heatmap[event.inaxes]['labels']
+
+            # xdata, ydata actually start at -.5, -.5 in the upper-left corner
+            row = int(event.ydata + .5)
+            col = int(event.xdata + .5)
+            row_obj = row_ids[row]
+
+            if col_ids is None:
+                col_obj = col
+            else:
+                col_obj = col_ids[row, col]
+
+            label = None if labels is None else labels[row]
+
+            return {'row_obj': row_obj,
+                    'col_obj': col_obj,
+                    'heatmap': heatmap,
+                    'label': label}
+
+
+    def plot_heatmap(heatmap, axes, row_ids=None, col_ids=None, label=None):
         axes.imshow(heatmap,
                     norm=matplotlib.colors.no_norm(),
                     interpolation='nearest')
@@ -38,7 +70,8 @@ def main():
 
         axes_to_heatmap[axes] = {'heatmap': heatmap,
                                  'row_ids': row_ids,
-                                 'col_ids': col_ids}
+                                 'col_ids': col_ids,
+                                 'label': label}
 
 
     def plot_worst_softmax(softmax_labels, ground_truth, one_or_more_axes):
@@ -171,32 +204,49 @@ def main():
     def on_mouse_motion(event):
         original_text = status_text.get_text()
 
-        if event.inaxes in axes_to_heatmap.keys():
-            heatmap = axes_to_heatmap[event.inaxes]['heatmap']
-            row_ids = axes_to_heatmap[event.inaxes]['row_ids']
-            col_ids = axes_to_heatmap[event.inaxes]['col_ids']
-
-            # xdata, ydata actually start at -.5, -.5 in the upper-left corner
-#            print "event.ydata = %0.1f" % event.ydata
-            row = int(event.ydata + .5)
-            col = int(event.xdata + .5)
-            row_obj = row_ids[row]
-
-            if col_ids is None:
-                col_obj = col
-            else:
-                col_obj = col_ids[row, col]
-
+        row_obj, col_obj, heatmap = get_objects_pointed_at(event)
+        if row_obj is None:
+            status_text.set_text(default_status_text)
+        else:
             status_text.set_text("row obj: %g, col obj: %g, val: %g" %
                                  (row_obj, col_obj, heatmap[row, col]))
-        else:
-            status_text.set_text(default_status_text)
 
-        if status_text != original_text:
+#         if event.inaxes in axes_to_heatmap.keys():
+#             heatmap = axes_to_heatmap[event.inaxes]['heatmap']
+#             row_ids = axes_to_heatmap[event.inaxes]['row_ids']
+#             col_ids = axes_to_heatmap[event.inaxes]['col_ids']
+
+#             # xdata, ydata actually start at -.5, -.5 in the upper-left corner
+# #            print "event.ydata = %0.1f" % event.ydata
+#             row = int(event.ydata + .5)
+#             col = int(event.xdata + .5)
+#             row_obj = row_ids[row]
+
+#             if col_ids is None:
+#                 col_obj = col
+#             else:
+#                 col_obj = col_ids[row, col]
+
+#             status_text.set_text("row obj: %g, col obj: %g, val: %g" %
+#                                  (row_obj, col_obj, heatmap[row, col]))
+#         else:
+
+
+        if status_text.get_text() != original_text:
             figure.canvas.draw()
 
     def on_mousedown(event):
-        pass
+        pointed_at = get_object_ids_pointed_at(event)
+        if pointed_at is None:
+            return
+
+        if heatmap in axes[1, :]:
+            pass
+            # show specific image corresponding to row in axes[2, 0]
+            # show generic image of instance of the first 3 objects
+        elif heatmap in axes[0, :]:
+            pass
+            # show generic image corresponding to row
 
     # plots the confusion matrices
     for (plot_axes,
