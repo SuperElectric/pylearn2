@@ -166,6 +166,10 @@ def load_instance_datasets(azimuth_ratio, elevation_ratio, which_image):
 
     assert str(images.dtype) == theano.config.floatX
 
+    # Free some memory
+    del train
+    del test
+
     # new_labels = get_object_ids(labels)
     test_mask = get_testing_rowmask(labels, azimuth_ratio, elevation_ratio)
     train_mask = numpy.logical_not(test_mask)
