@@ -9,10 +9,8 @@ import numpy, theano
 from pylearn2.models.mlp import MLP
 from pylearn2.space import VectorSpace, CompositeSpace
 from pylearn2.utils import serial
-# from pylearn2.config import yaml_parse
 from pylearn2.datasets.zca_dataset import ZCA_Dataset
 from pylearn2.scripts.papers.maxout.norb import SmallNORB_labels_to_object_ids
-# from pylearn2.datasets.zca_dataset import ZCA_Dataset
 
 
 def main():
@@ -93,7 +91,7 @@ def main():
         Loads a NORB instance dataset and its preprocessor.
 
         returns: dataset, original_labels
-          dataset: ZCA_Dataset
+        dataset_path: ZCA_Dataset
             The labels are the original NORB label vectors.
             Use SmallNORB_Labels_to_object_ids() to convert to object IDs.
         """
@@ -111,19 +109,12 @@ def main():
             return base_path + 'preprocessor.pkl'
 
         dataset = serial.load(dataset_path)
-
         preprocessor = serial.load(get_preprocessor_path(dataset_path))
 
         return ZCA_Dataset(preprocessed_dataset=dataset,
                            preprocessor=preprocessor,
+                           convert_to_one_hot=False,
                            axes=['c', 0, 1, 'b'])
-        # return yaml_parse.load(
-        #     """!obj:pylearn2.datasets.zca_dataset.ZCA_Dataset {
-        #     preprocessed_dataset: !pkl: "%s",
-        #     preprocessor: !pkl: "%s",
-        #     convert_to_one_hot: False,
-        #     axes: ['c', 0, 1, 'b']
-        #     }""" % (dataset_path, get_preprocessor_path(dataset_path)))
 
     def get_model_function(model, batch_size):
         """
@@ -137,27 +128,9 @@ def main():
         output_symbol = model.fprop(input_symbol)
         return theano.function([input_symbol, ], output_symbol)
 
-    # def convert_from_onehot(onehot_labels):
-    #     """
-    #     Converts a BxL matrix (B = batch size, L = # of possible labels)
-    #     of one-hot label vectors, and returns a Bx1 matrix where each
-    #     row just contains the index of the nonzero element in that row.
-
-    #     For binary one-hot labels (one 1, 0s elsewhere), use binary=True.
-    #     For continuous one-hot labels (e.g. the output of a softmax), use
-    #     binary=False.
-    #     """
-    #     nonzero_indices = onehot_labels.nonzero()
-    #     assert len(nonzero_indices) == len(onehot_labels.shape)
-    #     assert all(len(i) == onehot_labels.shape[0]
-    #                for i in nonzero_indices)
-    #     return nonzero_indices[-1]
-
     args = parse_args()
     test_set = load_small_norb_instance_dataset(args.dataset)
 
-    print "test_set.y.shape: ", test_set.y.shape
-    # print "norb_labels.shape: ", norb_labels.shape
     model = serial.load(args.model)
 
     # This is just a sanity check. It's not necessarily true; it's just
@@ -171,8 +144,7 @@ def main():
                   ('features', 'targets'))
 
     model_function = get_model_function(model, batch_size)
-    print "test_set.y.shape: ", test_set.y.shape
-    all_computed_ids = numpy.zeros(test_set.y.shape, dtype=floatX)
+    all_computed_ids = numpy.zeros((test_set.y.shape[0], 50), dtype=floatX)
     # all_expected_ids = numpy.zeros([test_set.y.shape[0]], dtype=int)
     num_data = 0
 
@@ -183,17 +155,13 @@ def main():
                                     return_tuple=True)):
 
         computed_id = model_function(image)
-        # expected_id = SmallNORB_labels_to_object_ids(norb_label)
 
         start_index = batch_number * batch_size
         end_index = min(start_index + batch_size, test_set.y.shape[0])
         all_computed_ids[start_index:end_index, :] = computed_id
 
-        # expected_id = convert_from_onehot(expected_id)
-        # all_expected_ids[start_index:end_index] = expected_id
-
         num_data += computed_id.shape[0]
-        print "Processed %g %% of %d images" % \
+        print "Processed %.01f %% of %d images" % \
               (100.0 * float(num_data) / test_set.y.shape[0],
                test_set.y.shape[0])
 

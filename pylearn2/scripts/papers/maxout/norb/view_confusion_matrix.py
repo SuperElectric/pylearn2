@@ -8,6 +8,7 @@ import argparse, numpy
 import matplotlib
 from matplotlib import pyplot
 from pylearn2.utils import safe_zip
+from pylearn2.scripts.papers.maxout.norb import SmallNORB_labels_to_object_ids
 
 
 def main():
@@ -59,7 +60,6 @@ def main():
                     'value': heatmap[row, col],
                     'label': label}
 
-
     def plot_heatmap(heatmap, axes, row_ids=None, col_ids=None, label=None):
         axes.imshow(heatmap,
                     norm=matplotlib.colors.no_norm(),
@@ -72,7 +72,6 @@ def main():
                                  'row_ids': row_ids,
                                  'col_ids': col_ids,
                                  'label': label}
-
 
     def plot_worst_softmax(softmax_labels, ground_truth, one_or_more_axes):
         def wrongness(softmax_labels, ground_truth):
@@ -108,7 +107,7 @@ def main():
             differences = softmax_labels - get_onehot(ground_truth,
                                                       softmax_labels.shape[1])
 
-            result[wrong_rowmask, :] = (differences**2).sum(axis=1)
+            result[wrong_rowmask, :] = (differences ** 2).sum(axis=1)
 
             return result
 
@@ -168,7 +167,6 @@ def main():
         # print "shapes: ", most_confused_objects.shape, nonzero_rowmask.shape
         return most_confused_objects[nonzero_rowmask]
 
-
     args = parse_args()
     input_dict = numpy.load(args.input)
     softmax_labels, norb_labels = tuple(input_dict[key] for key
@@ -200,7 +198,6 @@ def main():
     figure, all_axes = pyplot.subplots(3, 4)
     default_status_text = "mouseover heatmaps for object ids and probabiliies"
     status_text = figure.text(.1, .05, default_status_text)
-
 
     def on_mouse_motion(event):
         original_text = status_text.get_text()
@@ -238,7 +235,6 @@ def main():
 #             status_text.set_text("row obj: %g, col obj: %g, val: %g" %
 #                                  (row_obj, col_obj, heatmap[row, col]))
 #         else:
-
 
         if status_text.get_text() != original_text:
             figure.canvas.draw()
@@ -300,7 +296,6 @@ def main():
         axis.set_xticklabels(())
         axis.set_yticklabels(())
 
-
     most_confused_objects = get_most_confused_objects(hard_confusion_matrix)
     plot_confusion_spread(hard_confusion_matrix,
                           most_confused_objects,
@@ -321,6 +316,7 @@ def main():
         softmaxes = softmax_labels[row_mask, :]
 
         # Sort these rows by softmax's correctness (worst first).
+        print "object_id.shape: ", object_id.shape
         correctness = softmaxes[:, object_id]
         sorted_row_indices = numpy.argsort(correctness)
 
@@ -335,7 +331,6 @@ def main():
         axes.set_title("Softmaxes of\nobject %d" % object_id)
         axes.set_yticklabels(())
         axes.set_xticklabels(())
-
 
     # axes[-1].imshow(confusion_matrix[most_confused_objects, :],
     #                 interpolation='nearest')
