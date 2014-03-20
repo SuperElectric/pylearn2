@@ -184,6 +184,21 @@ def main():
                                         in ('softmaxes', 'norb_labels'))
     assert softmax_labels.shape[0] == norb_labels.shape[0]
 
+    # TODO: have compute_softmax_labels include the input dataset's path
+    # in the .npz file it saves, and load that dataset here
+    norb_images = get_norb_images_indexed_by_label()
+
+    def get_example_of_object(object_id):
+        instance_index = SmallNORB.label_type_to_index['instance']
+        category_index = SmallNORB.label_type_to_index['instance']
+
+        instances_per_class = SmallNORB.num_labels_by_type[instance_index]
+
+        label = [0, ] * len(SmallNORB.num_labels_by_type)
+        label[category_index] = object_id / instances_per_class
+        label[instance_index] = object_id % instances_per_class
+        return norb_images[tuple(label)]
+
     ground_truth = SmallNORB_labels_to_object_ids(norb_labels)
     hard_labels = numpy.argmax(softmax_labels, axis=1)
 
@@ -226,26 +241,6 @@ def main():
 
             status_text.set_text(text)
 
-#         if event.inaxes in axes_to_heatmap.keys():
-#             heatmap = axes_to_heatmap[event.inaxes]['heatmap']
-#             row_ids = axes_to_heatmap[event.inaxes]['row_ids']
-#             col_ids = axes_to_heatmap[event.inaxes]['col_ids']
-
-#             # xdata, ydata actually start at -.5, -.5 in the upper-left corner
-# #            print "event.ydata = %0.1f" % event.ydata
-#             row = int(event.ydata + .5)
-#             col = int(event.xdata + .5)
-#             row_obj = row_ids[row]
-
-#             if col_ids is None:
-#                 col_obj = col
-#             else:
-#                 col_obj = col_ids[row, col]
-
-#             status_text.set_text("row obj: %g, col obj: %g, val: %g" %
-#                                  (row_obj, col_obj, heatmap[row, col]))
-#         else:
-
         if status_text.get_text() != original_text:
             figure.canvas.draw()
 
@@ -254,13 +249,19 @@ def main():
         if pointed_at is None:
             return
 
-        if heatmap in axes[1, :]:
-            pass
-            # show specific image corresponding to row in axes[2, 0]
-            # show generic image of instance of the first 3 objects
-        elif heatmap in axes[0, :]:
-            pass
-            # show generic image corresponding to row
+        is_confusion_matrix = heatmap in axes[0, :]
+        is_softmax_matrix = heatmap in axes[1, :]
+
+        if is_confusion_matrix or is_softmax_matrix:
+            if is_confusion_matrix:
+                expected_image = get_example_of_object(pointed_at['row_obj'])
+            else:  # i.e. is_softmax_matrix
+                expected_image = get_image_with_label(pointed_at['label'])
+
+            wrong_image = get_example_of_object(pointed_at['col_obj'])
+
+            axes[2, 0].imshow(expected_image)
+            axes[2, 1].imshow(wrong_image)
 
     # plots the confusion matrices
     for (plot_axes,
