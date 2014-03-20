@@ -167,7 +167,6 @@ def main():
 
     numpy.savez(args.output,
                 softmaxes=all_computed_ids,
-                # actual_ids=all_expected_ids,
                 norb_labels=test_set.y)
 
 

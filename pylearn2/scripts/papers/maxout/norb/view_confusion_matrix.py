@@ -34,18 +34,18 @@ def main():
         Returns (row_id, col_id, heatmap).
         """
 
-        if not event.inaxes in axes_to_heatmap.keys():
+        if not mouse_event.inaxes in axes_to_heatmap.keys():
             # Mouse isn't pointing at a heatmap.
             return None
         else:
-            heatmap = axes_to_heatmap[event.inaxes]['heatmap']
-            row_ids = axes_to_heatmap[event.inaxes]['row_ids']
-            col_ids = axes_to_heatmap[event.inaxes]['col_ids']
-            labels = axes_to_heatmap[event.inaxes]['labels']
+            heatmap = axes_to_heatmap[mouse_event.inaxes]['heatmap']
+            row_ids = axes_to_heatmap[mouse_event.inaxes]['row_ids']
+            col_ids = axes_to_heatmap[mouse_event.inaxes]['col_ids']
+            labels = axes_to_heatmap[mouse_event.inaxes]['labels']
 
             # xdata, ydata actually start at -.5, -.5 in the upper-left corner
-            row = int(event.ydata + .5)
-            col = int(event.xdata + .5)
+            row = int(mouse_event.ydata + .5)
+            col = int(mouse_event.xdata + .5)
             row_obj = row_ids[row]
 
             if col_ids is None:
@@ -60,7 +60,7 @@ def main():
                     'value': heatmap[row, col],
                     'label': label}
 
-    def plot_heatmap(heatmap, axes, row_ids=None, col_ids=None, label=None):
+    def plot_heatmap(heatmap, axes, row_ids=None, col_ids=None, labels=None):
         axes.imshow(heatmap,
                     norm=matplotlib.colors.no_norm(),
                     interpolation='nearest')
@@ -71,7 +71,7 @@ def main():
         axes_to_heatmap[axes] = {'heatmap': heatmap,
                                  'row_ids': row_ids,
                                  'col_ids': col_ids,
-                                 'label': label}
+                                 'labels': labels}
 
     def plot_worst_softmax(softmax_labels, ground_truth, one_or_more_axes):
         def wrongness(softmax_labels, ground_truth):
@@ -164,8 +164,19 @@ def main():
             misclassification_rates[most_confused_objects]
 
         nonzero_rowmask = sorted_misclassification_rates > 0.0
+        print "confusion_matrix.shape: ", confusion_matrix.shape
+        print "nonzero_rowmask.shape: ", nonzero_rowmask.shape
+        print "nonzero_rowmask.any():", nonzero_rowmask.any()
         # print "shapes: ", most_confused_objects.shape, nonzero_rowmask.shape
         return most_confused_objects[nonzero_rowmask]
+
+    def get_onehot(labels, max_num_labels):
+        assert len(labels.shape) == 2
+        assert labels.shape[1] == 1
+
+        result = numpy.zeros((labels.shape[0], max_num_labels), dtype=int)
+        result[:, tuple(labels[:, 0])] = 1
+        return result
 
     args = parse_args()
     input_dict = numpy.load(args.input)
@@ -174,9 +185,8 @@ def main():
     assert softmax_labels.shape[0] == norb_labels.shape[0]
 
     ground_truth = SmallNORB_labels_to_object_ids(norb_labels)
-    hard_labels = softmax_labels.argmax(axis=1)
+    hard_labels = numpy.argmax(softmax_labels, axis=1)
 
-    num_labels = softmax_labels.shape[0]
     num_instances = 50
     hard_confusion_matrix = numpy.zeros([num_instances, num_instances],
                                         dtype=float)
@@ -240,7 +250,7 @@ def main():
             figure.canvas.draw()
 
     def on_mousedown(event):
-        pointed_at = get_object_ids_pointed_at(event)
+        pointed_at = get_objects_pointed_at(event)
         if pointed_at is None:
             return
 
@@ -297,6 +307,7 @@ def main():
         axis.set_yticklabels(())
 
     most_confused_objects = get_most_confused_objects(hard_confusion_matrix)
+    print "most_confused_objects.shape: ", most_confused_objects.shape
     plot_confusion_spread(hard_confusion_matrix,
                           most_confused_objects,
                           all_axes[0, -1])
@@ -306,11 +317,12 @@ def main():
     #
 
     # use of zip rather than safe_zip intentional here
-    for (axes, object_id) in zip(all_axes[1, :], most_confused_objects):
+    for axes, object_id in zip(all_axes[1, :], most_confused_objects):
+        # rows of images showing object <object_id>
         row_mask = ground_truth == object_id
 
         # Find the current object's NORB labels, object ids, and softmaxes
-        actual_norb_labels = norb_labels[row_mask]
+        actual_norb_labels = norb_labels[row_mask, :]
         actual_ids = ground_truth[row_mask]
         assert (actual_ids == object_id).all()
         softmaxes = softmax_labels[row_mask, :]
@@ -325,9 +337,12 @@ def main():
         sorted_row_indices = sorted_row_indices[row_mask]
         softmaxes = softmaxes[sorted_row_indices, :]
         actual_ids = actual_ids[sorted_row_indices]
-        actual_labels = actual_labels[sorted_row_indices]
+        actual_norb_labels = actual_norb_labels[sorted_row_indices]
 
-        plot_heatmap(softmaxes, axes, row_ids=actual_ids, labels=actual_labels)
+        plot_heatmap(softmaxes,
+                     axes,
+                     row_ids=actual_ids,
+                     labels=actual_norb_labels)
         axes.set_title("Softmaxes of\nobject %d" % object_id)
         axes.set_yticklabels(())
         axes.set_xticklabels(())

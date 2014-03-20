@@ -66,7 +66,8 @@ def SmallNORB_labels_to_object_ids(label_vectors):
                   (numpy.count_nonzero(result==object_id), object_id)
         sys.exit(1)
 
-    return result[:, numpy.newaxis]  # size N vector -> Nx1 matrix
+    return result
+    #return result[:, numpy.newaxis]  # size N vector -> Nx1 matrix
 
 
 # def get_instance_dataset(pickle_filepath):
