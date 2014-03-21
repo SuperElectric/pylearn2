@@ -4,12 +4,14 @@ A script for viewing the confusion matrix of softmax labels computed with
 ./compute_softmax_instance_labels.py
 """
 
-import argparse, numpy
-import matplotlib
+import sys, argparse
+import numpy, matplotlib
 from matplotlib import pyplot
 from pylearn2.utils import safe_zip, serial
-from pylearn2.scripts.papers.maxout.norb import SmallNORB_labels_to_object_ids
+from pylearn2.scripts.papers.maxout.norb import \
+    SmallNORB_labels_to_object_ids, load_small_norb_instance_dataset
 from pylearn2.datasets.norb import SmallNORB
+from pylearn2.datasets.zca_dataset import ZCA_Dataset
 
 
 def main():
@@ -175,25 +177,20 @@ def main():
         nonzero_rowmask = sorted_misclassification_rates > 0.0
         return most_confused_objects[nonzero_rowmask]
 
-    # def get_onehot(labels, max_num_labels):
-    #     assert len(labels.shape) == 2
-    #     assert labels.shape[1] == 1
-
-    #     result = numpy.zeros((labels.shape[0], max_num_labels), dtype=int)
-    #     result[:, tuple(labels[:, 0])] = 1
-    #     return result
-
     args = parse_args()
     input_dict = numpy.load(args.input)
     softmax_labels, norb_labels = tuple(input_dict[key] for key
                                         in ('softmaxes', 'norb_labels'))
     assert softmax_labels.shape[0] == norb_labels.shape[0]
 
-    # TODO: have compute_softmax_labels include the input dataset's path
-    # in the .npz file it saves, and load that dataset here
-    dataset_path = ("/scratch/data/norb_small/instance_recognition/" +
-                    "small_norb_02_00_test.pkl")
-    dataset = serial.load(dataset_path)
+    dataset_path = str(input_dict['dataset_path'])
+    dataset = load_small_norb_instance_dataset(dataset_path)
+
+    # performs a mapback just to induce that function to compile.
+    print "compiling un-ZCA'ing function (used for visualization)..."
+    dataset.mapback_for_viewer(dataset.X[:1, :])
+    print "...done"
+
     label_to_index = {}
     for index, label in enumerate(dataset.y):
         label_to_index[tuple(label)] = index
@@ -208,13 +205,6 @@ def main():
         assert single_image_batch.shape[0] == 1
         assert single_image_batch.shape[-1] == 1
         return single_image_batch[0, :, :, 0]
-        # row_shape = (2, ) + dataset.original_image_shape
-        # stereo_pair = dataset.X[row_index, :].reshape(row_shape)
-
-        # # TODO: this hard-coded choice will no longer be necessary once we load
-        # # the actual dataset used by compute_softmax_labels, not
-        # # SmallNORB('test')
-        # return stereo_pair[0, :, :]
 
     def get_example_of_object(object_id):
         instance_index = SmallNORB.label_type_to_index['instance']
@@ -226,7 +216,6 @@ def main():
         label[category_index] = object_id / instances_per_class
         label[instance_index] = object_id % instances_per_class
         return get_image_with_label(label)
-
 
     ground_truth = SmallNORB_labels_to_object_ids(norb_labels)
     hard_labels = numpy.argmax(softmax_labels, axis=1)
@@ -249,7 +238,7 @@ def main():
         for confusion_matrix in (soft_confusion_matrix, hard_confusion_matrix):
             confusion_matrix[instance, :] /= float(num_occurences)
 
-    figure, all_axes = pyplot.subplots(3, 4)
+    figure, all_axes = pyplot.subplots(3, 4, figsize=(16, 12))
     default_status_text = "mouseover heatmaps for object ids and probabiliies"
     status_text = figure.text(.1, .05, default_status_text)
 
@@ -282,21 +271,49 @@ def main():
         is_softmax_matrix = event.inaxes in all_axes[1, :]
 
         def plot_image(image, axes):
+            # Neither ZCA_Dataset.mapback() nor .mapback_for_viewer() actually
+            # map the image back to its original form, because the dataset's
+            # preprocessor is unaware of the global contrast normalization we
+            # did.
+            #
+            # Therefore we rely on matpotlib's pixel normalization that
+            # happens by default.
             axes.imshow(image,
                         cmap='gray',
-                        norm=matplotlib.colors.no_norm(),
+                        # norm=matplotlib.colors.no_norm(),
                         interpolation='nearest')
 
         if is_confusion_matrix or is_softmax_matrix:
             if is_confusion_matrix:
                 expected_image = get_example_of_object(pointed_at['row_obj'])
+                titles = ("correct example", "classifier example")
             else:  # i.e. is_softmax_matrix
                 expected_image = get_image_with_label(pointed_at['label'])
+                titles = ("actual image", "classifier example")
 
             wrong_image = get_example_of_object(pointed_at['col_obj'])
 
-            plot_image(expected_image, all_axes[2, 0])
-            plot_image(wrong_image, all_axes[2, 1])
+            # Show preprocessed images
+            for image, ax, title in safe_zip((expected_image, wrong_image),
+                                             all_axes[2, :2],
+                                             titles):
+                plot_image(image, ax)
+                ax.set_title(title)
+
+            # Show corresponding un-ZCA'ed images. These are not the same as
+            # the original NORB images, becasue the ZCA preprocessor is unaware
+            # of and therefore can't undo the GCN preprocessing we did before
+            # ZCA.
+            for image, ax, title in safe_zip((expected_image, wrong_image),
+                                             all_axes[2, 2:],
+                                             titles):
+                shape = image.shape
+                flattened = image.reshape((1, numpy.prod(shape)))
+
+                unpreprocessed = dataset.mapback_for_viewer(flattened)
+                plot_image(unpreprocessed.reshape(shape), ax)
+                ax.set_title(title)
+
             figure.canvas.draw()
 
     # plots the confusion matrices
@@ -378,18 +395,17 @@ def main():
                      axes,
                      row_ids=actual_ids,
                      labels=actual_norb_labels)
-        axes.set_title("Softmaxes of\nobject %d" % object_id)
+        axes.set_title("Softmaxes of object %d" % object_id)
         axes.set_yticklabels(())
         axes.set_xticklabels(())
 
-    # axes[-1].imshow(confusion_matrix[most_confused_objects, :],
-    #                 interpolation='nearest')
-    # plots the worst softmax(es)
-    # axes[-1].imshow(softmax_labels[:100, :], interpolation='nearest')
-    # plot_worst_softmax(softmax_labels, ground_truth, axes[2:])
+    def on_key_press(event):
+        if event.key == 'q':
+            sys.exit(0)
 
     figure.canvas.mpl_connect('motion_notify_event', on_mouse_motion)
     figure.canvas.mpl_connect('button_press_event', on_mousedown)
+    figure.canvas.mpl_connect('key_press_event', on_key_press)
 
     pyplot.show()
 

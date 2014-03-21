@@ -2,8 +2,10 @@
 
 import sys, argparse, pickle
 import numpy
+import matplotlib
 from matplotlib import pyplot
 from pylearn2.datasets import norb
+from pylearn2.utils import safe_zip
 
 
 def main():
@@ -103,7 +105,6 @@ def main():
     assert not numpy.any(label_to_index == -1)  # all elements have been set
 
     figure, axes = pyplot.subplots(1, 2, squeeze=True)
-
     figure.canvas.set_window_title('Small NORB dataset (%sing set)' %
                                    which_set)
 
@@ -140,8 +141,11 @@ def main():
             index = label_to_index[tuple(current_labels)]
 
             image_pair = values[index, :, :, :]
-            for i in range(2):
-                axes[i].imshow(image_pair[i, :, :], cmap='gray')
+            for image, ax in safe_zip(image_pair, axes):
+                ax.imshow(image / 255.,
+                          cmap='gray',
+                          norm=matplotlib.colors.no_norm(),
+                          interpolation='nearest')
 
         figure.canvas.draw()
 

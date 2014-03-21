@@ -4,7 +4,39 @@ Defines the pylearn2.scripts.papers.maxout.norb module.
 
 import os, pickle, sys
 import numpy
+from pylearn2.utils import serial
+from pylearn2.datasets.zca_dataset import ZCA_Dataset
 from pylearn2.datasets.norb import SmallNORB
+
+def load_small_norb_instance_dataset(dataset_path):
+    """
+    Loads a NORB instance dataset and its preprocessor.
+
+    returns: dataset, original_labels
+    dataset_path: ZCA_Dataset
+        The labels are the original NORB label vectors.
+        Use SmallNORB_Labels_to_object_ids() to convert to object IDs.
+    """
+
+    def get_preprocessor_path(dataset_path):
+        base_path, extension = os.path.splitext(dataset_path)
+        assert extension == '.pkl'
+        assert any(base_path.endswith(x) for x in ('train', 'test'))
+
+        if base_path.endswith('train'):
+            base_path = base_path[:-5]
+        elif base_path.endswith('test'):
+            base_path = base_path[:-4]
+
+        return base_path + 'preprocessor.pkl'
+
+    dataset = serial.load(dataset_path)
+    preprocessor = serial.load(get_preprocessor_path(dataset_path))
+
+    return ZCA_Dataset(preprocessed_dataset=dataset,
+                       preprocessor=preprocessor,
+                       convert_to_one_hot=False,
+                       axes=['c', 0, 1, 'b'])
 
 
 def object_id_to_SmallNORB_label_pair(object_ids):

@@ -9,8 +9,8 @@ import numpy, theano
 from pylearn2.models.mlp import MLP
 from pylearn2.space import VectorSpace, CompositeSpace
 from pylearn2.utils import serial
-from pylearn2.datasets.zca_dataset import ZCA_Dataset
-from pylearn2.scripts.papers.maxout.norb import SmallNORB_labels_to_object_ids
+from pylearn2.scripts.papers.maxout.norb import \
+    SmallNORB_labels_to_object_ids, load_small_norb_instance_dataset
 
 
 def main():
@@ -86,36 +86,6 @@ def main():
         check_output(result.output)
         return result
 
-    def load_small_norb_instance_dataset(dataset_path):
-        """
-        Loads a NORB instance dataset and its preprocessor.
-
-        returns: dataset, original_labels
-        dataset_path: ZCA_Dataset
-            The labels are the original NORB label vectors.
-            Use SmallNORB_Labels_to_object_ids() to convert to object IDs.
-        """
-
-        def get_preprocessor_path(dataset_path):
-            base_path, extension = os.path.splitext(dataset_path)
-            assert extension == '.pkl'
-            assert any(base_path.endswith(x) for x in ('train', 'test'))
-
-            if base_path.endswith('train'):
-                base_path = base_path[:-5]
-            elif base_path.endswith('test'):
-                base_path = base_path[:-4]
-
-            return base_path + 'preprocessor.pkl'
-
-        dataset = serial.load(dataset_path)
-        preprocessor = serial.load(get_preprocessor_path(dataset_path))
-
-        return ZCA_Dataset(preprocessed_dataset=dataset,
-                           preprocessor=preprocessor,
-                           convert_to_one_hot=False,
-                           axes=['c', 0, 1, 'b'])
-
     def get_model_function(model, batch_size):
         """
         Returns an evaluatable function that numerically performs a model's
@@ -167,7 +137,8 @@ def main():
 
     numpy.savez(args.output,
                 softmaxes=all_computed_ids,
-                norb_labels=test_set.y)
+                norb_labels=test_set.y,
+                dataset_path=args.dataset)
 
 
 if __name__ == '__main__':
