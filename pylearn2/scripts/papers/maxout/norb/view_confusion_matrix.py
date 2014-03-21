@@ -7,8 +7,9 @@ A script for viewing the confusion matrix of softmax labels computed with
 import argparse, numpy
 import matplotlib
 from matplotlib import pyplot
-from pylearn2.utils import safe_zip
+from pylearn2.utils import safe_zip, serial
 from pylearn2.scripts.papers.maxout.norb import SmallNORB_labels_to_object_ids
+from pylearn2.datasets.norb import SmallNORB
 
 
 def main():
@@ -31,7 +32,17 @@ def main():
 
     def get_objects_pointed_at(mouse_event):
         """
-        Returns (row_id, col_id, heatmap).
+        If the mouse is pointing at a pixel in a plotted image, this returns
+        a dictionary with the following keys:
+
+          'row_obj': int. Object ID of that row.
+          'col_obj': int. Object ID of that column.
+          'value': float. The value of the pixel (0..1).
+          'label': None, or 1D ndarray.
+            If the image is one of the softmax plots, this returns the NORB
+            label of the image corresponding to softmax vector (row) being
+            pointed at.
+            If the image is one of the confusion matrices, this is None.
         """
 
         if not mouse_event.inaxes in axes_to_heatmap.keys():
@@ -141,8 +152,6 @@ def main():
             # column indices (object IDs) in descending order of softmax score
             sorted_ids = numpy.argsort(softmax)[::-1][:num_bars]
             softmax = softmax[sorted_ids]
-            print "sorted_ids.shape: ", sorted_ids.shape
-            print "softmax.shape: ", softmax.shape
             axes.bar(left=numpy.arange(num_bars),
                      height=softmax)
             axes.set_xticklabels(tuple(str(i) for i in sorted_ids))
@@ -164,19 +173,15 @@ def main():
             misclassification_rates[most_confused_objects]
 
         nonzero_rowmask = sorted_misclassification_rates > 0.0
-        print "confusion_matrix.shape: ", confusion_matrix.shape
-        print "nonzero_rowmask.shape: ", nonzero_rowmask.shape
-        print "nonzero_rowmask.any():", nonzero_rowmask.any()
-        # print "shapes: ", most_confused_objects.shape, nonzero_rowmask.shape
         return most_confused_objects[nonzero_rowmask]
 
-    def get_onehot(labels, max_num_labels):
-        assert len(labels.shape) == 2
-        assert labels.shape[1] == 1
+    # def get_onehot(labels, max_num_labels):
+    #     assert len(labels.shape) == 2
+    #     assert labels.shape[1] == 1
 
-        result = numpy.zeros((labels.shape[0], max_num_labels), dtype=int)
-        result[:, tuple(labels[:, 0])] = 1
-        return result
+    #     result = numpy.zeros((labels.shape[0], max_num_labels), dtype=int)
+    #     result[:, tuple(labels[:, 0])] = 1
+    #     return result
 
     args = parse_args()
     input_dict = numpy.load(args.input)
@@ -186,18 +191,42 @@ def main():
 
     # TODO: have compute_softmax_labels include the input dataset's path
     # in the .npz file it saves, and load that dataset here
-    norb_images = get_norb_images_indexed_by_label()
+    dataset_path = ("/scratch/data/norb_small/instance_recognition/" +
+                    "small_norb_02_00_test.pkl")
+    dataset = serial.load(dataset_path)
+    label_to_index = {}
+    for index, label in enumerate(dataset.y):
+        label_to_index[tuple(label)] = index
+
+    def get_image_with_label(norb_label):
+        assert len(norb_label) == dataset.y.shape[1]
+
+        row_index = label_to_index[tuple(norb_label)]
+        row = dataset.X[row_index, :]
+        single_row_batch = row[numpy.newaxis, :]
+        single_image_batch = dataset.get_topological_view(single_row_batch)
+        assert single_image_batch.shape[0] == 1
+        assert single_image_batch.shape[-1] == 1
+        return single_image_batch[0, :, :, 0]
+        # row_shape = (2, ) + dataset.original_image_shape
+        # stereo_pair = dataset.X[row_index, :].reshape(row_shape)
+
+        # # TODO: this hard-coded choice will no longer be necessary once we load
+        # # the actual dataset used by compute_softmax_labels, not
+        # # SmallNORB('test')
+        # return stereo_pair[0, :, :]
 
     def get_example_of_object(object_id):
         instance_index = SmallNORB.label_type_to_index['instance']
-        category_index = SmallNORB.label_type_to_index['instance']
+        category_index = SmallNORB.label_type_to_index['category']
 
         instances_per_class = SmallNORB.num_labels_by_type[instance_index]
 
         label = [0, ] * len(SmallNORB.num_labels_by_type)
         label[category_index] = object_id / instances_per_class
         label[instance_index] = object_id % instances_per_class
-        return norb_images[tuple(label)]
+        return get_image_with_label(label)
+
 
     ground_truth = SmallNORB_labels_to_object_ids(norb_labels)
     hard_labels = numpy.argmax(softmax_labels, axis=1)
@@ -249,8 +278,14 @@ def main():
         if pointed_at is None:
             return
 
-        is_confusion_matrix = heatmap in axes[0, :]
-        is_softmax_matrix = heatmap in axes[1, :]
+        is_confusion_matrix = event.inaxes in all_axes[0, :]
+        is_softmax_matrix = event.inaxes in all_axes[1, :]
+
+        def plot_image(image, axes):
+            axes.imshow(image,
+                        cmap='gray',
+                        norm=matplotlib.colors.no_norm(),
+                        interpolation='nearest')
 
         if is_confusion_matrix or is_softmax_matrix:
             if is_confusion_matrix:
@@ -260,8 +295,9 @@ def main():
 
             wrong_image = get_example_of_object(pointed_at['col_obj'])
 
-            axes[2, 0].imshow(expected_image)
-            axes[2, 1].imshow(wrong_image)
+            plot_image(expected_image, all_axes[2, 0])
+            plot_image(wrong_image, all_axes[2, 1])
+            figure.canvas.draw()
 
     # plots the confusion matrices
     for (plot_axes,
@@ -308,7 +344,6 @@ def main():
         axis.set_yticklabels(())
 
     most_confused_objects = get_most_confused_objects(hard_confusion_matrix)
-    print "most_confused_objects.shape: ", most_confused_objects.shape
     plot_confusion_spread(hard_confusion_matrix,
                           most_confused_objects,
                           all_axes[0, -1])
@@ -329,7 +364,6 @@ def main():
         softmaxes = softmax_labels[row_mask, :]
 
         # Sort these rows by softmax's correctness (worst first).
-        print "object_id.shape: ", object_id.shape
         correctness = softmaxes[:, object_id]
         sorted_row_indices = numpy.argsort(correctness)
 
