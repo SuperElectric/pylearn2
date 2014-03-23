@@ -7,8 +7,12 @@ import numpy
 from pylearn2.utils import serial
 from pylearn2.datasets.zca_dataset import ZCA_Dataset
 from pylearn2.datasets.norb import SmallNORB
+from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 
-def load_small_norb_instance_dataset(dataset_path):
+
+def load_small_norb_instance_dataset(dataset_path,
+                                     convert_to_one_hot=False,
+                                     use_norb_labels=True):
     """
     Loads a NORB instance dataset and its preprocessor.
 
@@ -33,9 +37,23 @@ def load_small_norb_instance_dataset(dataset_path):
     dataset = serial.load(dataset_path)
     preprocessor = serial.load(get_preprocessor_path(dataset_path))
 
+    if not use_norb_labels:
+
+        def num_possible_objects():
+            category_index = SmallNORB.label_type_to_index['category']
+            instance_index = SmallNORB.label_type_to_index['instance']
+            return (SmallNORB.num_labels_by_type[category_index] *
+                    SmallNORB.num_labels_by_type[instance_index])
+
+        object_ids = SmallNORB_labels_to_object_ids(dataset.y)
+        dataset = DenseDesignMatrix(X=dataset.X,
+                                    y=object_ids,
+                                    view_converter=dataset.view_converter,
+                                    max_labels=num_possible_objects())
+
     return ZCA_Dataset(preprocessed_dataset=dataset,
                        preprocessor=preprocessor,
-                       convert_to_one_hot=False,
+                       convert_to_one_hot=convert_to_one_hot,
                        axes=['c', 0, 1, 'b'])
 
 
