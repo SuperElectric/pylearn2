@@ -9,22 +9,23 @@
         layers: [
                  !obj:pylearn2.models.maxout.MaxoutConvC01B {
                      layer_name: 'h0',
-                     pad: 4,
+                     pad: 4, # this should be half of the kernel size
                      tied_b: 1,
                      W_lr_scale: .05,
                      b_lr_scale: .05,
                      num_channels: 96,
                      num_pieces: 2,
                      kernel_shape: [8, 8],
-                     pool_shape: [12, 12],  # was [4, 4] for cifar 10.
-                     pool_stride: [6, 6],  # was [2, 2] for cifar10. Multiplied by 3 to see if we can make the output of this layer the same as it is in cifar10 (NORB image dim = 3x cifar image dim)
+                     pool_shape: [12, 12],  # was [4, 4] for cifar 10, but NORB images are 3x as tall and wide.
+                     pool_stride: [6, 6],  # was [2, 2] for cifar10, but NORB images are 3x as tall and wide.
                      irange: .005,
                      max_kernel_norm: .9,
                      partial_sum: 97,  # was 33 for cifar10. Seems to be (image_height or image_width) + 1.
                  },
+                 # Input: 16x16x96
                  !obj:pylearn2.models.maxout.MaxoutConvC01B {
                      layer_name: 'h1',
-                     pad: 3,
+                     pad: 3,  # weird that this is 3, not kernel_shape/2
                      tied_b: 1,
                      W_lr_scale: .05,
                      b_lr_scale: .05,
@@ -37,6 +38,7 @@
                      max_kernel_norm: 1.9365,
                      partial_sum: 15,
                  },
+                 # Input: 8x8x192
                  !obj:pylearn2.models.maxout.MaxoutConvC01B {
                      pad: 3,
                      layer_name: 'h2',
@@ -51,6 +53,7 @@
                      irange: .005,
                      max_kernel_norm: 1.9365,
                  },
+                 # Input: 4x4x192
                  !obj:pylearn2.models.maxout.Maxout {
                     layer_name: 'h3',
                     irange: .005,
@@ -58,12 +61,14 @@
                     num_pieces: 5,
                     max_col_norm: 1.9
                  },
+                 # Input: 500
                  !obj:pylearn2.models.mlp.Softmax {
                      max_col_norm: 1.9365,
                      layer_name: 'y',
                      n_classes: 50,
                      irange: .005
                  }
+                 # Output: 50
                 ],
         input_space: !obj:pylearn2.space.Conv2DSpace {
             shape: &window_shape [96, 96],
