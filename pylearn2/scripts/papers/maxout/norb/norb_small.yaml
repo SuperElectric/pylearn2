@@ -9,13 +9,13 @@
         layers: [
                  !obj:pylearn2.models.maxout.MaxoutConvC01B {
                      layer_name: 'h0',
-                     pad: 4, # this should be half of the kernel size
+                     pad: 3, #4, # this should be half of the kernel size
                      tied_b: 1,
                      W_lr_scale: .05,
                      b_lr_scale: .05,
-                     num_channels: 96,
+                     num_channels: 96, #192, #96,
                      num_pieces: 2,
-                     kernel_shape: [8, 8],
+                     kernel_shape: [6, 6], # [8, 8],
                      pool_shape: [12, 12],  # was [4, 4] for cifar 10, but NORB images are 3x as tall and wide.
                      pool_stride: [6, 6],  # was [2, 2] for cifar10, but NORB images are 3x as tall and wide.
                      irange: .005,
@@ -29,23 +29,23 @@
                      tied_b: 1,
                      W_lr_scale: .05,
                      b_lr_scale: .05,
-                     num_channels: 192,
+                     num_channels: 192, #384, #192,
                      num_pieces: 2,
-                     kernel_shape: [8, 8],
+                     kernel_shape: [6, 6], # [8, 8]
                      pool_shape: [4, 4],
                      pool_stride: [2, 2],
                      irange: .005,
                      max_kernel_norm: 1.9365,
-                     partial_sum: 15,
+                     partial_sum: 17, # 15
                  },
-                 # Input: 8x8x192
+                 # Input: 8x8x384
                  !obj:pylearn2.models.maxout.MaxoutConvC01B {
                      pad: 3,
                      layer_name: 'h2',
                      tied_b: 1,
                      W_lr_scale: .05,
                      b_lr_scale: .05,
-                     num_channels: 192,
+                     num_channels: 192, #384, #192,  #when we use a bigger value here, we may want to specify partial_sum, to be more memory efficient
                      num_pieces: 2,
                      kernel_shape: [5, 5],
                      pool_shape: [2, 2],
@@ -57,11 +57,11 @@
                  !obj:pylearn2.models.maxout.Maxout {
                     layer_name: 'h3',
                     irange: .005,
-                    num_units: 500,
+                    num_units: 500, #2500, #500,
                     num_pieces: 5,
                     max_col_norm: 1.9
                  },
-                 # Input: 500
+                 # Input: 2500
                  !obj:pylearn2.models.mlp.Softmax {
                      max_col_norm: 1.9365,
                      layer_name: 'y',
@@ -114,7 +114,7 @@
                     N: 5 # 100
                 },
                 !obj:pylearn2.termination_criteria.EpochCounter {
-                    max_epochs: &max_num_epochs 20 # 474
+                    max_epochs: &max_num_epochs 100 # 474
                 }
             ]
         },
@@ -122,7 +122,7 @@
     extensions: [
         !obj:pylearn2.training_algorithms.sgd.MomentumAdjustor {
             start: 1,
-            saturate: *max_num_epochs, # 250,
+            saturate: 50, #*max_num_epochs, # 250,
             final_momentum: .65
         },
         !obj:pylearn2.training_algorithms.sgd.LinearDecayOverEpoch {
