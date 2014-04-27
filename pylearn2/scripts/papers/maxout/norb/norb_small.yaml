@@ -22,7 +22,7 @@
                      max_kernel_norm: .9,
                      partial_sum: 97,  # was 33 for cifar10. Seems to be (image_height or image_width) + 1.
                  },
-                 # Input: 16x16x96
+                 # Input: 16x16x96 (=24576)
                  !obj:pylearn2.models.maxout.MaxoutConvC01B {
                      layer_name: 'h1',
                      pad: 3,  # weird that this is 3, not kernel_shape/2
@@ -38,7 +38,7 @@
                      max_kernel_norm: 1.9365,
                      partial_sum: 17, # 15
                  },
-                 # Input: 8x8x384
+                 # Input: 8x8x384 (= 24576)
                  !obj:pylearn2.models.maxout.MaxoutConvC01B {
                      pad: 3,
                      layer_name: 'h2',
@@ -53,7 +53,7 @@
                      irange: .005,
                      max_kernel_norm: 1.9365,
                  },
-                 # Input: 4x4x192
+                 # Input: 4x4x192 (=3072)
                  !obj:pylearn2.models.maxout.Maxout {
                     layer_name: 'h3',
                     irange: .005,
