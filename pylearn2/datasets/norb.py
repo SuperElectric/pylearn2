@@ -463,6 +463,7 @@ def _merge_dicts(*args):
 
     return result
 
+
 class Norb(SmallNORB):
     """
     A stereo dataset for the same 50 objects (5 classes, 10 objects each) as
@@ -483,12 +484,12 @@ class Norb(SmallNORB):
     original_image_shape = (108, 108)
 
     label_type_to_index = _merge_dicts(SmallNORB.label_type_to_index,
-                                      {'horizontal shift': 5,
-                                       'vertical shift': 6,
-                                       'lumination change': 7,
-                                       'contrast': 8,
-                                       'object scale': 9,
-                                       'rotation': 10})
+                                       {'horizontal shift': 5,
+                                        'vertical shift': 6,
+                                        'lumination change': 7,
+                                        'contrast': 8,
+                                        'object scale': 9,
+                                        'rotation': 10})
 
     num_labels_by_type = SmallNORB.num_labels_by_type + (-1,  # h. shift
                                                          -1,  # v. shift
@@ -496,6 +497,19 @@ class Norb(SmallNORB):
                                                          -1,  # contrast
                                                          -1,  # scale
                                                          -1)  # rotation
+
+
+    @classmethod
+    def get_dir(cls):
+        result = os.path.join(os.getenv('PYLEARN2_DATA_PATH'),
+                              'norb',
+                              'original')
+
+        if not os.path.isdir(result):
+            raise RuntimeError("Couldn't find NORB dataset directory '%s'" %
+                               result)
+
+        return result
 
     @classmethod
     def load(cls, which_set, number, filetype):
@@ -513,7 +527,7 @@ class Norb(SmallNORB):
             assert number in range(1, 11)
 
         def get_path(which_set, number, filetype):
-            dirname = os.path.join(os.getenv('PYLEARN2_DATA_PATH'), 'norb')
+            dirname = self.get_dir()
             if which_set == 'train':
                 instance_list = '46789'
             elif which_set == 'test':
@@ -529,7 +543,6 @@ class Norb(SmallNORB):
 
         file_handle = open(get_path(which_set, number, filetype))
         return cls._parseNORBFile(file_handle)
-
 
     def __init__(self,
                  which_set,
@@ -569,121 +582,179 @@ class Norb(SmallNORB):
             raise ValueError("Expected which_set to be 'train' or "
                              "'test', but got '%s'" % which_set)
 
-        norb_dir = os.path.join(os.getenv('PYLEARN2_DATA_PATH'), 'norb')
+        norb_dir = self.get_dir()
 
         if memmap_dir is None:
             memmap_dir = os.path.join(norb_dir, 'memmap_files')
             if not os.path.isdir(memmap_dir):
                 os.mkdir(memmap_dir)
 
-        def get_memmap_paths():
-            return tuple(os.path.join(memmap_dir,
-                                      "%s_%s.npy" % (which_set, which_file))
-                         for which_file in ('images', 'labels'))
+        def load_memmaps(which_set):
+            """
+            Returns the memmapped arrays for images and labels.
+            Each array will be a design matrix, with data in rows.
 
-        images_path, labels_path = get_memmap_paths()
+            If the memmap file can't be found, the data will be read
+            from the original NORB files, and saved to memmap files for
+            future use.
 
-        if os.path.isfile(images_path) != os.path.isfile(labels_path):
-            raise ValueError("There is %s memmap file for images, but there "
-                             "is %s memmap file for labels. This should not "
-                             "happen under normal operation (they must either "
-                             "both be missing, or both be present). Erase the "
-                             "existing memmap file to regenerate both memmap "
-                             "files from scratch." %
-                             ("a" if os.path.isfile(images_path) else "no",
-                              "a" if os.path.isfile(labels_path) else "no"))
+            Returns: (images, labels)
+            """
 
-        num_norb_files = 2 if which_set == 'test' else 10
-        num_rows = 29160 * num_norb_files
-        pixels_per_row = 2 * numpy.prod(Norb.original_image_shape)
-        labels_per_row = len(Norb.num_labels_by_type)
-        images_shape = (num_rows, pixels_per_row)
-        labels_shape = (num_rows, labels_per_row)
+            isfile = os.path.isfile
 
-        # Opens memmap files as read-only if they already exist.
-        memmaps_already_existed = os.path.isfile(images_path)
+            def get_memmap_paths(which_set):
+                template = os.path.join(memmap_dir, which_set + "_%s.npy")
+                images_path, labels_path = tuple(template % x
+                                                 for x
+                                                 in ('images', 'labels'))
 
-        if not memmaps_already_existed:
-            print "allocating memmap files in %s" % memmap_dir
+                # Disallow case where the images memmap exists but the
+                # corresponding labels file is missing, or vice-versa.
+                if isfile(images_path) != isfile(labels_path):
+                    raise ValueError("There is %s memmap file for images, but "
+                                     "there is %s memmap file for labels. "
+                                     "This should not happen under normal "
+                                     "operation (they must either both be "
+                                     "missing, or both be present). Erase the "
+                                     "existing memmap file to regenerate both "
+                                     "memmap files from scratch." %
+                                     ("a" if isfile(images_path) else "no",
+                                      "a" if isfile(labels_path) else "no"))
 
-        memmap_mode = 'r' if memmaps_already_existed else 'w+'
-        images = numpy.memmap(images_path,
-                              dtype='uint8',
-                              mode=memmap_mode,
-                              shape=images_shape)
-        labels= numpy.memmap(labels_path,
-                             dtype='int32',
-                             mode=memmap_mode,
-                             shape=labels_shape)
+                return images_path, labels_path
 
-        assert str(images.dtype) == 'uint8', images.dtype
-        assert str(labels.dtype) == 'int32', labels.dtype
+            images_path, labels_path = get_memmap_paths(which_set)
 
-        # Load data from NORB data files if memmap files didn't already exist.
-        if not memmaps_already_existed:
+            def get_memmap_shapes(which_set):
+                num_norb_files = 2 if which_set == 'test' else 10
+                num_rows = 29160 * num_norb_files
+                pixels_per_row = 2 * numpy.prod(Norb.original_image_shape)
+                labels_per_row = len(Norb.num_labels_by_type)
+                images_shape = (num_rows, pixels_per_row)
+                labels_shape = (num_rows, labels_per_row)
+                return images_shape, labels_shape
 
-            def get_norb_filepaths(which_set, filetype):
-                if which_set == 'train':
-                    instance_list = '46789'
-                    numbers = range(1, 11)
-                elif which_set == 'test':
-                    instance_list = '01235'
-                    numbers = range(1, 3)
+            images_shape, labels_shape = get_memmap_shapes(which_set)
 
-                template = ('norb-5x%sx9x18x6x2x108x108-%s-%%02d-%s.mat' %
-                            (instance_list, which_set + 'ing', filetype))
-                return tuple(os.path.join(norb_dir, template % n)
-                             for n in numbers)
+            # Opens memmap files as read-only if they already exist.
+            memmaps_already_existed = isfile(images_path)
 
-            # Temporarily folds images, labels into file-sized chunks, to
-            # iterate through.
-            images = images.reshape((num_norb_files, -1, images.shape[1]))
-            labels = labels.reshape((num_norb_files, -1, labels.shape[1]))
+            if not memmaps_already_existed:
+                print "allocating memmap files in %s" % memmap_dir
+            else:
+                print "found memmap files in %s" % memmap_dir
 
-            # Reads images from NORB's 'dat' files.
-            for images_chunk, norb_filepath in \
-                safe_zip(images, get_norb_filepaths(which_set, 'dat')):
+            memmap_mode = 'r' if memmaps_already_existed else 'w+'
+            images = numpy.memmap(images_path,
+                                  dtype='uint8',
+                                  mode=memmap_mode,
+                                  shape=images_shape)
+            labels = numpy.memmap(labels_path,
+                                  dtype='int32',
+                                  mode=memmap_mode,
+                                  shape=labels_shape)
 
-                print "copying images from %s" % norb_filepath
+            assert str(images.dtype) == 'uint8', images.dtype
+            assert str(labels.dtype) == 'int32', labels.dtype
 
-                data = Norb._parseNORBFile(open(norb_filepath))
-                assert data.dtype == images.dtype, \
-                    ("data.dtype: %s, images.dtype: %s" %
-                     (data.dtype, images.dtype))
+            # Load data from NORB data files if memmap files didn't already
+            # exist.
+            if not memmaps_already_existed:
 
-                images_chunk[...] = data.reshape(images_chunk.shape)
+                def get_norb_filepaths(which_set, filetype):
+                    if which_set == 'train':
+                        instance_list = '46789'
+                        numbers = range(1, 11)
+                    elif which_set == 'test':
+                        instance_list = '01235'
+                        numbers = range(1, 3)
 
-            # Reads label data from NORB's 'cat' and 'info' files
-            for labels_chunk, cat_filepath, info_filepath in \
-                safe_zip(labels,
-                         get_norb_filepaths(which_set, 'cat'),
-                         get_norb_filepaths(which_set, 'info')):
-                categories = Norb._parseNORBFile(open(cat_filepath))
+                    template = ('norb-5x%sx9x18x6x2x108x108-%s-%%02d-%s.mat' %
+                                (instance_list, which_set + 'ing', filetype))
+                    return tuple(os.path.join(norb_dir, template % n)
+                                 for n in numbers)
 
-                print ("copying labels from %s and %s" %
-                       (os.path.split(cat_filepath)[0],
-                        os.path.split(cat_filepath)[1]))
-                info = Norb._parseNORBFile(open(info_filepath))
-                info = info.reshape((labels_chunk.shape[0],
-                                     labels_chunk.shape[1]-1))
+                # Temporarily folds images, labels into file-sized chunks, to
+                # iterate through.
+                images = images.reshape((num_norb_files, -1, images.shape[1]))
+                labels = labels.reshape((num_norb_files, -1, labels.shape[1]))
 
-                assert categories.dtype == labels.dtype, \
-                    ("categories.dtype: %s, labels.dtype: %s" %
-                     (categories.dtype, labels.dtype))
+                # Reads images from NORB's 'dat' files.
+                for images_chunk, norb_filepath in \
+                        safe_zip(images, get_norb_filepaths(which_set, 'dat')):
 
-                assert info.dtype == labels.dtype, \
-                    ("info.dtype: %s, labels.dtype: %s" %
-                     (info.dtype, labels.dtype))
+                    print "copying images from %s" % norb_filepath
 
-                labels_chunk[:, 0] = categories
-                labels_chunk[:, 1:] = info
+                    data = Norb._parseNORBFile(open(norb_filepath))
+                    assert data.dtype == images.dtype, \
+                        ("data.dtype: %s, images.dtype: %s" %
+                         (data.dtype, images.dtype))
 
-            # Unfolds images, labels back into matrices
-            images = images.reshape((num_rows, -1))
-            labels = labels.reshape((num_rows, -1))
+                    images_chunk[...] = data.reshape(images_chunk.shape)
+
+                # Reads label data from NORB's 'cat' and 'info' files
+                for labels_chunk, cat_filepath, info_filepath in \
+                    safe_zip(labels,
+                             get_norb_filepaths(which_set, 'cat'),
+                             get_norb_filepaths(which_set, 'info')):
+                    categories = Norb._parseNORBFile(open(cat_filepath))
+
+                    print ("copying labels from %s and %s" %
+                           (os.path.split(cat_filepath)[0],
+                            os.path.split(cat_filepath)[1]))
+                    info = Norb._parseNORBFile(open(info_filepath))
+                    info = info.reshape((labels_chunk.shape[0],
+                                         labels_chunk.shape[1] - 1))
+
+                    assert categories.dtype == labels.dtype, \
+                        ("categories.dtype: %s, labels.dtype: %s" %
+                         (categories.dtype, labels.dtype))
+
+                    assert info.dtype == labels.dtype, \
+                        ("info.dtype: %s, labels.dtype: %s" %
+                         (info.dtype, labels.dtype))
+
+                    labels_chunk[:, 0] = categories
+                    labels_chunk[:, 1:] = info
+
+                # Unfolds images, labels back into matrices
+                images = images.reshape((num_rows, -1))
+                labels = labels.reshape((num_rows, -1))
+
+            return images, labels
+
+        images, labels = load_memmaps(which_set)
 
         if not multi_target:
             labels = labels[:, 0:1]
+
+        if which_set is 'train':
+            instances = (-1, 4, 6, 7, 8, 9)
+        elif which_set is 'test':
+            instances = (-1, 0, 1, 2, 3, 5)
+        else:
+            raise ValueError("Expected which_set to be 'test' or 'train', "
+                             "got '%s'" % which_set)
+
+        # A multidimensional tuple that maps a label int to its semantic value.
+        #
+        # *: These value ranges are smaller than the value ranges documented on
+        #    the NORB homepage. These values reflect the actual ranges present
+        #    in the dataset.
+        self.label_int_to_value = \
+            (('animal', 'human', 'airplane',
+              'truck', 'car', 'blank'),   # category
+             instances,                   # instance
+             (None, ) + tuple(range(30, 71, 5)),   # elevation in degrees
+             (None, ) + tuple(range(0, 341, 20)),  # azimuth in degrees
+             (None, ) + tuple(range(6)),  # lighting
+             tuple(range(-5, 6)),         # horiz. shift*
+             tuple(range(-5, 6)),         # vert. shift*
+             tuple(range(-19, 20)),       # lumination*
+             (0.8, 1.3),                  # contrast
+             (0.78, 1.0),                 # scale
+             tuple(range(-4, 5)))         # in-plane rotation, in degrees*
 
         stereo_pair_shape = ((2, ) +  # two stereo images
                              Norb.original_image_shape +  # image dimesions
@@ -691,20 +762,85 @@ class Norb(SmallNORB):
         axes = ('b', 's', 0, 1, 'c')
         view_converter = StereoViewConverter(stereo_pair_shape, axes)
 
+        def remap_labels(labels):
+            """
+            The NORB labels are integers, but span funky ranges that are
+            unusable as indices into arrays (e.g. -N..N, with stepsize 2).
+
+            This function returns a remapped version of the labels, where
+            label values are consecutive integers starting from 0. Such
+            labels are nice because they can be used as indices into arrays.
+
+            For example, these remapped labels can be used as indices into
+            self.label_int_to_value to recover the actual physical values
+            the labels represent.
+            """
+
+            result = numpy.copy(labels)
+
+            # unmapped_label_values[i] is a list of possible values of label
+            # type i (0: category, 1: instance, etc).
+            #
+            # The value in unmapped_label_values[i, j] will be remapped to j.
+            #
+            # If unmapped_label_values[i] is None, that means that label type i
+            # is already a clean sequence of integers starting at 0, and thus
+            # needs no remapping.
+            #
+            # If unmapped_label_values[i] is an integer, that means the labels
+            # of type i just need to be shifted by the that offset.
+            unmapped_label_values = (None,  # category
+                                     self.label_int_to_value[1],  # instance
+                                     tuple(range(-1, 9)),  # elevation
+                                     tuple([-1, ] + range(0, 35, 2)),  # azim.
+                                     tuple(range(-1, 6)),  # lighting
+                                     self.label_int_to_value[5][0],  # h. shift
+                                     self.label_int_to_value[6][0],  # v. shift
+                                     self.label_int_to_value[7][0],  # lumin.
+                                     None,  # contrast
+                                     None,  # scale
+                                     tuple(range(-4, 5)))  # in-plane rotation
+
+            for column_index, unmapped_values in \
+                    enumerate(unmapped_label_values):
+
+                if unmapped_values is None:
+                    pass
+                elif isinstance(unmapped_values, int):
+                    result[:, column_index] -= unmapped_values
+                elif isinstance(unmapped_values, tuple):
+                    for remapped_value, unmapped_value in \
+                            enumerate(unmapped_values):
+                        row_mask = labels[:, column_index] == unmapped_value
+                        result[row_mask, column_index] = remapped_value
+                else:
+                    raise RuntimeError("Expected unmapped_values to be None, "
+                                       "an int, or a tuple.")
+
+            return result
+
+        labels = remap_labels(labels)
+
         # Call DenseDesignMatrix constructor directly, skipping SmallNORB ctor
         super(SmallNORB, self).__init__(X=images,
                                         y=labels,
                                         view_converter=view_converter)
-
         # code here for debugging, to print out the observed values for each
         # label type to confirm their ranges and density.
 
-        def debug_confirm():
-            for category in self.label_type_to_index.keys():
-                labels = self.y[:, self.label_type_to_index[category]]
-                unique_labels = list(frozenset(labels))
-                unique_labels = numpy.sort(unique_labels)
-                print "%s values: " % category, unique_labels
+        # def debug_confirm():
+        #     print "X.shape = ", self.X.shape
+        #     print "y.shape = ", self.y.shape
+        #     for category in self.label_type_to_index.keys():
+        #         labels_column = self.label_type_to_index[category]
+        #         labels = self.y[:, labels_column]
+        #         unique_labels = list(frozenset(labels))
+        #         unique_labels = numpy.sort(unique_labels)
+        #         original_labels = tuple(self.label_int_to_value[labels_column][x]
+        #                                 for x in unique_labels)
 
+        #         print "category %s:" % category
+        #         print "  remapped values: ", unique_labels
+        #         print "  original values: ", original_labels
 
-        debug_confirm()
+        # debug_confirm()
