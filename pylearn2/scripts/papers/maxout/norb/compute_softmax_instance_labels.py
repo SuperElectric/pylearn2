@@ -4,7 +4,7 @@ A script for saving the softmax label vectors computed by a model for a
 image dataset.
 """
 
-import argparse, os, sys
+import argparse, os, sys, time
 import numpy, theano
 from pylearn2.models.mlp import MLP
 from pylearn2.space import VectorSpace, CompositeSpace
@@ -72,11 +72,19 @@ def main():
                                   "<model_filename>_<dataset_filename>.npz, "
                                   "in the same directory as --model"))
 
+        # Batch size. I chose the default value below to be the empirically
+        # observed optimal value for small_norb, read from a non-solid-state
+        # drive, processed on a GTX 780. If your hardware differs, try playing
+        # with this value to maximize your throughput.
         parser.add_argument('--batch_size',
                             '-b',
                             type=int,
-                            default=100,
-                            help=("The batch size to use when classifying."))
+                            default=30,  # Best for mkg's machine. YMMV.
+                            help=("The batch size to use when classifying. "
+                                  "Play with this to find the value that "
+                                  "gives you the maximum throughput on your "
+                                  "machine. Bigger is not necessarily "
+                                  "faster."))
 
         result = parser.parse_args()
 
@@ -118,6 +126,7 @@ def main():
     # all_expected_ids = numpy.zeros([test_set.y.shape[0]], dtype=int)
     num_data = 0
 
+    start_time = time.time()
     for batch_number, (image, norb_label) in \
         enumerate(test_set.iterator(mode='sequential',
                                     batch_size=batch_size,
@@ -131,9 +140,19 @@ def main():
         all_computed_ids[start_index:end_index, :] = computed_id
 
         num_data += computed_id.shape[0]
-        print "Processed %.01f %% of %d images" % \
-              (100.0 * float(num_data) / test_set.y.shape[0],
-               test_set.y.shape[0])
+
+        percent = 100.0 * float(num_data) / test_set.y.shape[0]
+        time_elapsed = time.time() - start_time
+        fps = float(num_data) / time_elapsed
+        print "Processed %.01f %% of %d images, fps = %g" % \
+              (percent, test_set.y.shape[0], fps)
+
+    # duration = time.time() - start_time
+    # print "With batch size %d, processed %d images in %g seconds (%g fps)" % \
+    #       (batch_size,
+    #        test_set.y.shape[0],
+    #        duration,
+    #        duration / test_set.y.shape[0])
 
     numpy.savez(args.output,
                 softmaxes=all_computed_ids,
