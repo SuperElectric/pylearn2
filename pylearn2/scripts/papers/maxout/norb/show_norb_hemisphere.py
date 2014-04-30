@@ -125,7 +125,6 @@ def main():
     for ie, elevation in enumerate(elevations):
         for ia, azimuth in enumerate(azimuths):
             left_image = left_images[label_subset[elevation, azimuth], :, :, 0]
-            print "image.shape: ", left_image.shape
             axis = axes[ie][ia]
             axis.imshow(left_image, cmap='gray')
 
