@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 
-import argparse
+import argparse, sys
 import numpy
 from matplotlib import pyplot
 from pylearn2.datasets.norb import SmallNORB
@@ -12,9 +12,6 @@ def main():
         parser = argparse.ArgumentParser(
             description="Samples the view hemisphere of an object, dumping "
                         "some images into a given directory.")
-        parser.add_argument('--which_set',
-                            default='train',
-                            help="'train' or 'test'")
         parser.add_argument('--category',
                             '-c',
                             type=int,
@@ -40,26 +37,24 @@ def main():
                             default=0,
                             help="The lighting type to use.")
 
+        result = parser.parse_args()
+        if result.category < 0 or result.category > 4:
+            print ("--instance must be in the range [0..4], not %d"
+                   % result.category)
+            sys.exit(1)
+
+        if result.instance < 0 or result.instance > 9:
+            print ("--instance must be in the range [0..9], not %d"
+                   % result.instance)
+            sys.exit(1)
+
         return parser.parse_args()
 
-    # def get_data(norb):
-    #     """
-    #     Returns a Nx2x96x96 tensor of image data, and a Nx5 tensor of labels.
-    #     """
-    #     image_pairs = norb.get_topological_view()
-    #     labels = norb.y
-    #     return image_pairs, labels
-
     def get_data(dataset):
-        num_examples = dataset.get_data()[0].shape[0]
-        iterator = dataset.iterator(mode = 'sequential',
-                                    batch_size = num_examples,
-                                    topo = True,
-                                    targets = True)
-        values, labels = iterator.next()
-        #print "labels.shape: ", labels.shape()
+        # Gets the left images
+        values = dataset.get_topological_view(single_tensor=False)[0]
+        labels = dataset.y
         return values, numpy.array(labels, 'int')
-
 
     instance_index = SmallNORB.label_type_to_index['instance']
 
@@ -104,12 +99,12 @@ def main():
 
         return label_to_index
 
-
-
     args = parse_args()
-    norb = SmallNORB(args.which_set, True)
-    image_pairs, labels = get_data(norb)
-    new_to_old_instance, old_to_new_instance = remap_instances(args.which_set,
+    which_set = ('test' if args.instance in (0, 1, 2, 3, 5)
+                 else 'train')
+    norb = SmallNORB(which_set, True)
+    left_images, labels = get_data(norb)
+    new_to_old_instance, old_to_new_instance = remap_instances(which_set,
                                                                labels)
     label_to_index = get_label_to_index_map(len(new_to_old_instance))
 
@@ -119,17 +114,26 @@ def main():
 
     elevations = range(0, label_subset.shape[0], args.elevation_downsample)
     azimuths = range(0, label_subset.shape[1], args.azimuth_downsample)
+    # matplotlib.figure(figsize=(8,6))
+    fig_size_inches = (len(azimuths) * 2,
+                       len(elevations) * 2)
     figure, axes = pyplot.subplots(len(elevations),
                                    len(azimuths),
-                                   squeeze=False)
-
+                                   squeeze=False,
+                                   figsize=fig_size_inches)
 
     for ie, elevation in enumerate(elevations):
         for ia, azimuth in enumerate(azimuths):
-            left_image = image_pairs[label_subset[elevation, azimuth]][0, :, :]
+            left_image = left_images[label_subset[elevation, azimuth], :, :, 0]
             print "image.shape: ", left_image.shape
             axis = axes[ie][ia]
             axis.imshow(left_image, cmap='gray')
+
+    def on_key_press(event):
+        if event.key == 'q':
+            sys.exit(0)
+
+    figure.canvas.mpl_connect('key_press_event', on_key_press)
 
     pyplot.show()
 
