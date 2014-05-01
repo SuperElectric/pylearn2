@@ -1,6 +1,6 @@
 !obj:pylearn2.train.Train {
     dataset: &train !obj:pylearn2.scripts.papers.maxout.norb.load_small_norb_instance_dataset {
-      dataset_path: "${PYLEARN2_DATA_PATH}/norb_small/instance_recognition/small_norb_02_00_train.pkl",
+      dataset_path: "${PYLEARN2_DATA_PATH}/norb_small/instance_recognition/small_norb_04_08_train.pkl",
       convert_to_one_hot: True,
       use_norb_labels: False
     },
@@ -83,12 +83,12 @@
         {
         # this feels cheaty: using the test set as validation. maxout's cifar10.yaml does it, but the real thing to do is probably split the test set into two, and use one for validation and the other for testing?
           'valid' : !obj:pylearn2.scripts.papers.maxout.norb.load_small_norb_instance_dataset {
-            dataset_path: "${PYLEARN2_DATA_PATH}/norb_small/instance_recognition/small_norb_02_00_test.pkl",
+            dataset_path: "${PYLEARN2_DATA_PATH}/norb_small/instance_recognition/small_norb_04_08_test.pkl",
             convert_to_one_hot: True,
             use_norb_labels: False
             },
           'test' : &valid !obj:pylearn2.scripts.papers.maxout.norb.load_small_norb_instance_dataset {
-            dataset_path: "${PYLEARN2_DATA_PATH}/norb_small/instance_recognition/small_norb_02_00_test.pkl",
+            dataset_path: "${PYLEARN2_DATA_PATH}/norb_small/instance_recognition/small_norb_04_08_test.pkl",
             convert_to_one_hot: True,
             use_norb_labels: False
             },

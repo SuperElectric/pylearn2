@@ -32,61 +32,28 @@ def parse_args():
                                      "for instance recognition "
                                      "experiments.")
     parser.add_argument("-a",
-                        "--azimuth_ratio",
+                        "--azimuth_spacing",
                         type=int,
                         required=False,
                         default=2,
                         metavar='A',
-                        help=("Use every A'th azimuth as a testing "
+                        help=("Use every A'th azimuth as a training "
                               "instance. To use all azimuths for "
-                              "training, enter 0."))
+                              "training, enter 1."))
     parser.add_argument("-e",
-                        "--elevation_ratio",
+                        "--elevation_spacing",
                         type=int,
                         required=False,
-                        default=0,
+                        default=1,
                         metavar='E',
-                        help=("Use every E'th elevation as a testing "
+                        help=("Use every E'th elevation as a training "
                               "instance. To use all azimuths for "
-                              "training, enter 0."))
+                              "training, enter 1."))
 
     return parser.parse_args(sys.argv[1:])
 
 
-
-
-# def get_new_labels(labels):
-#     """
-#     Given a NxM matrix of NORB labels, returns a Nx1 matrix of new labels
-#     that assigns a unique integer for each (category, instance) pair.
-#     """
-#     result = numpy.zeros((labels.shape[0], 1), dtype='int')
-#     category_index, instance_index = (SmallNORB.label_type_to_index[n]
-#                                       for n in ('category', 'instance'))
-
-#     num_categories, num_instances = (SmallNORB.num_labels_by_type[x]
-#                                      for x in (category_index,
-#                                                instance_index))
-
-#     new_label = 0
-#     examples_per_label = 0
-#     for category in xrange(num_categories):
-#         for instance in xrange(num_instances):
-#             row_mask = logical_and(labels[:, category_index] == category,
-#                                    labels[:, instance_index] == instance)
-#             if new_label == 0:
-#                 examples_per_label = len(numpy.nonzero(row_mask)[0])
-#                 assert examples_per_label != 0
-#             else:
-#                 assert len(numpy.nonzero(row_mask)[0]) == examples_per_label
-
-#             result[row_mask] = new_label
-#             new_label = new_label + 1
-
-#     return result
-
-
-def get_testing_rowmask(labels, azimuth_ratio, elevation_ratio):
+def get_training_rowmask(labels, azimuth_spacing, elevation_spacing):
     """
     Returns a row mask that selects the testing set from the merged data.
     """
@@ -97,23 +64,23 @@ def get_testing_rowmask(labels, azimuth_ratio, elevation_ratio):
     result = numpy.ones(labels.shape[0], dtype='bool')
 
     # azimuth labels are spaced by 2
-    azimuth_modulo = azimuth_ratio * 2
+    azimuth_modulo = azimuth_spacing * 2
 
-    # elevation labels are integers from 0 to 9, so no need to convert
-    elevation_modulo = elevation_ratio
+    # elevation labels are integers from 0 to 8, so no need to convert
+    elevation_modulo = elevation_spacing
 
-    if azimuth_modulo > 0:
-        azimuths = labels[:, azimuth_index]
-        result = logical_and(result, azimuths % azimuth_modulo == 0)
+    # if azimuth_modulo > 0:
+    azimuths = labels[:, azimuth_index]
+    result = logical_and(result, azimuths % azimuth_modulo == 0)
 
-    if elevation_modulo > 0:
-        elevations = labels[:, elevation_index]
-        result = logical_and(result, elevations % elevation_modulo == 0)
+    # if elevation_modulo > 0:
+    elevations = labels[:, elevation_index]
+    result = logical_and(result, elevations % elevation_modulo == 0)
 
     return result
 
 
-def load_instance_datasets(azimuth_ratio, elevation_ratio, which_image):
+def load_instance_datasets(azimuth_spacing, elevation_spacing, which_image):
     """
     Repackages the NORB database training and testing sets by merging them,
     retaining just the left or just the right stereo images, then splitting
@@ -122,13 +89,13 @@ def load_instance_datasets(azimuth_ratio, elevation_ratio, which_image):
     Parameters
     ----------
 
-    azimuth_ratio : int
-    If azimuth_ratio=N, then every Nth azimuth will be used in the testing set,
-    and the other images will be used in training set.
+    azimuth_spacing : int
+    If azimuth_spacing=N, then every Nth azimuth will be used in the training
+    set, and the other images will be used in testing set.
 
-    elevation_ratio : int
-    If elevation_ratio=N, then every Nth elevation will be used in the testing
-    set, and the other images will be used in training set.
+    elevation_spacing : int
+    If elevation_spacing=N, then every Nth elevation will be used in the
+    training set, and the other images will be used in testing set.
 
     which_image : int
     Must be 0 or 1. Selects whether to use left or right images, respectively.
@@ -171,8 +138,10 @@ def load_instance_datasets(azimuth_ratio, elevation_ratio, which_image):
     del test
 
     # new_labels = get_object_ids(labels)
-    test_mask = get_testing_rowmask(labels, azimuth_ratio, elevation_ratio)
-    train_mask = numpy.logical_not(test_mask)
+    train_mask = get_training_rowmask(labels,
+                                      azimuth_spacing,
+                                      elevation_spacing)
+    test_mask = numpy.logical_not(train_mask)
 
     view_converter = DefaultViewConverter(shape=image_shape)
     train, test = (DenseDesignMatrix(X=images[row_mask, :],
@@ -229,8 +198,8 @@ def main():
 
     args = parse_args()
 
-    training_set, testing_set = load_instance_datasets(args.azimuth_ratio,
-                                                       args.elevation_ratio,
+    training_set, testing_set = load_instance_datasets(args.azimuth_spacing,
+                                                       args.elevation_spacing,
                                                        which_image=0)
 
     for dataset in (training_set, testing_set):
@@ -241,8 +210,8 @@ def main():
     preprocessor = preprocessing.ZCA()
 
     output_dir = make_output_dir()
-    prefix = 'small_norb_%02d_%02d' % (args.azimuth_ratio,
-                                       args.elevation_ratio)
+    prefix = 'small_norb_%02d_%02d' % (args.azimuth_spacing,
+                                       args.elevation_spacing)
 
     print("ZCA'ing training set")
     training_set.apply_preprocessor(preprocessor=preprocessor, can_fit=True)
@@ -252,8 +221,8 @@ def main():
     t2 = time.time()
     print("ZCA of testing set took %g secs" % (t2 - t1))
 
-    prefix = 'small_norb_%02d_%02d' % (args.azimuth_ratio,
-                                       args.elevation_ratio)
+    prefix = 'small_norb_%02d_%02d' % (args.azimuth_spacing,
+                                       args.elevation_spacing)
 
     for ds in (training_set, testing_set):
         print("ds.y.shape: ", ds.y.shape)
