@@ -50,6 +50,16 @@ def parse_args():
                               "instance. To use all azimuths for "
                               "training, enter 1."))
 
+    parser.add_argument("--equal_sizes",
+                        type=bool,
+                        required=False,
+                        default=True,
+                        help=("If True, ensures that the training set and "
+                              "test set are of equal sizes. If False, the "
+                              "test set is N-size_of_training_set, where N "
+                              "is the total number of examples in the "
+                              "dataset."))
+
     return parser.parse_args(sys.argv[1:])
 
 
@@ -80,7 +90,10 @@ def get_training_rowmask(labels, azimuth_spacing, elevation_spacing):
     return result
 
 
-def load_instance_datasets(azimuth_spacing, elevation_spacing, which_image):
+def load_instance_datasets(azimuth_spacing,
+                           elevation_spacing,
+                           equal_sizes,
+                           which_image):
     """
     Repackages the NORB database training and testing sets by merging them,
     retaining just the left or just the right stereo images, then splitting
@@ -96,6 +109,11 @@ def load_instance_datasets(azimuth_spacing, elevation_spacing, which_image):
     elevation_spacing : int
     If elevation_spacing=N, then every Nth elevation will be used in the
     training set, and the other images will be used in testing set.
+
+    equal_sizes : bool
+    If True, then the test set will be constrained to be the same size as the
+    training set. If False, then the test set size will be
+    N - <size of training set>, which is often bigger than the training set.
 
     which_image : int
     Must be 0 or 1. Selects whether to use left or right images, respectively.
@@ -142,6 +160,32 @@ def load_instance_datasets(azimuth_spacing, elevation_spacing, which_image):
                                       azimuth_spacing,
                                       elevation_spacing)
     test_mask = numpy.logical_not(train_mask)
+
+    print("test, train sizes: %d, %d" % (numpy.count_nonzero(test_mask),
+                                         numpy.count_nonzero(train_mask)))
+
+    def randomly_reduce_size(mask, desired_num_trues):
+        """
+        Randomly picks Trues in test_mask to switch to false, until only
+        desired_num_trues Trues remain.
+
+        returns: test_mask with desired_num_trues Trues.
+        """
+
+        true_indices = numpy.nonzero(mask)[0]
+
+        numpy.random.shuffle(true_indices)  # shuffles in-place
+        indices_to_flip = true_indices[desired_num_trues:]
+        result = numpy.copy(mask)
+        result[indices_to_flip] = False
+        assert numpy.count_nonzero(result) == desired_num_trues, \
+               ("numpy.count_nonzero(result): %d, desired_num_trues: %d" %
+                (numpy.count_nonzero(result), desired_num_trues))
+        return result
+
+    if equal_sizes:
+        test_mask = randomly_reduce_size(test_mask,
+                                         numpy.count_nonzero(train_mask))
 
     view_converter = DefaultViewConverter(shape=image_shape)
     train, test = (DenseDesignMatrix(X=images[row_mask, :],
@@ -200,6 +244,7 @@ def main():
 
     training_set, testing_set = load_instance_datasets(args.azimuth_spacing,
                                                        args.elevation_spacing,
+                                                       args.equal_sizes,
                                                        which_image=0)
 
     for dataset in (training_set, testing_set):

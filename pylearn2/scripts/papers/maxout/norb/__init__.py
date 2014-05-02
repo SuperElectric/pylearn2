@@ -11,6 +11,7 @@ from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 
 
 def load_small_norb_instance_dataset(dataset_path,
+                                     expect_equal_representation,
                                      convert_to_one_hot=False,
                                      use_norb_labels=True):
     """
@@ -19,7 +20,7 @@ def load_small_norb_instance_dataset(dataset_path,
     returns: dataset, original_labels
     dataset_path: ZCA_Dataset
         The labels are the original NORB label vectors.
-        Use SmallNORB_Labels_to_object_ids() to convert to object IDs.
+        Use SmallNORB_labels_to_object_ids() to convert to object IDs.
     """
 
     def get_preprocessor_path(dataset_path):
@@ -45,7 +46,8 @@ def load_small_norb_instance_dataset(dataset_path,
             return (SmallNORB.num_labels_by_type[category_index] *
                     SmallNORB.num_labels_by_type[instance_index])
 
-        object_ids = SmallNORB_labels_to_object_ids(dataset.y)
+        object_ids = SmallNORB_labels_to_object_ids(dataset.y,
+                                                    expect_equal_representation)
         dataset = DenseDesignMatrix(X=dataset.X,
                                     y=object_ids,
                                     view_converter=dataset.view_converter,
@@ -74,7 +76,7 @@ def object_id_to_SmallNORB_label_pair(object_ids):
     return result
 
 
-def SmallNORB_labels_to_object_ids(label_vectors):
+def SmallNORB_labels_to_object_ids(label_vectors, expect_equal_representation):
     """
     Given a NxM matrix of SmallNORB labels, returns a Nx1 matrix of unique
     IDs for each object.
@@ -110,10 +112,11 @@ def SmallNORB_labels_to_object_ids(label_vectors):
     # current usage, so we include this as a sanity check.
     num_objects = num_categories * num_instances
 
-    if not contains_equal_numbers_of_all_objects(result, num_objects):
+    if expect_equal_representation and \
+       not contains_equal_numbers_of_all_objects(result, num_objects):
         for object_id in xrange(num_objects):
             print "contains %d of object %d" % \
-                  (numpy.count_nonzero(result==object_id), object_id)
+                  (numpy.count_nonzero(result == object_id), object_id)
         sys.exit(1)
 
     return result
