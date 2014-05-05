@@ -17,7 +17,7 @@
                      num_channels: 96, #192, #96,
                      num_pieces: 2,
                      kernel_shape: [6, 6], # [8, 8],
-                     pool_shape: [12, 12],  # was [4, 4] for cifar 10, but NORB images are 3x as tall and wide.
+                     pool_shape: [24, 24],  # [12, 12]. was [4, 4] for cifar 10, but NORB images are 3x as tall and wide.
                      pool_stride: [6, 6],  # was [2, 2] for cifar10, but NORB images are 3x as tall and wide.
                      irange: .005,
                      max_kernel_norm: .9,
@@ -33,7 +33,7 @@
                      num_channels: 192, #384, #192,
                      num_pieces: 2,
                      kernel_shape: [6, 6], # [8, 8]
-                     pool_shape: [4, 4],
+                     pool_shape: [8, 8], # [4, 4],
                      pool_stride: [2, 2],
                      irange: .005,
                      max_kernel_norm: 1.9365,
@@ -49,7 +49,7 @@
                      num_channels: 192, #384, #192,  #when we use a bigger value here, we may want to specify partial_sum, to be more memory efficient
                      num_pieces: 2,
                      kernel_shape: [5, 5],
-                     pool_shape: [2, 2],
+                     pool_shape: [4, 4],#[2, 2],
                      pool_stride: [2, 2],
                      irange: .005,
                      max_kernel_norm: 1.9365,
