@@ -184,7 +184,7 @@ def main():
     assert softmax_labels.shape[0] == norb_labels.shape[0]
 
     dataset_path = str(input_dict['dataset_path'])
-    dataset = load_small_norb_instance_dataset(dataset_path)
+    dataset = load_small_norb_instance_dataset(dataset_path, True)
 
     # performs a mapback just to induce that function to compile.
     print "compiling un-ZCA'ing function (used for visualization)..."
@@ -217,7 +217,7 @@ def main():
         label[instance_index] = object_id % instances_per_class
         return get_image_with_label(label)
 
-    ground_truth = SmallNORB_labels_to_object_ids(norb_labels)
+    ground_truth = SmallNORB_labels_to_object_ids(norb_labels, True)
     hard_labels = numpy.argmax(softmax_labels, axis=1)
 
     num_instances = 50
