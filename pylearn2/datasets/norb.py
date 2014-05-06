@@ -498,7 +498,6 @@ class Norb(SmallNORB):
                                                          -1,  # scale
                                                          -1)  # rotation
 
-
     @classmethod
     def get_dir(cls):
         result = os.path.join(os.getenv('PYLEARN2_DATA_PATH'),
