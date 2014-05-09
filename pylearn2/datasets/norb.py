@@ -123,7 +123,7 @@ class SmallNORB(DenseDesignMatrix):
             from these integers to actual values.
         """
 
-        assert which_set in ['train', 'test']
+        assert which_set in ('train', 'test')
 
         self.which_set = which_set
 
@@ -491,12 +491,12 @@ class Norb(SmallNORB):
                                         'object scale': 9,
                                         'rotation': 10})
 
-    num_labels_by_type = SmallNORB.num_labels_by_type + (-1,  # h. shift
-                                                         -1,  # v. shift
-                                                         -1,  # lumination
-                                                         -1,  # contrast
-                                                         -1,  # scale
-                                                         -1)  # rotation
+    # num_labels_by_type = SmallNORB.num_labels_by_type + (-1,  # h. shift
+    #                                                      -1,  # v. shift
+    #                                                      -1,  # lumination
+    #                                                      -1,  # contrast
+    #                                                      -1,  # scale
+    #                                                      -1)  # rotation
 
     @classmethod
     def get_dir(cls):
@@ -728,9 +728,9 @@ class Norb(SmallNORB):
         if not multi_target:
             labels = labels[:, 0:1]
 
-        if which_set is 'train':
+        if which_set == 'train':
             instances = (-1, 4, 6, 7, 8, 9)
-        elif which_set is 'test':
+        elif which_set == 'test':
             instances = (-1, 0, 1, 2, 3, 5)
         else:
             raise ValueError("Expected which_set to be 'test' or 'train', "
@@ -777,28 +777,35 @@ class Norb(SmallNORB):
 
             result = numpy.copy(labels)
 
-            # unmapped_label_values[i] is a list of possible values of label
-            # type i (0: category, 1: instance, etc).
+            # We use label values that have been remapped to start at 0 and
+            # increase in increments of 1.
             #
-            # The value in unmapped_label_values[i, j] will be remapped to j.
+            # unmapped_label_values maps thses label integers to their original
+            # values, which are not always so well-behaved. Some start at a
+            # negative value. Some increase in increments of 2, etc.
             #
-            # If unmapped_label_values[i] is None, that means that label type i
-            # is already a clean sequence of integers starting at 0, and thus
-            # needs no remapping.
+            # Usage example:
+            #   unmapped_label_values[0][2] is the original label
+            #   value of category (label index 0) 2.
             #
-            # If unmapped_label_values[i] is an integer, that means the labels
-            # of type i just need to be shifted by the that offset.
-            unmapped_label_values = (None,  # category
-                                     self.label_int_to_value[1],  # instance
-                                     tuple(range(-1, 9)),  # elevation
-                                     tuple([-1, ] + range(0, 35, 2)),  # azim.
-                                     tuple(range(-1, 6)),  # lighting
-                                     self.label_int_to_value[5][0],  # h. shift
-                                     self.label_int_to_value[6][0],  # v. shift
-                                     self.label_int_to_value[7][0],  # lumin.
-                                     None,  # contrast
-                                     None,  # scale
-                                     tuple(range(-4, 5)))  # in-plane rotation
+            #   unmapped_label_values[1][3] ins the original label value
+            #   of instance (label index 1) 3.
+            unmapped_label_values = \
+                ((range(5),  # category
+                  self.label_int_to_value[1],  # instance
+                  range(-1, 9),  # elevation
+                  [-1, ] + range(0, 35, 2),  # azim.
+                  range(-1, 6)) +
+                 self.label_int_to_values[5:8] +
+                 # tuple(numpy.array(x) - x[0]  # h. shift, v. shift, luminance
+                 #       for x in self.label_int_to_value[5:8]) +
+                 (range(2),  # contrast
+                  range(2),  # scale
+                  range(-4, 5)))  # in-plane rotation
+
+            print "unmapped_label_values:"
+            print unmapped_label_values
+            unmapped_label_values = (tuple(x) for x in unmapped_label_values)
 
             for column_index, unmapped_values in \
                     enumerate(unmapped_label_values):
