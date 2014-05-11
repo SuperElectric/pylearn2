@@ -50,8 +50,7 @@ class SmallNORB(DenseDesignMatrix):
     # datasets.preprocessing.Downsample
     original_image_shape = (96, 96)
 
-    _categories = ['blank',  # no object; background & distractor only
-                   'animal',  # four-legged animal
+    _categories = ['animal',  # four-legged animal
                    'human',  # human figure
                    'airplane',
                    'truck',
