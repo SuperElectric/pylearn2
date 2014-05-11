@@ -526,7 +526,7 @@ class Norb(SmallNORB):
             assert number in range(1, 11)
 
         def get_path(which_set, number, filetype):
-            dirname = self.get_dir()
+            dirname = cls.get_dir()
             if which_set == 'train':
                 instance_list = '46789'
             elif which_set == 'test':
@@ -582,6 +582,8 @@ class Norb(SmallNORB):
                              "'test', but got '%s'" % which_set)
 
         norb_dir = self.get_dir()
+        print "norb_dir: ", norb_dir
+        print "memmap_dir: ", memmap_dir
 
         if memmap_dir is None:
             memmap_dir = os.path.join(norb_dir, 'memmap_files')
@@ -625,11 +627,12 @@ class Norb(SmallNORB):
 
             images_path, labels_path = get_memmap_paths(which_set)
 
+            num_norb_files = 2 if which_set == 'test' else 10
+            num_rows = 29160 * num_norb_files
+
             def get_memmap_shapes(which_set):
-                num_norb_files = 2 if which_set == 'test' else 10
-                num_rows = 29160 * num_norb_files
                 pixels_per_row = 2 * numpy.prod(Norb.original_image_shape)
-                labels_per_row = len(Norb.num_labels_by_type)
+                labels_per_row = len(Norb.label_type_to_index)
                 images_shape = (num_rows, pixels_per_row)
                 labels_shape = (num_rows, labels_per_row)
                 return images_shape, labels_shape
@@ -638,6 +641,7 @@ class Norb(SmallNORB):
 
             # Opens memmap files as read-only if they already exist.
             memmaps_already_existed = isfile(images_path)
+            print "'%s' exists" % images_path
 
             if not memmaps_already_existed:
                 print "allocating memmap files in %s" % memmap_dir
@@ -775,7 +779,6 @@ class Norb(SmallNORB):
             the labels represent.
             """
 
-            result = numpy.copy(labels)
 
             # We use label values that have been remapped to start at 0 and
             # increase in increments of 1.
@@ -796,7 +799,7 @@ class Norb(SmallNORB):
                   range(-1, 9),  # elevation
                   [-1, ] + range(0, 35, 2),  # azim.
                   range(-1, 6)) +
-                 self.label_int_to_values[5:8] +
+                 self.label_int_to_value[5:8] +
                  # tuple(numpy.array(x) - x[0]  # h. shift, v. shift, luminance
                  #       for x in self.label_int_to_value[5:8]) +
                  (range(2),  # contrast
@@ -804,24 +807,37 @@ class Norb(SmallNORB):
                   range(-4, 5)))  # in-plane rotation
 
             print "unmapped_label_values:"
-            print unmapped_label_values
+            for x in unmapped_label_values:
+                print x
+
             unmapped_label_values = (tuple(x) for x in unmapped_label_values)
+            result = numpy.ones(labels.shape, dtype=int) * -1
+
+            print "labels.shape: ", labels.shape
+            #print "len(unmapped_values): ", len(unmapped_values)
 
             for column_index, unmapped_values in \
                     enumerate(unmapped_label_values):
+                assert isinstance(unmapped_values, tuple)
+                print "column_index: %d" % column_index
 
-                if unmapped_values is None:
-                    pass
-                elif isinstance(unmapped_values, int):
-                    result[:, column_index] -= unmapped_values
-                elif isinstance(unmapped_values, tuple):
-                    for remapped_value, unmapped_value in \
-                            enumerate(unmapped_values):
-                        row_mask = labels[:, column_index] == unmapped_value
-                        result[row_mask, column_index] = remapped_value
-                else:
-                    raise RuntimeError("Expected unmapped_values to be None, "
-                                       "an int, or a tuple.")
+                for remapped_value, unmapped_value in \
+                        enumerate(unmapped_values):
+                    row_mask = labels[:, column_index] == unmapped_value
+                    result[row_mask, column_index] = remapped_value
+
+                # if unmapped_values is None:
+                #     pass
+                # elif isinstance(unmapped_values, int):
+                #     result[:, column_index] -= unmapped_values
+                # elif isinstance(unmapped_values, tuple):
+                #     for remapped_value, unmapped_value in \
+                #             enumerate(unmapped_values):
+                #         row_mask = labels[:, column_index] == unmapped_value
+                #         result[row_mask, column_index] = remapped_value
+                # else:
+                #     raise RuntimeError("Expected unmapped_values to be None, "
+                #                        "an int, or a tuple.")
 
             return result
 
