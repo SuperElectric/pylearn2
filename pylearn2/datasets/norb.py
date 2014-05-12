@@ -327,9 +327,6 @@ class SmallNORB(DenseDesignMatrix):
             # inserts a singleton dimension where the 's' dimesion will be
             mono_shape = shape[:s_index] + (1, ) + shape[(s_index+1):]
 
-            for i, res in enumerate(result):
-                print "result %d shape: %s" % (i, str(res.shape))
-
             result = tuple(t.reshape(mono_shape) for t in result)
             result = numpy.concatenate(result, axis=s_index)
         else:
@@ -733,8 +730,10 @@ class Norb(SmallNORB):
             labels = labels[:, 0:1]
 
         if which_set == 'train':
+            # instances = (None, 4, 6, 7, 8, 9)
             instances = (-1, 4, 6, 7, 8, 9)
         elif which_set == 'test':
+            #instances = (None, 0, 1, 2, 3, 5)
             instances = (-1, 0, 1, 2, 3, 5)
         else:
             raise ValueError("Expected which_set to be 'test' or 'train', "
@@ -799,7 +798,7 @@ class Norb(SmallNORB):
             #   unmapped_label_values[1][3] ins the original label value
             #   of instance (label index 1) 3.
             unmapped_label_values = \
-                ((range(5),  # category
+                ((range(6),  # category
                   self.label_int_to_value[1],  # instance
                   range(-1, 9),  # elevation
                   [-1, ] + range(0, 35, 2),  # azim.
@@ -844,9 +843,38 @@ class Norb(SmallNORB):
                 #     raise RuntimeError("Expected unmapped_values to be None, "
                 #                        "an int, or a tuple.")
 
+            def check_remapping(remapped_labels):
+                """
+                Checks that each label category has values from 0 to N, with no
+                skips.
+                """
+                for column in remapped_labels.transpose():
+                    distinct_values = list(frozenset(column))
+                    distinct_values.sort()
+                    for expected_value, value in enumerate(distinct_values):
+                        assert expected_value == value, \
+                            ("distinct label values for column %d were %s" %
+                             (label_type, str(distinct_values)))
+
+            check_remapping(result)
+
             return result
 
         labels = remap_labels(labels)
+
+        self.blank_label = None
+        for label in labels:
+            if label[0] == 5:
+                if self.blank_label is None:
+                    self.blank_label = numpy.copy(label)
+                else:
+                    if numpy.any(label != self.blank_label):
+                        raise ValueError("Expected all blank images to have "
+                                         "the same label, but found a "
+                                         "different one.\n\t %s vs\n\t%s" %
+                                         (str(self.blank_label), str(label)))
+
+        assert self.blank_label is not None
 
         # Call DenseDesignMatrix constructor directly, skipping SmallNORB ctor
         super(SmallNORB, self).__init__(X=images,
