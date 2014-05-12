@@ -768,7 +768,12 @@ class Norb(SmallNORB):
         def remap_labels(labels):
             """
             The NORB labels are integers, but span funky ranges that are
-            unusable as indices into arrays (e.g. -N..N, with stepsize 2).
+            unusable as indices into arrays (e.g. -N..N, with stepsize 2),
+            and problematic to use as the target values of softmaxes.
+
+            Furthermore, only the first 5 labels (category, instance, azimuth,
+            elevation, lighting) are densely populated. Also, if category =
+            'blank', then all of the remaining labels are fixed.
 
             This function returns a remapped version of the labels, where
             label values are consecutive integers starting from 0. Such
