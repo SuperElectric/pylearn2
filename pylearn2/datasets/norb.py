@@ -144,11 +144,6 @@ class SmallNORB(DenseDesignMatrix):
         if multi_target:
             y_extra = SmallNORB.load(which_set, 'info')
             y = numpy.hstack((y[:, numpy.newaxis], y_extra))
-            self.label_to_index = {}
-            for index, label in enumerate(y):
-                self.label_to_index[label] = index
-        else:
-            self.label_to_index = None
 
         datum_shape = ((2, ) +  # two stereo images
                        self.original_image_shape +
