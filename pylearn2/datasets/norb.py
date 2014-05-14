@@ -721,36 +721,83 @@ class Norb(SmallNORB):
         images, labels = load_memmaps(which_set)
 
         if not multi_target:
-            labels = labels[:, 0:1]
+            # discard all labels other than category
+            labels = labels[:, :1]
 
-        if which_set == 'train':
-            # instances = (None, 4, 6, 7, 8, 9)
-            instances = (-1, 4, 6, 7, 8, 9)
-        elif which_set == 'test':
-            #instances = (None, 0, 1, 2, 3, 5)
-            instances = (-1, 0, 1, 2, 3, 5)
-        else:
-            raise ValueError("Expected which_set to be 'test' or 'train', "
-                             "got '%s'" % which_set)
+        # if which_set == 'train':
+        #     # instances = (None, 4, 6, 7, 8, 9)
+        #     instances = (-1, 4, 6, 7, 8, 9)
+        # elif which_set == 'test':
+        #     #instances = (None, 0, 1, 2, 3, 5)
+        #     instances = (-1, 0, 1, 2, 3, 5)
+        # else:
+        #     raise ValueError("Expected which_set to be 'test' or 'train', "
+        #                      "got '%s'" % which_set)
 
-        # A multidimensional tuple that maps a label int to its semantic value.
-        #
-        # *: These value ranges are smaller than the value ranges documented on
-        #    the NORB homepage. These values reflect the actual ranges present
-        #    in the dataset.
-        self.label_int_to_value = \
-            (('animal', 'human', 'airplane',
-              'truck', 'car', 'blank'),   # category
-             instances,                   # instance
-             (None, ) + tuple(range(30, 71, 5)),   # elevation in degrees
-             (None, ) + tuple(range(0, 341, 20)),  # azimuth in degrees
-             (None, ) + tuple(range(6)),  # lighting
-             tuple(range(-5, 6)),         # horiz. shift*
-             tuple(range(-5, 6)),         # vert. shift*
-             tuple(range(-19, 20)),       # lumination*
-             (0.8, 1.3),                  # contrast
-             (0.78, 1.0),                 # scale
-             tuple(range(-4, 5)))         # in-plane rotation, in degrees*
+        # A tuple of dicts that maps a label int to its semantic value.
+        # Example: (prints the elevation in degrees)
+        #   print self.label_to_value_type[3][label_vector[3]]
+        self.label_to_value_maps = (
+            # category
+            {0: 'animal',
+             1: 'human',
+             2: 'airplane',
+             3: 'truck',
+             4: 'car',
+             5: 'blank'},
+
+            # instance
+            dict(safe_zip(range(-1, 10),
+                          ['No instance', ] + range(10))),
+
+            # elevation in degrees
+            dict(safe_zip(range(-1, 9),
+                          ['No elevation', ] + range(30, 71, 5))),
+
+            # azimuth in degrees
+            dict(safe_zip([-1, ] + range(0, 35, 2),
+                          ['No azimuth', ] + range(0, 341, 20))),
+
+            # lighting setup
+            dict(safe_zip(range(-1, 6),
+                          ['No lighting', ] + range(6))),
+
+            # horizontal shift
+            dict(safe_zip(range(-5, 6), range(-5, 6))),
+
+            # vertical shift
+            dict(safe_zip(range(-5, 6), range(-5, 6))),
+
+            # lumination change
+            dict(safe_zip(range(-19, 20), range(-19, 20))),
+
+            # contrast change
+            dict(safe_zip(range(2), (0.8, 1.3))),
+
+            # scale change
+            dict(safe_zip(range(2), (0.78, 1.0))),
+
+            # in-plane rotation change, in degrees
+            dict(safe_zip(range(-4, 5), range(-4, 5))))
+
+        # # A multidimensional tuple that maps a label int to its semantic value.
+        # #
+        # # *: These value ranges are smaller than the value ranges documented on
+        # #    the NORB homepage. These values reflect the actual ranges present
+        # #    in the dataset.
+        # self.label_int_to_value = \
+        #     (('animal', 'human', 'airplane',
+        #       'truck', 'car', 'blank'),   # category
+        #      instances,                   # instance
+        #      (None, ) + tuple(range(30, 71, 5)),   # elevation in degrees
+        #      (None, ) + tuple(range(0, 341, 20)),  # azimuth in degrees
+        #      (None, ) + tuple(range(6)),  # lighting
+        #      tuple(range(-5, 6)),         # horiz. shift*
+        #      tuple(range(-5, 6)),         # vert. shift*
+        #      tuple(range(-19, 20)),       # lumination*
+        #      (0.8, 1.3),                  # contrast
+        #      (0.78, 1.0),                 # scale
+        #      tuple(range(-4, 5)))         # in-plane rotation, in degrees*
 
         stereo_pair_shape = ((2, ) +  # two stereo images
                              Norb.original_image_shape +  # image dimesions
@@ -773,7 +820,7 @@ class Norb(SmallNORB):
             labels are nice because they can be used as indices into arrays.
 
             For example, these remapped labels can be used as indices into
-            self.label_int_to_value to recover the actual physical values
+            self.label_to_value_maps to recover the actual physical values
             the labels represent.
             """
 
@@ -793,13 +840,13 @@ class Norb(SmallNORB):
             #   of instance (label index 1) 3.
             unmapped_label_values = \
                 ((range(6),  # category
-                  self.label_int_to_value[1],  # instance
+                  self.label_to_value_maps[1],  # instance
                   range(-1, 9),  # elevation
                   [-1, ] + range(0, 35, 2),  # azim.
                   range(-1, 6)) +
-                 self.label_int_to_value[5:8] +
+                 self.label_to_value_maps[5:8] +
                  # tuple(numpy.array(x) - x[0]  # h. shift, v. shift, luminance
-                 #       for x in self.label_int_to_value[5:8]) +
+                 #       for x in self.label_to_value_maps[5:8]) +
                  (range(2),  # contrast
                   range(2),  # scale
                   range(-4, 5)))  # in-plane rotation
@@ -854,7 +901,7 @@ class Norb(SmallNORB):
 
             return result
 
-        labels = remap_labels(labels)
+        #labels = remap_labels(labels)
 
         self.blank_label = None
         for label in labels:
