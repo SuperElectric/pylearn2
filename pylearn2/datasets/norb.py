@@ -633,7 +633,6 @@ class Norb(SmallNORB):
 
             # Opens memmap files as read-only if they already exist.
             memmaps_already_existed = isfile(images_path)
-            print "'%s' exists" % images_path
 
             if not memmaps_already_existed:
                 print "allocating memmap files in %s" % memmap_dir
