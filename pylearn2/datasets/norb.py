@@ -724,16 +724,6 @@ class Norb(SmallNORB):
             # discard all labels other than category
             labels = labels[:, :1]
 
-        # if which_set == 'train':
-        #     # instances = (None, 4, 6, 7, 8, 9)
-        #     instances = (-1, 4, 6, 7, 8, 9)
-        # elif which_set == 'test':
-        #     #instances = (None, 0, 1, 2, 3, 5)
-        #     instances = (-1, 0, 1, 2, 3, 5)
-        # else:
-        #     raise ValueError("Expected which_set to be 'test' or 'train', "
-        #                      "got '%s'" % which_set)
-
         # A tuple of dicts that maps a label int to its semantic value.
         # Example: (prints the elevation in degrees)
         #   print self.label_to_value_type[3][label_vector[3]]
@@ -786,100 +776,6 @@ class Norb(SmallNORB):
         axes = ('b', 's', 0, 1, 'c')
         view_converter = StereoViewConverter(stereo_pair_shape, axes)
 
-        # def remap_labels(labels):
-        #     """
-        #     The NORB labels are integers, but span funky ranges that are
-        #     unusable as indices into arrays (e.g. -N..N, with stepsize 2),
-        #     and problematic to use as the target values of softmaxes.
-
-        #     Furthermore, only the first 5 labels (category, instance, azimuth,
-        #     elevation, lighting) are densely populated. Also, if category =
-        #     'blank', then all of the remaining labels are fixed.
-
-        #     This function returns a remapped version of the labels, where
-        #     label values are consecutive integers starting from 0. Such
-        #     labels are nice because they can be used as indices into arrays.
-
-        #     For example, these remapped labels can be used as indices into
-        #     self.label_to_value_maps to recover the actual physical values
-        #     the labels represent.
-        #     """
-
-        #     # We use label values that have been remapped to start at 0 and
-        #     # increase in increments of 1.
-        #     #
-        #     # unmapped_label_values maps thses label integers to their original
-        #     # values, which are not always so well-behaved. Some start at a
-        #     # negative value. Some increase in increments of 2, etc.
-        #     #
-        #     # Usage example:
-        #     #   unmapped_label_values[0][2] is the original label
-        #     #   value of category (label index 0) 2.
-        #     #
-        #     #   unmapped_label_values[1][3] ins the original label value
-        #     #   of instance (label index 1) 3.
-        #     unmapped_label_values = \
-        #         ((range(6),                       # category
-        #           self.label_to_value_maps[1],    # instance
-        #           range(-1, 9),                   # elevation
-        #           [-1, ] + range(0, 35, 2),       # azimuth
-        #           range(-1, 6)) +
-        #          self.label_to_value_maps[5:8] +     (range(2),  # contrast
-        #           range(2),  # scale
-        #           range(-4, 5)))  # in-plane rotation
-
-        #     print "unmapped_label_values:"
-        #     for x in unmapped_label_values:
-        #         print x
-
-        #     unmapped_label_values = (tuple(x) for x in unmapped_label_values)
-        #     result = numpy.ones(labels.shape, dtype=int) * -1
-
-        #     print "labels.shape: ", labels.shape
-        #     #print "len(unmapped_values): ", len(unmapped_values)
-
-        #     for column_index, unmapped_values in \
-        #             enumerate(unmapped_label_values):
-        #         assert isinstance(unmapped_values, tuple)
-        #         print "column_index: %d" % column_index
-
-        #         for remapped_value, unmapped_value in \
-        #                 enumerate(unmapped_values):
-        #             row_mask = labels[:, column_index] == unmapped_value
-        #             result[row_mask, column_index] = remapped_value
-
-        #         # if unmapped_values is None:
-        #         #     pass
-        #         # elif isinstance(unmapped_values, int):
-        #         #     result[:, column_index] -= unmapped_values
-        #         # elif isinstance(unmapped_values, tuple):
-        #         #     for remapped_value, unmapped_value in \
-        #         #             enumerate(unmapped_values):
-        #         #         row_mask = labels[:, column_index] == unmapped_value
-        #         #         result[row_mask, column_index] = remapped_value
-        #         # else:
-        #         #     raise RuntimeError("Expected unmapped_values to be None, "
-        #         #                        "an int, or a tuple.")
-
-        #     def check_remapping(remapped_labels):
-        #         """
-        #         Checks that each label category has values from 0 to N, with no
-        #         skips.
-        #         """
-        #         for column in remapped_labels.transpose():
-        #             distinct_values = list(frozenset(column))
-        #             distinct_values.sort()
-        #             for expected_value, value in enumerate(distinct_values):
-        #                 assert expected_value == value, \
-        #                     ("distinct label values for column %d were %s" %
-        #                      (label_type, str(distinct_values)))
-
-        #     check_remapping(result)
-
-        #     return result
-
-        #labels = remap_labels(labels)
-
         self.blank_label = None
         for label in labels:
             if label[0] == 5:
@@ -898,22 +794,4 @@ class Norb(SmallNORB):
         super(SmallNORB, self).__init__(X=images,
                                         y=labels,
                                         view_converter=view_converter)
-        # code here for debugging, to print out the observed values for each
-        # label type to confirm their ranges and density.
 
-        # def debug_confirm():
-        #     print "X.shape = ", self.X.shape
-        #     print "y.shape = ", self.y.shape
-        #     for category in self.label_type_to_index.keys():
-        #         labels_column = self.label_type_to_index[category]
-        #         labels = self.y[:, labels_column]
-        #         unique_labels = list(frozenset(labels))
-        #         unique_labels = numpy.sort(unique_labels)
-        #         original_labels = tuple(self.label_int_to_value[labels_column][x]
-        #                                 for x in unique_labels)
-
-        #         print "category %s:" % category
-        #         print "  remapped values: ", unique_labels
-        #         print "  original values: ", original_labels
-
-        # debug_confirm()
