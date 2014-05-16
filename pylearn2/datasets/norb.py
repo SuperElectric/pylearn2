@@ -90,11 +90,11 @@ class SmallNORB(DenseDesignMatrix):
     azimuth_degrees = numpy.arange(0, 341, 20)
 
     # Maps a label type to its index within a label vector.
-    label_type_to_index = {'category':  0,
-                           'instance':  1,
+    label_type_to_index = {'category': 0,
+                           'instance': 1,
                            'elevation': 2,
-                           'azimuth':   3,
-                           'lighting':  4}
+                           'azimuth': 3,
+                           'lighting': 4}
 
     # Number of labels, for each label type.
     num_labels_by_type = (len(_categories),
