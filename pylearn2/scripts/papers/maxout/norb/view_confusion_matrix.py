@@ -14,6 +14,67 @@ from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 from pylearn2.datasets.norb import SmallNORB
 from pylearn2.datasets.zca_dataset import ZCA_Dataset
 
+class TrainingSet(object):
+    """
+    A one-method class whose method, get_closest(label_vector) returns an image
+    in the training set with the closest label vector to label_vector.
+    """
+
+    def __init__(self, pkl_path):
+        self.training_set = serial.load(pkl_path)
+        self.num_categories = 5
+        self.instances_per_category = 10
+        self.object_indices = []
+        for c in xrange(self.num_categories):
+            for i in xrange(self.instances_per_category):
+                rowmask = numpy.all(self.training_set.y[:, :2] == [c, i],
+                                    axis=1)
+                self.object_indices.append(numpy.nonzero(rowmask)[0])
+
+    def get_object_example(self, object_id, reference_label=None):
+        """
+        Returns an example of object_id. If reference_label is provided, try to
+        find an example whose label is closest to the reference_label's
+        azimuth, elevation, and lighting.
+        """
+        label = [0, ] * self.training_set.y.shape[1]
+
+        if reference_label is not None:
+            label[2:] = reference_label[2:]
+
+        label[0] = object_id / self.instances_per_category
+        label[1] = object_id % self.instances_per_category
+        return self.get_closest(label)
+
+    def get_closest(self, label):
+        label = numpy.array(label, dtype='int')
+        object_id = label[0] * self.instances_per_category + label[1]
+        labels = self.training_set.y[self.object_indices[object_id], :]
+        images = self.training_set.X[self.object_indices[object_id], :]
+
+        # Measures the angle difference (SSD of pitch & yaw) from <label>
+        angle_differences = (labels[:, 2:4] - label[2:4])
+        angle_differences *= numpy.array([5.0, 10.0])  # convert to degrees
+        angle_differences = numpy.sum(angle_differences ** 2.0, axis=1)
+
+        # Discards all but the closest viewing angles.
+        closest_indices = numpy.nonzero(angle_differences == numpy.min(angle_differences))[0]
+        labels = labels[closest_indices, :]
+        images = images[closest_indices, :]
+
+        # Look for a label with the same illumination
+        row_indices = numpy.nonzero(labels[:, 4] == label[4])[0]
+        if len(row_indices) == 0:
+            row_indices = [0, ]
+        else:
+            assert len(row_indices == 1)
+
+        zca_image_row = images[row_indices, :]
+        label_row = labels[row_indices, :]
+
+        result = self.training_set.get_topological_view(zca_image_row)
+        return result[0, :, :, 0]  # removes batch and channel singleton axes
+
 
 def main():
 
@@ -28,6 +89,11 @@ def main():
                             required=True,
                             help=("The .npz file computed by the %s script." %
                                   labeler_name))
+
+        parser.add_argument('--training_set',
+                            '-t',
+                            required=True,
+                            help=("The .pkl file used as the training set."))
 
         return parser.parse_args()
 
@@ -186,7 +252,7 @@ def main():
 
     dataset_path = str(input_dict['dataset_path'])
     dataset = load_small_norb_instance_dataset(dataset_path)#, True)
-    print "dataset.y.shape (2): ", dataset.y.shape
+
     # performs a mapback just to induce that function to compile.
     print "compiling un-ZCA'ing function (used for visualization)..."
     dataset.mapback_for_viewer(dataset.X[:1, :])
@@ -211,54 +277,57 @@ def main():
 
     instances_per_category = 10
 
-    def get_example_objects_from_smallnorb():
-        """
-        Returns an array of 50 images read from the SmallNORB dataset.  Each is
-        an example of the object with (0, 0, 0) for the azimuth, elevation, and
-        lighting labels.
-        """
-        small_norbs = [SmallNORB(x, multi_target=True)
-                       for x in ('test', 'train')]
-        labels = numpy.vstack(tuple(n.y for n in small_norbs))
-        images = numpy.vstack(tuple(n.X for n in small_norbs))
 
-        # row indices of all label rows ending in 0, 0, 0
-        zero_labels = numpy.all(labels[:, 2:] == [0, 0, 0], axis=1)
+    # def get_example_objects_from_smallnorb():
+    #     """
+    #     Returns an array of 50 images read from the SmallNORB dataset.  Each is
+    #     an example of the object with (0, 0, 0) for the azimuth, elevation, and
+    #     lighting labels.
+    #     """
+    #     small_norbs = [SmallNORB(x, multi_target=True)
+    #                    for x in ('test', 'train')]
+    #     labels = numpy.vstack(tuple(n.y for n in small_norbs))
+    #     images = numpy.vstack(tuple(n.X for n in small_norbs))
 
-        # select only the images, labels ending in 0, 0, 0
-        images = images[zero_labels, :]
-        labels = labels[zero_labels, :]  # mask out
+    #     # row indices of all label rows ending in 0, 0, 0
+    #     zero_labels = numpy.all(labels[:, 2:] == [0, 0, 0], axis=1)
 
-        example_dataset = DenseDesignMatrix(X=images, y=labels)
-        dataset.preprocessor.apply(example_dataset)
-        images = example_dataset.X
-        labels = example_dataset.y
+    #     # select only the images, labels ending in 0, 0, 0
+    #     images = images[zero_labels, :]
+    #     labels = labels[zero_labels, :]  # mask out
 
-        assert images.shape[0] == 50
-        assert labels.shape[0] == 50
+    #     example_dataset = DenseDesignMatrix(X=images, y=labels)
+    #     dataset.preprocessor.apply(example_dataset)
+    #     images = example_dataset.X
+    #     labels = example_dataset.y
 
-        # transform images from n_batches x (n_rows x n_columns) to
-        # n_batches x n_rows x n_columns x n_channels
-        images = small_norbs[0].get_topological_view(mat=images,
-                                                     single_tensor=True)
+    #     assert images.shape[0] == 50
+    #     assert labels.shape[0] == 50
 
-        # ZCA'ify them, so they're in the same space as the input data
-        dataset.preprocessor.apply(images)
+    #     # transform images from n_batches x (n_rows x n_columns) to
+    #     # n_batches x n_rows x n_columns x n_channels
+    #     images = small_norbs[0].get_topological_view(mat=images,
+    #                                                  single_tensor=True)
 
-        # selects left (0) stereo image, and the only (0) channel
-        images = images[:, 0, :, :, 0]
+    #     # ZCA'ify them, so they're in the same space as the input data
+    #     dataset.preprocessor.apply(images)
 
-        result = [None, ] * 50
+    #     # selects left (0) stereo image, and the only (0) channel
+    #     images = images[:, 0, :, :, 0]
 
-        for label, image in safe_zip(labels, images):
-            index = label[0] * instances_per_category + label[1]
-            result[index] = image
+    #     result = [None, ] * 50
 
-        assert all(r != None for r in result)
+    #     for label, image in safe_zip(labels, images):
+    #         index = label[0] * instances_per_category + label[1]
+    #         result[index] = image
 
-        return result
+    #     assert all(r != None for r in result)
 
-    example_objects_from_smallnorb = get_example_objects_from_smallnorb()
+    #     return result
+
+    # example_objects_from_smallnorb = get_example_objects_from_smallnorb()
+
+    training_set = TrainingSet(args.training_set)
 
     # def get_smallnorb_example_of_object(object_id):
     #     """
@@ -339,7 +408,6 @@ def main():
             #
             # Therefore we rely on matpotlib's pixel normalization that
             # happens by default.
-            print "image shape: ", image.shape
             axes.imshow(image,
                         cmap='gray',
                         # norm=matplotlib.colors.no_norm(),
@@ -347,16 +415,26 @@ def main():
 
         if is_confusion_matrix or is_softmax_matrix:
             if is_confusion_matrix:
-                expected_image = example_objects_from_smallnorb[pointed_at['row_obj']]
+                correct_object = pointed_at['row_obj']
+                correct_image = training_set.get_object_example(correct_object)
+
+                wrong_object = pointed_at['col_obj']
+                wrong_image = training_set.get_object_example(wrong_object)
+
                 titles = ("correct example", "classifier example")
             else:  # i.e. is_softmax_matrix
-                expected_image = get_image_with_label(pointed_at['label'])
+                # correct image taken from the testing set.
+                # It's the actual image we fed to the classifier.
+                correct_image = get_image_with_label(pointed_at['label'])
+
+                wrong_object = pointed_at['col_obj']
+                correct_label = pointed_at['label']
+                wrong_image = training_set.get_object_example(wrong_object,
+                                                              correct_label)
                 titles = ("actual image", "classifier example")
 
-            wrong_image = example_objects_from_smallnorb[pointed_at['col_obj']]
-
             # Show preprocessed images
-            for image, ax, title in safe_zip((expected_image, wrong_image),
+            for image, ax, title in safe_zip((correct_image, wrong_image),
                                              all_axes[2, :2],
                                              titles):
                 plot_image(image, ax)
@@ -366,7 +444,7 @@ def main():
             # the original NORB images, becasue the ZCA preprocessor is unaware
             # of and therefore can't undo the GCN preprocessing we did before
             # ZCA.
-            for image, ax, title in safe_zip((expected_image, wrong_image),
+            for image, ax, title in safe_zip((correct_image, wrong_image),
                                              all_axes[2, 2:],
                                              titles):
                 shape = image.shape
