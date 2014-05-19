@@ -14,7 +14,7 @@ import sys, argparse, os, time
 import numpy, theano
 from numpy import logical_and
 from pylearn2.expr.preprocessing import global_contrast_normalize
-from pylearn2.utils import serial, string_utils
+from pylearn2.utils import serial, string_utils, safe_zip
 from pylearn2.datasets import preprocessing
 from pylearn2.datasets.norb import SmallNORB, Norb
 from pylearn2.datasets.dense_design_matrix import (DenseDesignMatrix,
@@ -31,6 +31,8 @@ def parse_args():
                                      "into DenseDesignMatrices suitable "
                                      "for instance recognition "
                                      "experiments.")
+
+    ArgumentTypeError = argparse.ArgumentTypeError
 
     def positive_integer(arg):
         """
@@ -87,8 +89,8 @@ def parse_args():
         """
         result = float(arg)
         if arg < 0.0 or arg > 1.0:
-            raise ArgumentParseError("%g was not between 0.0 and 1.0 "
-                                     "inclusive." % arg)
+            raise ArgumentTypeError("%g was not between 0.0 and 1.0 "
+                                    "inclusive." % arg)
 
         return result
 
@@ -114,13 +116,16 @@ def parse_args():
 
     result = parser.parse_args(sys.argv[1:])
 
-    if result.training_blanks is not None and result.which_norb == 'small':
+    if result.which_norb == 'small' and result.training_blanks is not None:
         print ("--training_blanks is only applicable for the big NORB "
                "dataset; i.e. when --which_norb is 'big'")
         sys.exit(1)
 
+    return result
+
 
 def get_training_rowmask(labels,
+                         label_type_to_index,
                          elevation_spacing,
                          azimuth_spacing,
                          lighting_spacing,
@@ -130,7 +135,7 @@ def get_training_rowmask(labels,
     """
 
     label_names = ("elevation", "azimuth", "lighting")
-    label_indices = (dataset.label_type_to_index[n] for n in label_names)
+    label_indices = tuple(label_type_to_index[n] for n in label_names)
     label_modulos = (elevation_spacing, azimuth_spacing * 2, lighting_spacing)
 
     num_labels = labels.shape[0]
@@ -142,7 +147,7 @@ def get_training_rowmask(labels,
         row_mask = numpy.logical_and(row_mask, label_column % modulo == 0)
 
     if training_blanks is not None:
-        rng = numpy.rand.RandomState(seed=12345)
+        rng = numpy.random.RandomState(seed=12345)
         blanks_mask = rng.random_sample(num_labels) < training_blanks
         row_mask = numpy.logical_and(row_mask, blanks_mask)
 
@@ -170,7 +175,8 @@ def get_training_rowmask(labels,
     # return result
 
 
-def load_instance_datasets(which_image,
+def load_instance_datasets(which_norb,
+                           which_image,
                            elevation_spacing,
                            azimuth_spacing,
                            lighting_spacing,
@@ -182,6 +188,11 @@ def load_instance_datasets(which_image,
 
     Parameters
     ----------
+
+    which_norb : 'big' or 'small'.
+
+    which_image : int
+    Must be 0 or 1. Selects whether to use left or right images, respectively.
 
     azimuth_spacing : int
     If azimuth_spacing=N, then every Nth azimuth will be used in the training
@@ -196,24 +207,30 @@ def load_instance_datasets(which_image,
     training set. If False, then the test set size will be
     N - <size of training set>, which is often bigger than the training set.
 
-    which_image : int
-    Must be 0 or 1. Selects whether to use left or right images, respectively.
-
     Returns
     -------
     (test_set, training_set): tuple of DenseDesignMatrix'es
     """
+
+    if which_norb not in ('big', 'small'):
+        raise ValueError("which_norb must be either 'big' or 'small', not '%s'"
+                         % str(which_norb))
+
     if which_image not in (0, 1):
         raise ValueError("which_image must be 0 or 1, but was %d" %
                          which_image)
 
-    print("Reading SmallNORB")
-    train = SmallNORB('train', True)
-    test = SmallNORB('test', True)
-    print("read SmallNORB")
+    NorbType = SmallNORB if which_norb == 'small' else Norb
+
+    print("Reading %s NORB dataset" % which_norb)
+    train = NorbType('train', True)
+    test = NorbType('test', True)
+    print("read dataset")
+
+    label_type_to_index = train.label_type_to_index
 
     # Select just the first image of the stereo image pairs.
-    image_shape = SmallNORB.original_image_shape + (1, )
+    image_shape = NorbType.original_image_shape + (1, )
     num_pixels = numpy.prod(image_shape)
 
     for db in (train, test):
@@ -238,6 +255,7 @@ def load_instance_datasets(which_image,
 
     # new_labels = get_object_ids(labels)
     train_mask = get_training_rowmask(labels,
+                                      label_type_to_index,
                                       azimuth_spacing,
                                       elevation_spacing,
                                       lighting_spacing,
@@ -325,7 +343,8 @@ def main():
 
     args = parse_args()
 
-    training_set, testing_set = load_instance_datasets(which_image=0,
+    training_set, testing_set = load_instance_datasets(args.which_norb,
+                                                       0,  # which_image
                                                        args.elevation_spacing,
                                                        args.azimuth_spacing,
                                                        args.lighting_spacing,
@@ -339,11 +358,12 @@ def main():
     preprocessor = preprocessing.ZCA()
 
     output_dir = make_output_dir()
-    prefix = '%s_norb_E%02d_A%02d_L%02_B%0.2f' % (args.which_norb,
-                                                  args.elevation_spacing,
-                                                  args.azimuth_spacing,
-                                                  args.lighting_spacing,
-                                                  args.training_blanks)
+    prefix = '%s_norb_E%02d_A%02d_L%02d' % (args.which_norb,
+                                            args.elevation_spacing,
+                                            args.azimuth_spacing,
+                                            args.lighting_spacing)
+    if args.which_norb == 'big':
+        prefix += '_B%0.2f' % args.training_blanks
 
     print("ZCA'ing training set")
     training_set.apply_preprocessor(preprocessor=preprocessor, can_fit=True)
@@ -353,11 +373,12 @@ def main():
     t2 = time.time()
     print("ZCA of testing set took %g secs" % (t2 - t1))
 
-    prefix = 'small_norb_%02d_%02d' % (args.azimuth_spacing,
-                                       args.elevation_spacing)
+    # prefix = 'small_norb_%02d_%02d' % (args.azimuth_spacing,
+    #                                    args.elevation_spacing)
 
-    for ds in (training_set, testing_set):
-        print("ds.y.shape: ", ds.y.shape)
+
+    # for ds in (training_set, testing_set):
+    #     print("ds.y.shape: ", ds.y.shape)
 
     # Saves testing & training datasets
     for dataset, name in zip((training_set, testing_set), ('train', 'test')):

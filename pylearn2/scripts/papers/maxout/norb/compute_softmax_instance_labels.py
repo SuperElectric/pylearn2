@@ -159,6 +159,7 @@ def main():
                 norb_labels=test_set.y,
                 dataset_path=args.dataset)
 
+    print "saved output to '%s'" % args.output
 
 if __name__ == '__main__':
     main()

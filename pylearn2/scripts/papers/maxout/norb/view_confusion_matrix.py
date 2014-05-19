@@ -10,6 +10,7 @@ from matplotlib import pyplot
 from pylearn2.utils import safe_zip, serial
 from pylearn2.scripts.papers.maxout.norb import \
     SmallNORB_labels_to_object_ids, load_small_norb_instance_dataset
+from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 from pylearn2.datasets.norb import SmallNORB
 from pylearn2.datasets.zca_dataset import ZCA_Dataset
 
@@ -184,8 +185,8 @@ def main():
     assert softmax_labels.shape[0] == norb_labels.shape[0]
 
     dataset_path = str(input_dict['dataset_path'])
-    dataset = load_small_norb_instance_dataset(dataset_path, True)
-
+    dataset = load_small_norb_instance_dataset(dataset_path)#, True)
+    print "dataset.y.shape (2): ", dataset.y.shape
     # performs a mapback just to induce that function to compile.
     print "compiling un-ZCA'ing function (used for visualization)..."
     dataset.mapback_for_viewer(dataset.X[:1, :])
@@ -196,7 +197,9 @@ def main():
         label_to_index[tuple(label)] = index
 
     def get_image_with_label(norb_label):
-        assert len(norb_label) == dataset.y.shape[1]
+        if len(norb_label) != dataset.y.shape[1]:
+            raise ValueError("len(norb_label) was %d, dataset.y.shape[1] was "
+                             "%d" % (len(norb_label), dataset.y.shape[1]))
 
         row_index = label_to_index[tuple(norb_label)]
         row = dataset.X[row_index, :]
@@ -206,18 +209,76 @@ def main():
         assert single_image_batch.shape[-1] == 1
         return single_image_batch[0, :, :, 0]
 
-    def get_example_of_object(object_id):
-        instance_index = SmallNORB.label_type_to_index['instance']
-        category_index = SmallNORB.label_type_to_index['category']
+    instances_per_category = 10
 
-        instances_per_class = SmallNORB.num_labels_by_type[instance_index]
+    def get_example_objects_from_smallnorb():
+        """
+        Returns an array of 50 images read from the SmallNORB dataset.  Each is
+        an example of the object with (0, 0, 0) for the azimuth, elevation, and
+        lighting labels.
+        """
+        small_norbs = [SmallNORB(x, multi_target=True)
+                       for x in ('test', 'train')]
+        labels = numpy.vstack(tuple(n.y for n in small_norbs))
+        images = numpy.vstack(tuple(n.X for n in small_norbs))
 
-        label = [0, ] * len(SmallNORB.num_labels_by_type)
-        label[category_index] = object_id / instances_per_class
-        label[instance_index] = object_id % instances_per_class
-        return get_image_with_label(label)
+        # row indices of all label rows ending in 0, 0, 0
+        zero_labels = numpy.all(labels[:, 2:] == [0, 0, 0], axis=1)
 
-    ground_truth = SmallNORB_labels_to_object_ids(norb_labels, True)
+        # select only the images, labels ending in 0, 0, 0
+        images = images[zero_labels, :]
+        labels = labels[zero_labels, :]  # mask out
+
+        example_dataset = DenseDesignMatrix(X=images, y=labels)
+        dataset.preprocessor.apply(example_dataset)
+        images = example_dataset.X
+        labels = example_dataset.y
+
+        assert images.shape[0] == 50
+        assert labels.shape[0] == 50
+
+        # transform images from n_batches x (n_rows x n_columns) to
+        # n_batches x n_rows x n_columns x n_channels
+        images = small_norbs[0].get_topological_view(mat=images,
+                                                     single_tensor=True)
+
+        # ZCA'ify them, so they're in the same space as the input data
+        dataset.preprocessor.apply(images)
+
+        # selects left (0) stereo image, and the only (0) channel
+        images = images[:, 0, :, :, 0]
+
+        result = [None, ] * 50
+
+        for label, image in safe_zip(labels, images):
+            index = label[0] * instances_per_category + label[1]
+            result[index] = image
+
+        assert all(r != None for r in result)
+
+        return result
+
+    example_objects_from_smallnorb = get_example_objects_from_smallnorb()
+
+    # def get_smallnorb_example_of_object(object_id):
+    #     """
+    #     Returns an
+    #     """
+
+    #     instance_index = SmallNORB.label_type_to_index['instance']
+    #     category_index = SmallNORB.label_type_to_index['category']
+
+    #     index = category_index * instances_per_category + instance_index
+    #     return example_objects_from_smallnorb[index]
+
+    #     # # instances_per_category = SmallNORB.num_labels_by_type[instance_index]
+
+    #     # label = [0, ] * len(SmallNORB.num_labels_by_type)
+    #     # label[category_index] = object_id / instances_per_category
+    #     # label[instance_index] = object_id % instances_per_category
+    #     # return get_image_with_label(label)
+
+    ground_truth = SmallNORB_labels_to_object_ids(norb_labels)
     hard_labels = numpy.argmax(softmax_labels, axis=1)
 
     num_instances = 50
@@ -278,6 +339,7 @@ def main():
             #
             # Therefore we rely on matpotlib's pixel normalization that
             # happens by default.
+            print "image shape: ", image.shape
             axes.imshow(image,
                         cmap='gray',
                         # norm=matplotlib.colors.no_norm(),
@@ -285,13 +347,13 @@ def main():
 
         if is_confusion_matrix or is_softmax_matrix:
             if is_confusion_matrix:
-                expected_image = get_example_of_object(pointed_at['row_obj'])
+                expected_image = example_objects_from_smallnorb[pointed_at['row_obj']]
                 titles = ("correct example", "classifier example")
             else:  # i.e. is_softmax_matrix
                 expected_image = get_image_with_label(pointed_at['label'])
                 titles = ("actual image", "classifier example")
 
-            wrong_image = get_example_of_object(pointed_at['col_obj'])
+            wrong_image = example_objects_from_smallnorb[pointed_at['col_obj']]
 
             # Show preprocessed images
             for image, ax, title in safe_zip((expected_image, wrong_image),

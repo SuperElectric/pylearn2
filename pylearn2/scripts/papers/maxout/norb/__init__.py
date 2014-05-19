@@ -11,7 +11,7 @@ from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 
 
 def load_small_norb_instance_dataset(dataset_path,
-                                     expect_equal_representation,
+                                     #expect_equal_representation,
                                      convert_to_one_hot=False,
                                      use_norb_labels=True):
     """
@@ -36,6 +36,7 @@ def load_small_norb_instance_dataset(dataset_path,
         return base_path + 'preprocessor.pkl'
 
     dataset = serial.load(dataset_path)
+    print "dataset.y.shape: ", dataset.y.shape
     preprocessor = serial.load(get_preprocessor_path(dataset_path))
 
     if not use_norb_labels:
@@ -46,8 +47,8 @@ def load_small_norb_instance_dataset(dataset_path,
             return (SmallNORB.num_labels_by_type[category_index] *
                     SmallNORB.num_labels_by_type[instance_index])
 
-        object_ids = SmallNORB_labels_to_object_ids(dataset.y,
-                                                    expect_equal_representation)
+        object_ids = SmallNORB_labels_to_object_ids(dataset.y)
+                                                    # expect_equal_representation)
         dataset = DenseDesignMatrix(X=dataset.X,
                                     y=object_ids,
                                     view_converter=dataset.view_converter,
@@ -76,7 +77,7 @@ def object_id_to_SmallNORB_label_pair(object_ids):
     return result
 
 
-def SmallNORB_labels_to_object_ids(label_vectors, expect_equal_representation):
+def SmallNORB_labels_to_object_ids(label_vectors): #, expect_equal_representation):
     """
     Given a NxM matrix of SmallNORB labels, returns a Nx1 matrix of unique
     IDs for each object.
@@ -112,12 +113,12 @@ def SmallNORB_labels_to_object_ids(label_vectors, expect_equal_representation):
     # current usage, so we include this as a sanity check.
     num_objects = num_categories * num_instances
 
-    if expect_equal_representation and \
-       not contains_equal_numbers_of_all_objects(result, num_objects):
-        for object_id in xrange(num_objects):
-            print "contains %d of object %d" % \
-                  (numpy.count_nonzero(result == object_id), object_id)
-        sys.exit(1)
+    # if expect_equal_representation and \
+    #    not contains_equal_numbers_of_all_objects(result, num_objects):
+    #     for object_id in xrange(num_objects):
+    #         print "contains %d of object %d" % \
+    #               (numpy.count_nonzero(result == object_id), object_id)
+    #     sys.exit(1)
 
     return result
     #return result[:, numpy.newaxis]  # size N vector -> Nx1 matrix
