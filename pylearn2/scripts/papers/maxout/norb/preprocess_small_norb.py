@@ -83,12 +83,13 @@ def parse_args():
                               "instance. To use all illuminations for "
                               "training, enter 1."))
 
-    def fraction(arg):
+    def between_0_and_1(arg):
         """
         Checks that an argument is a float between 0.0 and 1.0 inclusive.
         """
         result = float(arg)
-        if arg < 0.0 or arg > 1.0:
+
+        if result < 0.0 or result > 1.0:
             raise ArgumentTypeError("%g was not between 0.0 and 1.0 "
                                     "inclusive." % arg)
 
@@ -96,7 +97,7 @@ def parse_args():
 
     parser.add_argument("-b",
                         "--training_blanks",
-                        type=fraction,
+                        type=between_0_and_1,
                         required=False,
                         default=None,
                         metavar='B',
@@ -244,10 +245,15 @@ def load_instance_datasets(which_norb,
 
     print("train.X, .y: %s, %s" % (str(train.X.shape), str(train.y.shape)))
 
+    print("Combining %s NORB's training and testing sets..." % which_norb)
     images = numpy.vstack((train.X, test.X))
     labels = numpy.vstack((train.y, test.y))
+    print("...done.")
 
-    assert str(images.dtype) == theano.config.floatX
+    # print("train.X.dtype: %s" % train.X.dtype)
+    # print("images.dtype: %s" % images.dtype)
+
+    # assert str(images.dtype) == theano.config.floatX
 
     # Free some memory
     del train
@@ -261,9 +267,6 @@ def load_instance_datasets(which_norb,
                                       lighting_spacing,
                                       training_blanks)
     test_mask = numpy.logical_not(train_mask)
-
-    print("test, train sizes: %d, %d" % (numpy.count_nonzero(test_mask),
-                                         numpy.count_nonzero(train_mask)))
 
     # def randomly_reduce_size(mask, desired_num_trues):
     #     """
@@ -350,10 +353,14 @@ def main():
                                                        args.lighting_spacing,
                                                        args.training_blanks)
 
+    print("applying GCN...")
+
     for dataset in (training_set, testing_set):
         # Subtracts each image's mean intensity. Scale of 55.0 taken from
         # pylearn2/scripts/datasets/make_cifar10_gcn_whitened.py
         dataset.X = global_contrast_normalize(dataset.X, scale=55.0)
+
+    print("GCN done.")
 
     preprocessor = preprocessing.ZCA()
 

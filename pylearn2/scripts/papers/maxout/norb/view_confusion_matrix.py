@@ -14,6 +14,7 @@ from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 from pylearn2.datasets.norb import SmallNORB
 from pylearn2.datasets.zca_dataset import ZCA_Dataset
 
+
 class TrainingSet(object):
     """
     A one-method class whose method, get_closest(label_vector) returns an image
@@ -275,77 +276,7 @@ def main():
         assert single_image_batch.shape[-1] == 1
         return single_image_batch[0, :, :, 0]
 
-    instances_per_category = 10
-
-
-    # def get_example_objects_from_smallnorb():
-    #     """
-    #     Returns an array of 50 images read from the SmallNORB dataset.  Each is
-    #     an example of the object with (0, 0, 0) for the azimuth, elevation, and
-    #     lighting labels.
-    #     """
-    #     small_norbs = [SmallNORB(x, multi_target=True)
-    #                    for x in ('test', 'train')]
-    #     labels = numpy.vstack(tuple(n.y for n in small_norbs))
-    #     images = numpy.vstack(tuple(n.X for n in small_norbs))
-
-    #     # row indices of all label rows ending in 0, 0, 0
-    #     zero_labels = numpy.all(labels[:, 2:] == [0, 0, 0], axis=1)
-
-    #     # select only the images, labels ending in 0, 0, 0
-    #     images = images[zero_labels, :]
-    #     labels = labels[zero_labels, :]  # mask out
-
-    #     example_dataset = DenseDesignMatrix(X=images, y=labels)
-    #     dataset.preprocessor.apply(example_dataset)
-    #     images = example_dataset.X
-    #     labels = example_dataset.y
-
-    #     assert images.shape[0] == 50
-    #     assert labels.shape[0] == 50
-
-    #     # transform images from n_batches x (n_rows x n_columns) to
-    #     # n_batches x n_rows x n_columns x n_channels
-    #     images = small_norbs[0].get_topological_view(mat=images,
-    #                                                  single_tensor=True)
-
-    #     # ZCA'ify them, so they're in the same space as the input data
-    #     dataset.preprocessor.apply(images)
-
-    #     # selects left (0) stereo image, and the only (0) channel
-    #     images = images[:, 0, :, :, 0]
-
-    #     result = [None, ] * 50
-
-    #     for label, image in safe_zip(labels, images):
-    #         index = label[0] * instances_per_category + label[1]
-    #         result[index] = image
-
-    #     assert all(r != None for r in result)
-
-    #     return result
-
-    # example_objects_from_smallnorb = get_example_objects_from_smallnorb()
-
     training_set = TrainingSet(args.training_set)
-
-    # def get_smallnorb_example_of_object(object_id):
-    #     """
-    #     Returns an
-    #     """
-
-    #     instance_index = SmallNORB.label_type_to_index['instance']
-    #     category_index = SmallNORB.label_type_to_index['category']
-
-    #     index = category_index * instances_per_category + instance_index
-    #     return example_objects_from_smallnorb[index]
-
-    #     # # instances_per_category = SmallNORB.num_labels_by_type[instance_index]
-
-    #     # label = [0, ] * len(SmallNORB.num_labels_by_type)
-    #     # label[category_index] = object_id / instances_per_category
-    #     # label[instance_index] = object_id % instances_per_category
-    #     # return get_image_with_label(label)
 
     ground_truth = SmallNORB_labels_to_object_ids(norb_labels)
     hard_labels = numpy.argmax(softmax_labels, axis=1)

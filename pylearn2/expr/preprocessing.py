@@ -14,7 +14,7 @@ import numpy
 
 
 def global_contrast_normalize(X, scale=1., subtract_mean=True, use_std=False,
-                              sqrt_bias=0., min_divisor=1e-8):
+                              sqrt_bias=0., min_divisor=1e-8, in_place=False):
     """
     Global contrast normalizes by (optionally) subtracting the mean
     across features and then normalizes by either the vector norm
@@ -67,10 +67,13 @@ def global_contrast_normalize(X, scale=1., subtract_mean=True, use_std=False,
     # to subtract this without worrying about whether the current
     # object is the train, valid, or test set.
     mean = X.mean(axis=1)
+    print "computed per-example means"
     if subtract_mean:
         X = X - mean[:, numpy.newaxis]  # Makes a copy.
+        print "subtracted means"
     else:
         X = X.copy()
+
 
     if use_std:
         # ddof=1 simulates MATLAB's var() behaviour, which is what Adam
@@ -83,10 +86,16 @@ def global_contrast_normalize(X, scale=1., subtract_mean=True, use_std=False,
 
         normalizers = numpy.sqrt(sqrt_bias + X.var(axis=1, ddof=ddof)) / scale
     else:
-        normalizers = numpy.sqrt(sqrt_bias + (X ** 2).sum(axis=1)) / scale
+        normalizers = numpy.sqrt(sqrt_bias + numpy.einsum('ik,ik->i', X, X)) / scale
+        # normalizers = numpy.sqrt(sqrt_bias + (X ** 2).sum(axis=1)) / scale
+
+    print "computed normalizers (shape: %s)" % str(normalizers.shape)
 
     # Don't normalize by anything too small.
     normalizers[normalizers < min_divisor] = 1.
 
     X /= normalizers[:, numpy.newaxis]  # Does not make a copy.
+
+    print "divided X in-place by normalizers."
+
     return X
