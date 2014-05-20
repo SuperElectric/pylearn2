@@ -62,13 +62,16 @@ def global_contrast_normalize(X, scale=1., subtract_mean=True, use_std=False,
     scale = float(scale)
     assert scale >= min_divisor
 
+    if not in_place:
+        X = X.copy()
+
     # Note: this is per-example mean across pixels, not the
     # per-pixel mean across examples. So it is perfectly fine
     # to subtract this without worrying about whether the current
     # object is the train, valid, or test set.
-    mean = X.mean(axis=1)
     print "computed per-example means"
     if subtract_mean:
+        X -= X.mean(axis=1)
         X = X - mean[:, numpy.newaxis]  # Makes a copy.
         print "subtracted means"
     else:

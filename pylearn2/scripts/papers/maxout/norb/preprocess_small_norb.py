@@ -358,7 +358,9 @@ def main():
     for dataset in (training_set, testing_set):
         # Subtracts each image's mean intensity. Scale of 55.0 taken from
         # pylearn2/scripts/datasets/make_cifar10_gcn_whitened.py
-        dataset.X = global_contrast_normalize(dataset.X, scale=55.0)
+        # dataset.X = global_contrast_normalize(dataset.X, scale=55.0)
+        print("GCN'ing %s dataset" % str(dataset.X.shape))
+        global_contrast_normalize(dataset.X, scale=55.0, in_place=True)
 
     print("GCN done.")
 
