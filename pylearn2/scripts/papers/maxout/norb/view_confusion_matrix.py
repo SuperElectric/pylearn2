@@ -4,10 +4,77 @@ A script for viewing the confusion matrix of softmax labels computed with
 ./compute_softmax_instance_labels.py
 """
 
-import argparse, numpy
-import matplotlib
+import sys, argparse
+import numpy, matplotlib
 from matplotlib import pyplot
-from pylearn2.utils import safe_zip
+from pylearn2.utils import safe_zip, serial
+from pylearn2.scripts.papers.maxout.norb import \
+    SmallNORB_labels_to_object_ids, load_small_norb_instance_dataset
+from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
+from pylearn2.datasets.norb import SmallNORB
+from pylearn2.datasets.zca_dataset import ZCA_Dataset
+
+
+class TrainingSet(object):
+    """
+    A one-method class whose method, get_closest(label_vector) returns an image
+    in the training set with the closest label vector to label_vector.
+    """
+
+    def __init__(self, pkl_path):
+        self.training_set = serial.load(pkl_path)
+        self.num_categories = 5
+        self.instances_per_category = 10
+        self.object_indices = []
+        for c in xrange(self.num_categories):
+            for i in xrange(self.instances_per_category):
+                rowmask = numpy.all(self.training_set.y[:, :2] == [c, i],
+                                    axis=1)
+                self.object_indices.append(numpy.nonzero(rowmask)[0])
+
+    def get_object_example(self, object_id, reference_label=None):
+        """
+        Returns an example of object_id. If reference_label is provided, try to
+        find an example whose label is closest to the reference_label's
+        azimuth, elevation, and lighting.
+        """
+        label = [0, ] * self.training_set.y.shape[1]
+
+        if reference_label is not None:
+            label[2:] = reference_label[2:]
+
+        label[0] = object_id / self.instances_per_category
+        label[1] = object_id % self.instances_per_category
+        return self.get_closest(label)
+
+    def get_closest(self, label):
+        label = numpy.array(label, dtype='int')
+        object_id = label[0] * self.instances_per_category + label[1]
+        labels = self.training_set.y[self.object_indices[object_id], :]
+        images = self.training_set.X[self.object_indices[object_id], :]
+
+        # Measures the angle difference (SSD of pitch & yaw) from <label>
+        angle_differences = (labels[:, 2:4] - label[2:4])
+        angle_differences *= numpy.array([5.0, 10.0])  # convert to degrees
+        angle_differences = numpy.sum(angle_differences ** 2.0, axis=1)
+
+        # Discards all but the closest viewing angles.
+        closest_indices = numpy.nonzero(angle_differences == numpy.min(angle_differences))[0]
+        labels = labels[closest_indices, :]
+        images = images[closest_indices, :]
+
+        # Look for a label with the same illumination
+        row_indices = numpy.nonzero(labels[:, 4] == label[4])[0]
+        if len(row_indices) == 0:
+            row_indices = [0, ]
+        else:
+            assert len(row_indices == 1)
+
+        zca_image_row = images[row_indices, :]
+        label_row = labels[row_indices, :]
+
+        result = self.training_set.get_topological_view(zca_image_row)
+        return result[0, :, :, 0]  # removes batch and channel singleton axes
 
 
 def main():
@@ -24,27 +91,42 @@ def main():
                             help=("The .npz file computed by the %s script." %
                                   labeler_name))
 
+        parser.add_argument('--training_set',
+                            '-t',
+                            required=True,
+                            help=("The .pkl file used as the training set."))
+
         return parser.parse_args()
 
     axes_to_heatmap = {}
 
     def get_objects_pointed_at(mouse_event):
         """
-        Returns (row_id, col_id, heatmap).
+        If the mouse is pointing at a pixel in a plotted image, this returns
+        a dictionary with the following keys:
+
+          'row_obj': int. Object ID of that row.
+          'col_obj': int. Object ID of that column.
+          'value': float. The value of the pixel (0..1).
+          'label': None, or 1D ndarray.
+            If the image is one of the softmax plots, this returns the NORB
+            label of the image corresponding to softmax vector (row) being
+            pointed at.
+            If the image is one of the confusion matrices, this is None.
         """
 
-        if not event.inaxes in axes_to_heatmap.keys():
+        if not mouse_event.inaxes in axes_to_heatmap.keys():
             # Mouse isn't pointing at a heatmap.
             return None
         else:
-            heatmap = axes_to_heatmap[event.inaxes]['heatmap']
-            row_ids = axes_to_heatmap[event.inaxes]['row_ids']
-            col_ids = axes_to_heatmap[event.inaxes]['col_ids']
-            labels = axes_to_heatmap[event.inaxes]['labels']
+            heatmap = axes_to_heatmap[mouse_event.inaxes]['heatmap']
+            row_ids = axes_to_heatmap[mouse_event.inaxes]['row_ids']
+            col_ids = axes_to_heatmap[mouse_event.inaxes]['col_ids']
+            labels = axes_to_heatmap[mouse_event.inaxes]['labels']
 
             # xdata, ydata actually start at -.5, -.5 in the upper-left corner
-            row = int(event.ydata + .5)
-            col = int(event.xdata + .5)
+            row = int(mouse_event.ydata + .5)
+            col = int(mouse_event.xdata + .5)
             row_obj = row_ids[row]
 
             if col_ids is None:
@@ -59,8 +141,7 @@ def main():
                     'value': heatmap[row, col],
                     'label': label}
 
-
-    def plot_heatmap(heatmap, axes, row_ids=None, col_ids=None, label=None):
+    def plot_heatmap(heatmap, axes, row_ids=None, col_ids=None, labels=None):
         axes.imshow(heatmap,
                     norm=matplotlib.colors.no_norm(),
                     interpolation='nearest')
@@ -71,8 +152,7 @@ def main():
         axes_to_heatmap[axes] = {'heatmap': heatmap,
                                  'row_ids': row_ids,
                                  'col_ids': col_ids,
-                                 'label': label}
-
+                                 'labels': labels}
 
     def plot_worst_softmax(softmax_labels, ground_truth, one_or_more_axes):
         def wrongness(softmax_labels, ground_truth):
@@ -108,7 +188,7 @@ def main():
             differences = softmax_labels - get_onehot(ground_truth,
                                                       softmax_labels.shape[1])
 
-            result[wrong_rowmask, :] = (differences**2).sum(axis=1)
+            result[wrong_rowmask, :] = (differences ** 2).sum(axis=1)
 
             return result
 
@@ -142,8 +222,6 @@ def main():
             # column indices (object IDs) in descending order of softmax score
             sorted_ids = numpy.argsort(softmax)[::-1][:num_bars]
             softmax = softmax[sorted_ids]
-            print "sorted_ids.shape: ", sorted_ids.shape
-            print "softmax.shape: ", softmax.shape
             axes.bar(left=numpy.arange(num_bars),
                      height=softmax)
             axes.set_xticklabels(tuple(str(i) for i in sorted_ids))
@@ -165,9 +243,7 @@ def main():
             misclassification_rates[most_confused_objects]
 
         nonzero_rowmask = sorted_misclassification_rates > 0.0
-        # print "shapes: ", most_confused_objects.shape, nonzero_rowmask.shape
         return most_confused_objects[nonzero_rowmask]
-
 
     args = parse_args()
     input_dict = numpy.load(args.input)
@@ -175,10 +251,36 @@ def main():
                                         in ('softmaxes', 'norb_labels'))
     assert softmax_labels.shape[0] == norb_labels.shape[0]
 
-    ground_truth = SmallNORB_labels_to_object_ids(norb_labels)
-    hard_labels = softmax_labels.argmax(axis=1)
+    dataset_path = str(input_dict['dataset_path'])
+    dataset = load_small_norb_instance_dataset(dataset_path)#, True)
 
-    num_labels = softmax_labels.shape[0]
+    # performs a mapback just to induce that function to compile.
+    print "compiling un-ZCA'ing function (used for visualization)..."
+    dataset.mapback_for_viewer(dataset.X[:1, :])
+    print "...done"
+
+    label_to_index = {}
+    for index, label in enumerate(dataset.y):
+        label_to_index[tuple(label)] = index
+
+    def get_image_with_label(norb_label):
+        if len(norb_label) != dataset.y.shape[1]:
+            raise ValueError("len(norb_label) was %d, dataset.y.shape[1] was "
+                             "%d" % (len(norb_label), dataset.y.shape[1]))
+
+        row_index = label_to_index[tuple(norb_label)]
+        row = dataset.X[row_index, :]
+        single_row_batch = row[numpy.newaxis, :]
+        single_image_batch = dataset.get_topological_view(single_row_batch)
+        assert single_image_batch.shape[0] == 1
+        assert single_image_batch.shape[-1] == 1
+        return single_image_batch[0, :, :, 0]
+
+    training_set = TrainingSet(args.training_set)
+
+    ground_truth = SmallNORB_labels_to_object_ids(norb_labels)
+    hard_labels = numpy.argmax(softmax_labels, axis=1)
+
     num_instances = 50
     hard_confusion_matrix = numpy.zeros([num_instances, num_instances],
                                         dtype=float)
@@ -197,10 +299,9 @@ def main():
         for confusion_matrix in (soft_confusion_matrix, hard_confusion_matrix):
             confusion_matrix[instance, :] /= float(num_occurences)
 
-    figure, all_axes = pyplot.subplots(3, 4)
+    figure, all_axes = pyplot.subplots(3, 4, figsize=(16, 12))
     default_status_text = "mouseover heatmaps for object ids and probabiliies"
     status_text = figure.text(.1, .05, default_status_text)
-
 
     def on_mouse_motion(event):
         original_text = status_text.get_text()
@@ -219,42 +320,72 @@ def main():
 
             status_text.set_text(text)
 
-#         if event.inaxes in axes_to_heatmap.keys():
-#             heatmap = axes_to_heatmap[event.inaxes]['heatmap']
-#             row_ids = axes_to_heatmap[event.inaxes]['row_ids']
-#             col_ids = axes_to_heatmap[event.inaxes]['col_ids']
-
-#             # xdata, ydata actually start at -.5, -.5 in the upper-left corner
-# #            print "event.ydata = %0.1f" % event.ydata
-#             row = int(event.ydata + .5)
-#             col = int(event.xdata + .5)
-#             row_obj = row_ids[row]
-
-#             if col_ids is None:
-#                 col_obj = col
-#             else:
-#                 col_obj = col_ids[row, col]
-
-#             status_text.set_text("row obj: %g, col obj: %g, val: %g" %
-#                                  (row_obj, col_obj, heatmap[row, col]))
-#         else:
-
-
         if status_text.get_text() != original_text:
             figure.canvas.draw()
 
     def on_mousedown(event):
-        pointed_at = get_object_ids_pointed_at(event)
+        pointed_at = get_objects_pointed_at(event)
         if pointed_at is None:
             return
 
-        if heatmap in axes[1, :]:
-            pass
-            # show specific image corresponding to row in axes[2, 0]
-            # show generic image of instance of the first 3 objects
-        elif heatmap in axes[0, :]:
-            pass
-            # show generic image corresponding to row
+        is_confusion_matrix = event.inaxes in all_axes[0, :]
+        is_softmax_matrix = event.inaxes in all_axes[1, :]
+
+        def plot_image(image, axes):
+            # Neither ZCA_Dataset.mapback() nor .mapback_for_viewer() actually
+            # map the image back to its original form, because the dataset's
+            # preprocessor is unaware of the global contrast normalization we
+            # did.
+            #
+            # Therefore we rely on matpotlib's pixel normalization that
+            # happens by default.
+            axes.imshow(image,
+                        cmap='gray',
+                        # norm=matplotlib.colors.no_norm(),
+                        interpolation='nearest')
+
+        if is_confusion_matrix or is_softmax_matrix:
+            if is_confusion_matrix:
+                correct_object = pointed_at['row_obj']
+                correct_image = training_set.get_object_example(correct_object)
+
+                wrong_object = pointed_at['col_obj']
+                wrong_image = training_set.get_object_example(wrong_object)
+
+                titles = ("correct example", "classifier example")
+            else:  # i.e. is_softmax_matrix
+                # correct image taken from the testing set.
+                # It's the actual image we fed to the classifier.
+                correct_image = get_image_with_label(pointed_at['label'])
+
+                wrong_object = pointed_at['col_obj']
+                correct_label = pointed_at['label']
+                wrong_image = training_set.get_object_example(wrong_object,
+                                                              correct_label)
+                titles = ("actual image", "classifier example")
+
+            # Show preprocessed images
+            for image, ax, title in safe_zip((correct_image, wrong_image),
+                                             all_axes[2, :2],
+                                             titles):
+                plot_image(image, ax)
+                ax.set_title(title)
+
+            # Show corresponding un-ZCA'ed images. These are not the same as
+            # the original NORB images, becasue the ZCA preprocessor is unaware
+            # of and therefore can't undo the GCN preprocessing we did before
+            # ZCA.
+            for image, ax, title in safe_zip((correct_image, wrong_image),
+                                             all_axes[2, 2:],
+                                             titles):
+                shape = image.shape
+                flattened = image.reshape((1, numpy.prod(shape)))
+
+                unpreprocessed = dataset.mapback_for_viewer(flattened)
+                plot_image(unpreprocessed.reshape(shape), ax)
+                ax.set_title(title)
+
+            figure.canvas.draw()
 
     # plots the confusion matrices
     for (plot_axes,
@@ -300,7 +431,6 @@ def main():
         axis.set_xticklabels(())
         axis.set_yticklabels(())
 
-
     most_confused_objects = get_most_confused_objects(hard_confusion_matrix)
     plot_confusion_spread(hard_confusion_matrix,
                           most_confused_objects,
@@ -311,11 +441,12 @@ def main():
     #
 
     # use of zip rather than safe_zip intentional here
-    for (axes, object_id) in zip(all_axes[1, :], most_confused_objects):
+    for axes, object_id in zip(all_axes[1, :], most_confused_objects):
+        # rows of images showing object <object_id>
         row_mask = ground_truth == object_id
 
         # Find the current object's NORB labels, object ids, and softmaxes
-        actual_norb_labels = norb_labels[row_mask]
+        actual_norb_labels = norb_labels[row_mask, :]
         actual_ids = ground_truth[row_mask]
         assert (actual_ids == object_id).all()
         softmaxes = softmax_labels[row_mask, :]
@@ -329,22 +460,23 @@ def main():
         sorted_row_indices = sorted_row_indices[row_mask]
         softmaxes = softmaxes[sorted_row_indices, :]
         actual_ids = actual_ids[sorted_row_indices]
-        actual_labels = actual_labels[sorted_row_indices]
+        actual_norb_labels = actual_norb_labels[sorted_row_indices]
 
-        plot_heatmap(softmaxes, axes, row_ids=actual_ids, labels=actual_labels)
-        axes.set_title("Softmaxes of\nobject %d" % object_id)
+        plot_heatmap(softmaxes,
+                     axes,
+                     row_ids=actual_ids,
+                     labels=actual_norb_labels)
+        axes.set_title("Softmaxes of object %d" % object_id)
         axes.set_yticklabels(())
         axes.set_xticklabels(())
 
-
-    # axes[-1].imshow(confusion_matrix[most_confused_objects, :],
-    #                 interpolation='nearest')
-    # plots the worst softmax(es)
-    # axes[-1].imshow(softmax_labels[:100, :], interpolation='nearest')
-    # plot_worst_softmax(softmax_labels, ground_truth, axes[2:])
+    def on_key_press(event):
+        if event.key == 'q':
+            sys.exit(0)
 
     figure.canvas.mpl_connect('motion_notify_event', on_mouse_motion)
     figure.canvas.mpl_connect('button_press_event', on_mousedown)
+    figure.canvas.mpl_connect('key_press_event', on_key_press)
 
     pyplot.show()
 

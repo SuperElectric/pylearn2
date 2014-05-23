@@ -14,9 +14,9 @@ import sys, argparse, os, time
 import numpy, theano
 from numpy import logical_and
 from pylearn2.expr.preprocessing import global_contrast_normalize
-from pylearn2.utils import serial, string_utils
+from pylearn2.utils import serial, string_utils, safe_zip
 from pylearn2.datasets import preprocessing
-from pylearn2.datasets.norb import SmallNORB
+from pylearn2.datasets.norb import SmallNORB, Norb
 from pylearn2.datasets.dense_design_matrix import (DenseDesignMatrix,
                                                    DefaultViewConverter)
 
@@ -31,89 +31,157 @@ def parse_args():
                                      "into DenseDesignMatrices suitable "
                                      "for instance recognition "
                                      "experiments.")
+
+    ArgumentTypeError = argparse.ArgumentTypeError
+
+    def positive_integer(arg):
+        """
+        Checks that an argument is a positive integer.
+        """
+
+        result = int(arg)
+        if result != float(arg):
+            raise ArgumentTypeError("%g is not an integer" % arg)
+
+        if result < 1:
+            raise ArgumentTypeError("%d is not greater than zero." % arg)
+
+        return result
+
+    parser.add_argument("-n",
+                        "--which_norb",
+                        choices=['small', 'big'],
+                        required=True,
+                        help=("'big' for NORB or 'small' for Small NORB"))
+
     parser.add_argument("-a",
-                        "--azimuth_ratio",
-                        type=int,
+                        "--azimuth_spacing",
+                        type=positive_integer,
                         required=False,
                         default=2,
                         metavar='A',
-                        help=("Use every A'th azimuth as a testing "
+                        help=("Use every A'th azimuth as a training "
                               "instance. To use all azimuths for "
-                              "training, enter 0."))
+                              "training, enter 1."))
     parser.add_argument("-e",
-                        "--elevation_ratio",
-                        type=int,
+                        "--elevation_spacing",
+                        type=positive_integer,
                         required=False,
-                        default=0,
+                        default=1,
                         metavar='E',
-                        help=("Use every E'th elevation as a testing "
-                              "instance. To use all azimuths for "
-                              "training, enter 0."))
+                        help=("Use every E'th elevation as a training "
+                              "instance. To use all elevations for "
+                              "training, enter 1."))
 
-    return parser.parse_args(sys.argv[1:])
+    parser.add_argument("-l",
+                        "--lighting_spacing",
+                        type=positive_integer,
+                        required=False,
+                        default=1,
+                        metavar='I',
+                        help=("Use every I'th illumination as a training "
+                              "instance. To use all illuminations for "
+                              "training, enter 1."))
 
+    def between_0_and_1(arg):
+        """
+        Checks that an argument is a float between 0.0 and 1.0 inclusive.
+        """
+        result = float(arg)
 
+        if result < 0.0 or result > 1.0:
+            raise ArgumentTypeError("%g was not between 0.0 and 1.0 "
+                                    "inclusive." % arg)
 
+        return result
 
-# def get_new_labels(labels):
-#     """
-#     Given a NxM matrix of NORB labels, returns a Nx1 matrix of new labels
-#     that assigns a unique integer for each (category, instance) pair.
-#     """
-#     result = numpy.zeros((labels.shape[0], 1), dtype='int')
-#     category_index, instance_index = (SmallNORB.label_type_to_index[n]
-#                                       for n in ('category', 'instance'))
+    parser.add_argument("-b",
+                        "--training_blanks",
+                        type=between_0_and_1,
+                        required=False,
+                        default=None,
+                        metavar='B',
+                        help=("The fraction of all 'blank' images to use "
+                              "in the training set. Not applicable if "
+                              "--which_norb == 'small'."))
 
-#     num_categories, num_instances = (SmallNORB.num_labels_by_type[x]
-#                                      for x in (category_index,
-#                                                instance_index))
+    # parser.add_argument("--equal_sizes",
+    #                     type=bool,
+    #                     required=False,
+    #                     default=True,
+    #                     help=("If True, ensures that the training set and "
+    #                           "test set are of equal sizes. If False, the "
+    #                           "test set is N-size_of_training_set, where N "
+    #                           "is the total number of examples in the "
+    #                           "dataset."))
 
-#     new_label = 0
-#     examples_per_label = 0
-#     for category in xrange(num_categories):
-#         for instance in xrange(num_instances):
-#             row_mask = logical_and(labels[:, category_index] == category,
-#                                    labels[:, instance_index] == instance)
-#             if new_label == 0:
-#                 examples_per_label = len(numpy.nonzero(row_mask)[0])
-#                 assert examples_per_label != 0
-#             else:
-#                 assert len(numpy.nonzero(row_mask)[0]) == examples_per_label
+    result = parser.parse_args(sys.argv[1:])
 
-#             result[row_mask] = new_label
-#             new_label = new_label + 1
-
-#     return result
-
-
-def get_testing_rowmask(labels, azimuth_ratio, elevation_ratio):
-    """
-    Returns a row mask that selects the testing set from the merged data.
-    """
-
-    azimuth_index, elevation_index = (SmallNORB.label_type_to_index[n]
-                                      for n in ('azimuth', 'elevation'))
-
-    result = numpy.ones(labels.shape[0], dtype='bool')
-
-    # azimuth labels are spaced by 2
-    azimuth_modulo = azimuth_ratio * 2
-
-    # elevation labels are integers from 0 to 9, so no need to convert
-    elevation_modulo = elevation_ratio
-
-    if azimuth_modulo > 0:
-        azimuths = labels[:, azimuth_index]
-        result = logical_and(result, azimuths % azimuth_modulo == 0)
-
-    if elevation_modulo > 0:
-        elevations = labels[:, elevation_index]
-        result = logical_and(result, elevations % elevation_modulo == 0)
+    if result.which_norb == 'small' and result.training_blanks is not None:
+        print ("--training_blanks is only applicable for the big NORB "
+               "dataset; i.e. when --which_norb is 'big'")
+        sys.exit(1)
 
     return result
 
 
-def load_instance_datasets(azimuth_ratio, elevation_ratio, which_image):
+def get_training_rowmask(labels,
+                         label_type_to_index,
+                         elevation_spacing,
+                         azimuth_spacing,
+                         lighting_spacing,
+                         training_blanks = None):
+    """
+    Returns a row mask that selects the testing set from the merged data.
+    """
+
+    label_names = ("elevation", "azimuth", "lighting")
+    label_indices = tuple(label_type_to_index[n] for n in label_names)
+    label_modulos = (elevation_spacing, azimuth_spacing * 2, lighting_spacing)
+
+    num_labels = labels.shape[0]
+
+    row_mask = numpy.ones(num_labels, dtype=bool)
+
+    for index, modulo in safe_zip(label_indices, label_modulos):
+        label_column = labels[:, index]
+        row_mask = numpy.logical_and(row_mask, label_column % modulo == 0)
+
+    if training_blanks is not None:
+        rng = numpy.random.RandomState(seed=12345)
+        blanks_mask = rng.random_sample(num_labels) < training_blanks
+        row_mask = numpy.logical_and(row_mask, blanks_mask)
+
+    return row_mask
+
+    # azimuth_index, elevation_index = (SmallNORB.label_type_to_index[n]
+    #                                   for n in ('azimuth', 'elevation'))
+
+    # result = numpy.ones(labels.shape[0], dtype='bool')
+
+    # # azimuth labels are spaced by 2
+    # azimuth_modulo = azimuth_spacing * 2
+
+    # # elevation labels are integers from 0 to 8, so no need to convert
+    # elevation_modulo = elevation_spacing
+
+    # # if azimuth_modulo > 0:
+    # azimuths = labels[:, azimuth_index]
+    # result = logical_and(result, azimuths % azimuth_modulo == 0)
+
+    # # if elevation_modulo > 0:
+    # elevations = labels[:, elevation_index]
+    # result = logical_and(result, elevations % elevation_modulo == 0)
+
+    # return result
+
+
+def load_instance_datasets(which_norb,
+                           which_image,
+                           elevation_spacing,
+                           azimuth_spacing,
+                           lighting_spacing,
+                           training_blanks):
     """
     Repackages the NORB database training and testing sets by merging them,
     retaining just the left or just the right stereo images, then splitting
@@ -122,32 +190,48 @@ def load_instance_datasets(azimuth_ratio, elevation_ratio, which_image):
     Parameters
     ----------
 
-    azimuth_ratio : int
-    If azimuth_ratio=N, then every Nth azimuth will be used in the testing set,
-    and the other images will be used in training set.
-
-    elevation_ratio : int
-    If elevation_ratio=N, then every Nth elevation will be used in the testing
-    set, and the other images will be used in training set.
+    which_norb : 'big' or 'small'.
 
     which_image : int
     Must be 0 or 1. Selects whether to use left or right images, respectively.
+
+    azimuth_spacing : int
+    If azimuth_spacing=N, then every Nth azimuth will be used in the training
+    set, and the other images will be used in testing set.
+
+    elevation_spacing : int
+    If elevation_spacing=N, then every Nth elevation will be used in the
+    training set, and the other images will be used in testing set.
+
+    equal_sizes : bool
+    If True, then the test set will be constrained to be the same size as the
+    training set. If False, then the test set size will be
+    N - <size of training set>, which is often bigger than the training set.
 
     Returns
     -------
     (test_set, training_set): tuple of DenseDesignMatrix'es
     """
+
+    if which_norb not in ('big', 'small'):
+        raise ValueError("which_norb must be either 'big' or 'small', not '%s'"
+                         % str(which_norb))
+
     if which_image not in (0, 1):
         raise ValueError("which_image must be 0 or 1, but was %d" %
                          which_image)
 
-    print("Reading SmallNORB")
-    train = SmallNORB('train', True)
-    test = SmallNORB('test', True)
-    print("read SmallNORB")
+    NorbType = SmallNORB if which_norb == 'small' else Norb
+
+    print("Reading %s NORB dataset" % which_norb)
+    train = NorbType('train', True)
+    test = NorbType('test', True)
+    print("read dataset")
+
+    label_type_to_index = train.label_type_to_index
 
     # Select just the first image of the stereo image pairs.
-    image_shape = SmallNORB.original_image_shape + (1, )
+    image_shape = NorbType.original_image_shape + (1, )
     num_pixels = numpy.prod(image_shape)
 
     for db in (train, test):
@@ -161,18 +245,51 @@ def load_instance_datasets(azimuth_ratio, elevation_ratio, which_image):
 
     print("train.X, .y: %s, %s" % (str(train.X.shape), str(train.y.shape)))
 
+    print("Combining %s NORB's training and testing sets..." % which_norb)
     images = numpy.vstack((train.X, test.X))
     labels = numpy.vstack((train.y, test.y))
+    print("...done.")
+
+    # print("train.X.dtype: %s" % train.X.dtype)
+    # print("images.dtype: %s" % images.dtype)
+
+    # assert str(images.dtype) == theano.config.floatX
 
     # Free some memory
     del train
     del test
 
-    assert str(images.dtype) == theano.config.floatX
-
     # new_labels = get_object_ids(labels)
-    test_mask = get_testing_rowmask(labels, azimuth_ratio, elevation_ratio)
-    train_mask = numpy.logical_not(test_mask)
+    train_mask = get_training_rowmask(labels,
+                                      label_type_to_index,
+                                      azimuth_spacing,
+                                      elevation_spacing,
+                                      lighting_spacing,
+                                      training_blanks)
+    test_mask = numpy.logical_not(train_mask)
+
+    # def randomly_reduce_size(mask, desired_num_trues):
+    #     """
+    #     Randomly picks Trues in test_mask to switch to false, until only
+    #     desired_num_trues Trues remain.
+
+    #     returns: test_mask with desired_num_trues Trues.
+    #     """
+
+    #     true_indices = numpy.nonzero(mask)[0]
+
+    #     numpy.random.shuffle(true_indices)  # shuffles in-place
+    #     indices_to_flip = true_indices[desired_num_trues:]
+    #     result = numpy.copy(mask)
+    #     result[indices_to_flip] = False
+    #     assert numpy.count_nonzero(result) == desired_num_trues, \
+    #            ("numpy.count_nonzero(result): %d, desired_num_trues: %d" %
+    #             (numpy.count_nonzero(result), desired_num_trues))
+    #     return result
+
+    # if equal_sizes:
+    #     test_mask = randomly_reduce_size(test_mask,
+    #                                      numpy.count_nonzero(train_mask))
 
     view_converter = DefaultViewConverter(shape=image_shape)
     train, test = (DenseDesignMatrix(X=images[row_mask, :],
@@ -180,8 +297,6 @@ def load_instance_datasets(azimuth_ratio, elevation_ratio, which_image):
                                      view_converter=view_converter)
                    for row_mask in (train_mask, test_mask))
 
-    print("after re-splitting, train.X, .y: %s, %s" % (str(train.X.shape),
-                                                       str(train.y.shape)))
     print("split dataset into %s training examples, %s testing examples." %
           (str(train.X.shape), str(test.X.shape)))
 
@@ -231,20 +346,37 @@ def main():
 
     args = parse_args()
 
-    training_set, testing_set = load_instance_datasets(args.azimuth_ratio,
-                                                       args.elevation_ratio,
-                                                       which_image=0)
+    training_set, testing_set = load_instance_datasets(args.which_norb,
+                                                       0,  # which_image
+                                                       args.elevation_spacing,
+                                                       args.azimuth_spacing,
+                                                       args.lighting_spacing,
+                                                       args.training_blanks)
+
+
+    print("applying GCN...")
 
     for dataset in (training_set, testing_set):
+        print("converting from %s to %s" % (dataset.X.dtype, theano.config.floatX))
+        dataset.X = numpy.asarray(dataset.X, dtype=theano.config.floatX)
+
         # Subtracts each image's mean intensity. Scale of 55.0 taken from
         # pylearn2/scripts/datasets/make_cifar10_gcn_whitened.py
-        dataset.X = global_contrast_normalize(dataset.X, scale=55.0)
+        # dataset.X = global_contrast_normalize(dataset.X, scale=55.0)
+        print("GCN'ing %s dataset" % str(dataset.X.shape))
+        global_contrast_normalize(dataset.X, scale=55.0, in_place=True)
+
+    print("GCN done. Max pixel value: %g" % dataset.X.max())
 
     preprocessor = preprocessing.ZCA()
 
     output_dir = make_output_dir()
-    prefix = 'small_norb_%02d_%02d' % (args.azimuth_ratio,
-                                       args.elevation_ratio)
+    prefix = '%s_norb_E%02d_A%02d_L%02d' % (args.which_norb,
+                                            args.elevation_spacing,
+                                            args.azimuth_spacing,
+                                            args.lighting_spacing)
+    if args.which_norb == 'big':
+        prefix += '_B%0.2f' % args.training_blanks
 
     print("ZCA'ing training set")
     training_set.apply_preprocessor(preprocessor=preprocessor, can_fit=True)
@@ -254,11 +386,12 @@ def main():
     t2 = time.time()
     print("ZCA of testing set took %g secs" % (t2 - t1))
 
-    prefix = 'small_norb_%02d_%02d' % (args.azimuth_ratio,
-                                       args.elevation_ratio)
+    # prefix = 'small_norb_%02d_%02d' % (args.azimuth_spacing,
+    #                                    args.elevation_spacing)
 
-    for ds in (training_set, testing_set):
-        print("ds.y.shape: ", ds.y.shape)
+
+    # for ds in (training_set, testing_set):
+    #     print("ds.y.shape: ", ds.y.shape)
 
     # Saves testing & training datasets
     for dataset, name in zip((training_set, testing_set), ('train', 'test')):

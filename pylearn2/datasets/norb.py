@@ -18,13 +18,14 @@ __maintainer__ = "Matthew Koichi Grimes"
 __email__ = "mkg alum mit edu (@..)"
 
 
-import os, gzip, bz2, warnings
+import os, gzip, bz2, warnings, functools
 import numpy, theano
-from pylearn2.datasets import dense_design_matrix
+from pylearn2.utils import safe_zip
+from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 from pylearn2.space import VectorSpace, Conv2DSpace, CompositeSpace
 
 
-class SmallNORB(dense_design_matrix.DenseDesignMatrix):
+class SmallNORB(DenseDesignMatrix):
     """
     An interface to the small NORB dataset.
 
@@ -111,10 +112,10 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
         parameters
         ----------
 
-        which_set: str
+        which_set : str
             Must be 'train' or 'test'.
 
-        multi_target: bool
+        multi_target : bool
             If False, each label is an integer labeling the image catergory. If
             True, each label is a vector: [category, instance, lighting,
             elevation, azimuth]. All labels are given as integers. Use the
@@ -122,7 +123,7 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
             from these integers to actual values.
         """
 
-        assert which_set in ['train', 'test']
+        assert which_set in ('train', 'test')
 
         self.which_set = which_set
 
@@ -136,7 +137,7 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
         X = theano._asarray(X, theano.config.floatX)
 
         # Formats data as rows in a matrix, for DenseDesignMatrix
-        X = X.reshape(-1, 2*numpy.prod(self.original_image_shape))
+        X = X.reshape(-1, 2 * numpy.prod(self.original_image_shape))
 
         # This is uint8
         y = SmallNORB.load(which_set, 'cat')
@@ -156,6 +157,127 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
                                         y=y,
                                         view_converter=view_converter)
 
+    @staticmethod
+    def _parseNORBFile(file_handle, subtensor=None, debug=False):
+        """
+        Load all or part of file 'file_handle' into a numpy ndarray
+
+        Parameters
+        ----------
+
+        file_handle: file
+          A file from which to read. Can be a handle returned by
+          open(), gzip.open() or bz2.BZ2File().
+
+        subtensor: slice, or None
+          If subtensor is not None, it should be like the
+          argument to numpy.ndarray.__getitem__.  The following two
+          expressions should return equivalent ndarray objects, but the one
+          on the left may be faster and more memory efficient if the
+          underlying file f is big.
+
+          read(file_handle, subtensor) <===> read(file_handle)[*subtensor]
+
+          Support for subtensors is currently spotty, so check the code to
+          see if your particular type of subtensor is supported.
+        """
+
+        def readNums(file_handle, num_type, count):
+            """
+            Reads 4 bytes from file, returns it as a 32-bit integer.
+            """
+            num_bytes = count * numpy.dtype(num_type).itemsize
+            string = file_handle.read(num_bytes)
+            return numpy.fromstring(string, dtype=num_type)
+
+        def readHeader(file_handle, debug=False, from_gzip=None):
+            """
+            parameters
+            ----------
+
+            file_handle : file or gzip.GzipFile
+            An open file handle.
+
+
+            from_gzip : bool or None
+            If None determine the type of file handle.
+
+            returns : tuple
+            (data type, element size, shape)
+            """
+
+            if from_gzip is None:
+                from_gzip = isinstance(file_handle,
+                                      (gzip.GzipFile, bz2.BZ2File))
+
+            key_to_type = {0x1E3D4C51: ('float32', 4),
+                           # what is a packed matrix?
+                           # 0x1E3D4C52: ('packed matrix', 0),
+                           0x1E3D4C53: ('float64', 8),
+                           0x1E3D4C54: ('int32', 4),
+                           0x1E3D4C55: ('uint8', 1),
+                           0x1E3D4C56: ('int16', 2)}
+
+            type_key = readNums(file_handle, 'int32', 1)[0]
+            elem_type, elem_size = key_to_type[type_key]
+            if debug:
+                print "header's type key, type, type size: ", \
+                    type_key, elem_type, elem_size
+            if elem_type == 'packed matrix':
+                raise NotImplementedError('packed matrix not supported')
+
+            num_dims = readNums(file_handle, 'int32', 1)[0]
+            if debug:
+                print '# of dimensions, according to header: ', num_dims
+
+            if from_gzip:
+                shape = readNums(file_handle,
+                                 'int32',
+                                 max(num_dims, 3))[:num_dims]
+            else:
+                shape = numpy.fromfile(file_handle,
+                                       dtype='int32',
+                                       count=max(num_dims, 3))[:num_dims]
+
+            if debug:
+                print 'Tensor shape, as listed in header:', shape
+
+            return elem_type, elem_size, shape
+
+        elem_type, elem_size, shape = readHeader(file_handle, debug)
+        beginning = file_handle.tell()
+
+        num_elems = numpy.prod(shape)
+
+        result = None
+        if isinstance(file_handle, (gzip.GzipFile, bz2.BZ2File)):
+            assert subtensor is None, \
+                "Subtensors on gzip files are not implemented."
+            result = readNums(file_handle,
+                              elem_type,
+                              num_elems*elem_size).reshape(shape)
+        elif subtensor is None:
+            result = numpy.fromfile(file_handle,
+                                    dtype=elem_type,
+                                    count=num_elems).reshape(shape)
+        elif isinstance(subtensor, slice):
+            if subtensor.step not in (None, 1):
+                raise NotImplementedError('slice with step',
+                                          subtensor.step)
+            if subtensor.start not in (None, 0):
+                bytes_per_row = numpy.prod(shape[1:]) * elem_size
+                file_handle.seek(beginning+subtensor.start * bytes_per_row)
+            shape[0] = min(shape[0], subtensor.stop) - subtensor.start
+            result = numpy.fromfile(file_handle,
+                                    dtype=elem_type,
+                                    count=num_elems).reshape(shape)
+        else:
+            raise NotImplementedError('subtensor access not written yet:',
+                                      subtensor)
+
+        return result
+
+
     @classmethod
     def load(cls, which_set, filetype):
         """
@@ -165,7 +287,7 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
         assert which_set in ['train', 'test']
         assert filetype in ['dat', 'cat', 'info']
 
-        def getPath(which_set):
+        def get_path(which_set):
             dirname = os.path.join(os.getenv('PYLEARN2_DATA_PATH'),
                                    'norb_small/original')
             if which_set == 'train':
@@ -178,119 +300,11 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
 
             return os.path.join(dirname, filename)
 
-        def parseNORBFile(file_handle, subtensor=None, debug=False):
-            """
-            Load all or part of file 'file_handle' into a numpy ndarray
 
-            :param file_handle: file from which to read file can be opended
-              with open(), gzip.open() and bz2.BZ2File()
-              @type file_handle: file-like object. Can be a gzip open file.
+        file_handle = open(get_path(which_set))
+        return cls._parseNORBFile(file_handle)
 
-            :param subtensor: If subtensor is not None, it should be like the
-              argument to numpy.ndarray.__getitem__.  The following two
-              expressions should return equivalent ndarray objects, but the one
-              on the left may be faster and more memory efficient if the
-              underlying file f is big.
-
-              read(file_handle, subtensor) <===> read(file_handle)[*subtensor]
-
-              Support for subtensors is currently spotty, so check the code to
-              see if your particular type of subtensor is supported.
-              """
-
-            def readNums(file_handle, num_type, count):
-                """
-                Reads 4 bytes from file, returns it as a 32-bit integer.
-                """
-                num_bytes = count * numpy.dtype(num_type).itemsize
-                string = file_handle.read(num_bytes)
-                return numpy.fromstring(string, dtype=num_type)
-
-            def readHeader(file_handle, debug=False, from_gzip=None):
-                """
-                :param file_handle: an open file handle.
-                :type file_handle: a file or gzip.GzipFile object
-
-                :param from_gzip: bool or None
-                :type from_gzip: if None determine the type of file handle.
-
-                :returns: data type, element size, rank, shape, size
-                """
-
-                if from_gzip is None:
-                    from_gzip = isinstance(file_handle,
-                                          (gzip.GzipFile, bz2.BZ2File))
-
-                key_to_type = {0x1E3D4C51: ('float32', 4),
-                               # what is a packed matrix?
-                               # 0x1E3D4C52: ('packed matrix', 0),
-                               0x1E3D4C53: ('float64', 8),
-                               0x1E3D4C54: ('int32', 4),
-                               0x1E3D4C55: ('uint8', 1),
-                               0x1E3D4C56: ('int16', 2)}
-
-                type_key = readNums(file_handle, 'int32', 1)[0]
-                elem_type, elem_size = key_to_type[type_key]
-                if debug:
-                    print "header's type key, type, type size: ", \
-                        type_key, elem_type, elem_size
-                if elem_type == 'packed matrix':
-                    raise NotImplementedError('packed matrix not supported')
-
-                num_dims = readNums(file_handle, 'int32', 1)[0]
-                if debug:
-                    print '# of dimensions, according to header: ', num_dims
-
-                if from_gzip:
-                    shape = readNums(file_handle,
-                                     'int32',
-                                     max(num_dims, 3))[:num_dims]
-                else:
-                    shape = numpy.fromfile(file_handle,
-                                           dtype='int32',
-                                           count=max(num_dims, 3))[:num_dims]
-
-                if debug:
-                    print 'Tensor shape, as listed in header:', shape
-
-                return elem_type, elem_size, shape
-
-            elem_type, elem_size, shape = readHeader(file_handle, debug)
-            beginning = file_handle.tell()
-
-            num_elems = numpy.prod(shape)
-
-            result = None
-            if isinstance(file_handle, (gzip.GzipFile, bz2.BZ2File)):
-                assert subtensor is None, \
-                    "Subtensors on gzip files are not implemented."
-                result = readNums(file_handle,
-                                  elem_type,
-                                  num_elems*elem_size).reshape(shape)
-            elif subtensor is None:
-                result = numpy.fromfile(file_handle,
-                                        dtype=elem_type,
-                                        count=num_elems).reshape(shape)
-            elif isinstance(subtensor, slice):
-                if subtensor.step not in (None, 1):
-                    raise NotImplementedError('slice with step',
-                                              subtensor.step)
-                if subtensor.start not in (None, 0):
-                    bytes_per_row = numpy.prod(shape[1:]) * elem_size
-                    file_handle.seek(beginning+subtensor.start * bytes_per_row)
-                shape[0] = min(shape[0], subtensor.stop) - subtensor.start
-                result = numpy.fromfile(file_handle,
-                                        dtype=elem_type,
-                                        count=num_elems).reshape(shape)
-            else:
-                raise NotImplementedError('subtensor access not written yet:',
-                                          subtensor)
-
-            return result
-
-        file_handle = open(getPath(which_set))
-        return parseNORBFile(file_handle)
-
+    @functools.wraps(DenseDesignMatrix.get_topological_view)
     def get_topological_view(self, mat=None, single_tensor=True):
         result = super(SmallNORB, self).get_topological_view(mat)
 
@@ -307,9 +321,6 @@ class SmallNORB(dense_design_matrix.DenseDesignMatrix):
 
             # inserts a singleton dimension where the 's' dimesion will be
             mono_shape = shape[:s_index] + (1, ) + shape[(s_index+1):]
-
-            for i, res in enumerate(result):
-                print "result %d shape: %s" % (i, str(res.shape))
 
             result = tuple(t.reshape(mono_shape) for t in result)
             result = numpy.concatenate(result, axis=s_index)
@@ -331,15 +342,17 @@ class StereoViewConverter(object):
         """
         The arguments describe how the data is laid out in the design matrix.
 
-        shape: A tuple of 4 ints, describing the shape of each datum.
-               This is the size of each axis in <axes>, excluding the 'b' axis.
+        shape : tuple
+          A tuple of 4 ints, describing the shape of each datum.
+          This is the size of each axis in <axes>, excluding the 'b' axis.
 
-        axes: tuple of the following elements in any order:
-          'b'  batch axis)
-          's'  stereo axis)
-           0   image axis 0 (row)
-           1   image axis 1 (column)
-          'c'  channel axis
+        axes : tuple
+          A tuple of the following elements in any order:
+            'b'  batch axis)
+            's'  stereo axis)
+             0   image axis 0 (row)
+             1   image axis 1 (column)
+            'c'  channel axis
         """
         shape = tuple(shape)
 
@@ -433,3 +446,352 @@ class StereoViewConverter(object):
             self.shape = new_shape
 
         self.axes = axes
+
+
+def _merge_dicts(*args):
+    result = {}
+    for arg in args:
+        result.update(arg)
+
+    return result
+
+
+class Norb(SmallNORB):
+    """
+    A stereo dataset for the same 50 objects (5 classes, 10 objects each) as
+    SmallNORB, but with natural imagery composited into the background, and
+    distractor objects added near the border (one distractor per image).
+
+    Furthermore, the image labels have the following additional attributes:
+      horizontal shift (-6 to +6)
+      vertical shift (-6 to +6)
+      lumination change (-20 to +20)
+      contrast (0.8 to 1.3)
+      object scale (0.78 to 1.0)
+      rotation (-5 to +5 degrees)
+
+    To allow for these shifts, the images are slightly bigger (108 x 108).
+    """
+
+    original_image_shape = (108, 108)
+
+    label_type_to_index = _merge_dicts(SmallNORB.label_type_to_index,
+                                       {'horizontal shift': 5,
+                                        'vertical shift': 6,
+                                        'lumination change': 7,
+                                        'contrast': 8,
+                                        'object scale': 9,
+                                        'rotation': 10})
+
+    # num_labels_by_type = SmallNORB.num_labels_by_type + (-1,  # h. shift
+    #                                                      -1,  # v. shift
+    #                                                      -1,  # lumination
+    #                                                      -1,  # contrast
+    #                                                      -1,  # scale
+    #                                                      -1)  # rotation
+
+    @classmethod
+    def get_dir(cls):
+        result = os.path.join(os.getenv('PYLEARN2_DATA_PATH'),
+                              'norb',
+                              'original')
+
+        if not os.path.isdir(result):
+            raise RuntimeError("Couldn't find NORB dataset directory '%s'" %
+                               result)
+
+        return result
+
+    @classmethod
+    def load(cls, which_set, number, filetype):
+        """
+        Loads the data from a single NORB file, returning it as a 1-D numpy
+        array.
+        """
+
+        assert which_set in ['train', 'test']
+        assert filetype in ['dat', 'cat', 'info']
+
+        if which_set == 'train':
+            assert number in range(1, 3)
+        else:
+            assert number in range(1, 11)
+
+        def get_path(which_set, number, filetype):
+            dirname = cls.get_dir()
+            if which_set == 'train':
+                instance_list = '46789'
+            elif which_set == 'test':
+                instance_list = '01235'
+            else:
+                raise ValueError("Expected which_set to be 'train' or 'test', "
+                                 "but got '%s'" % which_set)
+
+            filename = 'norb-5x%sx9x18x6x2x108x108-%s-%02d-%s.mat' % \
+                (instance_list, which_set + 'ing', number, filetype)
+
+            return os.path.join(dirname, filename)
+
+        file_handle = open(get_path(which_set, number, filetype))
+        return cls._parseNORBFile(file_handle)
+
+    def __init__(self,
+                 which_set,
+                 multi_target=False,
+                 memmap_dir=None):
+        """
+        Loads NORB dataset from $PYLEARN2_DATA_PATH/norb/*.mat into
+        memory-mapped numpy.ndarrays, stored by default in
+        $PYLEARN2_DATA_PATH/norb/memmap_files/
+
+        We use memory-mapped ndarrays stored on disk instead of conventional
+        ndarrays stored in memory, because NORB is > 7GB.
+
+        Parameters:
+        -----------
+        which_set: str
+          'test' or 'train'.
+
+        multi_target: bool
+          If True, load all labels in a N x 11 matrix.
+          If False, load only the category label in a length-N vector.
+          All labels are always read and stored in the memmap file. This
+          parameter only changes what is visible to the user.
+
+        memmap_dir: str or None
+          Directory to store disk buffers in.
+          If None, this defaults to $PYLEARN2_DATA_PATH/norb/memmap_files/
+
+          The following memory-mapped files will be created:
+            memmap_dir/<which_set>_images.npy
+            memmap_dir/<which_set>_labels.npy
+
+          If either of the above files already exist, it will be used instead
+          of reading the NORB files.
+        """
+        if not which_set in ('test', 'train'):
+            raise ValueError("Expected which_set to be 'train' or "
+                             "'test', but got '%s'" % which_set)
+
+        norb_dir = self.get_dir()
+        print "norb_dir: ", norb_dir
+        print "memmap_dir: ", memmap_dir
+
+        if memmap_dir is None:
+            memmap_dir = os.path.join(norb_dir, 'memmap_files')
+            if not os.path.isdir(memmap_dir):
+                os.mkdir(memmap_dir)
+
+        def load_memmaps(which_set):
+            """
+            Returns the memmapped arrays for images and labels.
+            Each array will be a design matrix, with data in rows.
+
+            If the memmap file can't be found, the data will be read
+            from the original NORB files, and saved to memmap files for
+            future use.
+
+            Returns: (images, labels)
+            """
+
+            isfile = os.path.isfile
+
+            def get_memmap_paths(which_set):
+                template = os.path.join(memmap_dir, which_set + "_%s.npy")
+                images_path, labels_path = tuple(template % x
+                                                 for x
+                                                 in ('images', 'labels'))
+
+                # Disallow case where the images memmap exists but the
+                # corresponding labels file is missing, or vice-versa.
+                if isfile(images_path) != isfile(labels_path):
+                    raise ValueError("There is %s memmap file for images, but "
+                                     "there is %s memmap file for labels. "
+                                     "This should not happen under normal "
+                                     "operation (they must either both be "
+                                     "missing, or both be present). Erase the "
+                                     "existing memmap file to regenerate both "
+                                     "memmap files from scratch." %
+                                     ("a" if isfile(images_path) else "no",
+                                      "a" if isfile(labels_path) else "no"))
+
+                return images_path, labels_path
+
+            images_path, labels_path = get_memmap_paths(which_set)
+
+            num_norb_files = 2 if which_set == 'test' else 10
+            num_rows = 29160 * num_norb_files
+
+            def get_memmap_shapes(which_set):
+                pixels_per_row = 2 * numpy.prod(Norb.original_image_shape)
+                labels_per_row = len(Norb.label_type_to_index)
+                images_shape = (num_rows, pixels_per_row)
+                labels_shape = (num_rows, labels_per_row)
+                return images_shape, labels_shape
+
+            images_shape, labels_shape = get_memmap_shapes(which_set)
+
+            # Opens memmap files as read-only if they already exist.
+            memmaps_already_existed = isfile(images_path)
+
+            if not memmaps_already_existed:
+                print "allocating memmap files in %s" % memmap_dir
+            else:
+                print "found memmap files in %s" % memmap_dir
+
+            memmap_mode = 'r' if memmaps_already_existed else 'w+'
+            images = numpy.memmap(images_path,
+                                  dtype='uint8',
+                                  mode=memmap_mode,
+                                  shape=images_shape)
+            labels = numpy.memmap(labels_path,
+                                  dtype='int32',
+                                  mode=memmap_mode,
+                                  shape=labels_shape)
+
+            assert str(images.dtype) == 'uint8', images.dtype
+            assert str(labels.dtype) == 'int32', labels.dtype
+
+            # Load data from NORB data files if memmap files didn't already
+            # exist.
+            if not memmaps_already_existed:
+
+                def get_norb_filepaths(which_set, filetype):
+                    if which_set == 'train':
+                        instance_list = '46789'
+                        numbers = range(1, 11)
+                    elif which_set == 'test':
+                        instance_list = '01235'
+                        numbers = range(1, 3)
+
+                    template = ('norb-5x%sx9x18x6x2x108x108-%s-%%02d-%s.mat' %
+                                (instance_list, which_set + 'ing', filetype))
+                    return tuple(os.path.join(norb_dir, template % n)
+                                 for n in numbers)
+
+                # Temporarily folds images, labels into file-sized chunks, to
+                # iterate through.
+                images = images.reshape((num_norb_files, -1, images.shape[1]))
+                labels = labels.reshape((num_norb_files, -1, labels.shape[1]))
+
+                # Reads images from NORB's 'dat' files.
+                for images_chunk, norb_filepath in \
+                        safe_zip(images, get_norb_filepaths(which_set, 'dat')):
+
+                    print "copying images from %s" % norb_filepath
+
+                    data = Norb._parseNORBFile(open(norb_filepath))
+                    assert data.dtype == images.dtype, \
+                        ("data.dtype: %s, images.dtype: %s" %
+                         (data.dtype, images.dtype))
+
+                    images_chunk[...] = data.reshape(images_chunk.shape)
+
+                # Reads label data from NORB's 'cat' and 'info' files
+                for labels_chunk, cat_filepath, info_filepath in \
+                    safe_zip(labels,
+                             get_norb_filepaths(which_set, 'cat'),
+                             get_norb_filepaths(which_set, 'info')):
+                    categories = Norb._parseNORBFile(open(cat_filepath))
+
+                    print ("copying labels from %s and %s" %
+                           (os.path.split(cat_filepath)[0],
+                            os.path.split(cat_filepath)[1]))
+                    info = Norb._parseNORBFile(open(info_filepath))
+                    info = info.reshape((labels_chunk.shape[0],
+                                         labels_chunk.shape[1] - 1))
+
+                    assert categories.dtype == labels.dtype, \
+                        ("categories.dtype: %s, labels.dtype: %s" %
+                         (categories.dtype, labels.dtype))
+
+                    assert info.dtype == labels.dtype, \
+                        ("info.dtype: %s, labels.dtype: %s" %
+                         (info.dtype, labels.dtype))
+
+                    labels_chunk[:, 0] = categories
+                    labels_chunk[:, 1:] = info
+
+                # Unfolds images, labels back into matrices
+                images = images.reshape((num_rows, -1))
+                labels = labels.reshape((num_rows, -1))
+
+            return images, labels
+
+        images, labels = load_memmaps(which_set)
+
+        if not multi_target:
+            # discard all labels other than category
+            labels = labels[:, :1]
+
+        # A tuple of dicts that maps a label int to its semantic value.
+        # Example: (prints the elevation in degrees)
+        #   print self.label_to_value_type[3][label_vector[3]]
+        self.label_to_value_maps = (
+            # category
+            {0: 'animal',
+             1: 'human',
+             2: 'airplane',
+             3: 'truck',
+             4: 'car',
+             5: 'blank'},
+
+            # instance
+            dict(safe_zip(range(-1, 10),
+                          ['No instance', ] + range(10))),
+
+            # elevation in degrees
+            dict(safe_zip(range(-1, 9),
+                          ['No elevation', ] + range(30, 71, 5))),
+
+            # azimuth in degrees
+            dict(safe_zip([-1, ] + range(0, 35, 2),
+                          ['No azimuth', ] + range(0, 341, 20))),
+
+            # lighting setup
+            dict(safe_zip(range(-1, 6),
+                          ['No lighting', ] + range(6))),
+
+            # horizontal shift
+            dict(safe_zip(range(-5, 6), range(-5, 6))),
+
+            # vertical shift
+            dict(safe_zip(range(-5, 6), range(-5, 6))),
+
+            # lumination change
+            dict(safe_zip(range(-19, 20), range(-19, 20))),
+
+            # contrast change
+            dict(safe_zip(range(2), (0.8, 1.3))),
+
+            # scale change
+            dict(safe_zip(range(2), (0.78, 1.0))),
+
+            # in-plane rotation change, in degrees
+            dict(safe_zip(range(-4, 5), range(-4, 5))))
+
+        stereo_pair_shape = ((2, ) +  # two stereo images
+                             Norb.original_image_shape +  # image dimesions
+                             (1, ))   # one channel
+        axes = ('b', 's', 0, 1, 'c')
+        view_converter = StereoViewConverter(stereo_pair_shape, axes)
+
+        self.blank_label = None
+        for label in labels:
+            if label[0] == 5:
+                if self.blank_label is None:
+                    self.blank_label = numpy.copy(label)
+                else:
+                    if numpy.any(label != self.blank_label):
+                        raise ValueError("Expected all blank images to have "
+                                         "the same label, but found a "
+                                         "different one.\n\t %s vs\n\t%s" %
+                                         (str(self.blank_label), str(label)))
+
+        assert self.blank_label is not None
+
+        # Call DenseDesignMatrix constructor directly, skipping SmallNORB ctor
+        super(SmallNORB, self).__init__(X=images,
+                                        y=labels,
+                                        view_converter=view_converter)
+

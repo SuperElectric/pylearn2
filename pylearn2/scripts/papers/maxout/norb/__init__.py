@@ -4,7 +4,60 @@ Defines the pylearn2.scripts.papers.maxout.norb module.
 
 import os, pickle, sys
 import numpy
+from pylearn2.utils import serial
+from pylearn2.datasets.zca_dataset import ZCA_Dataset
 from pylearn2.datasets.norb import SmallNORB
+from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
+
+
+def load_small_norb_instance_dataset(dataset_path,
+                                     #expect_equal_representation,
+                                     convert_to_one_hot=False,
+                                     use_norb_labels=True):
+    """
+    Loads a NORB instance dataset and its preprocessor.
+
+    returns: dataset, original_labels
+    dataset_path: ZCA_Dataset
+        The labels are the original NORB label vectors.
+        Use SmallNORB_labels_to_object_ids() to convert to object IDs.
+    """
+
+    def get_preprocessor_path(dataset_path):
+        base_path, extension = os.path.splitext(dataset_path)
+        assert extension == '.pkl'
+        assert any(base_path.endswith(x) for x in ('train', 'test'))
+
+        if base_path.endswith('train'):
+            base_path = base_path[:-5]
+        elif base_path.endswith('test'):
+            base_path = base_path[:-4]
+
+        return base_path + 'preprocessor.pkl'
+
+    dataset = serial.load(dataset_path)
+    print "dataset.y.shape: ", dataset.y.shape
+    preprocessor = serial.load(get_preprocessor_path(dataset_path))
+
+    if not use_norb_labels:
+
+        def num_possible_objects():
+            category_index = SmallNORB.label_type_to_index['category']
+            instance_index = SmallNORB.label_type_to_index['instance']
+            return (SmallNORB.num_labels_by_type[category_index] *
+                    SmallNORB.num_labels_by_type[instance_index])
+
+        object_ids = SmallNORB_labels_to_object_ids(dataset.y)
+                                                    # expect_equal_representation)
+        dataset = DenseDesignMatrix(X=dataset.X,
+                                    y=object_ids,
+                                    view_converter=dataset.view_converter,
+                                    max_labels=num_possible_objects())
+
+    return ZCA_Dataset(preprocessed_dataset=dataset,
+                       preprocessor=preprocessor,
+                       convert_to_one_hot=convert_to_one_hot,
+                       axes=['c', 0, 1, 'b'])
 
 
 def object_id_to_SmallNORB_label_pair(object_ids):
@@ -24,7 +77,7 @@ def object_id_to_SmallNORB_label_pair(object_ids):
     return result
 
 
-def SmallNORB_labels_to_object_ids(label_vectors):
+def SmallNORB_labels_to_object_ids(label_vectors): #, expect_equal_representation):
     """
     Given a NxM matrix of SmallNORB labels, returns a Nx1 matrix of unique
     IDs for each object.
@@ -60,13 +113,15 @@ def SmallNORB_labels_to_object_ids(label_vectors):
     # current usage, so we include this as a sanity check.
     num_objects = num_categories * num_instances
 
-    if not contains_equal_numbers_of_all_objects(result, num_objects):
-        for object_id in xrange(num_objects):
-            print "contains %d of object %d" % \
-                  (numpy.count_nonzero(result==object_id), object_id)
-        sys.exit(1)
+    # if expect_equal_representation and \
+    #    not contains_equal_numbers_of_all_objects(result, num_objects):
+    #     for object_id in xrange(num_objects):
+    #         print "contains %d of object %d" % \
+    #               (numpy.count_nonzero(result == object_id), object_id)
+    #     sys.exit(1)
 
-    return result[:, numpy.newaxis]  # size N vector -> Nx1 matrix
+    return result
+    #return result[:, numpy.newaxis]  # size N vector -> Nx1 matrix
 
 
 # def get_instance_dataset(pickle_filepath):
