@@ -105,16 +105,6 @@ def parse_args():
                               "in the training set. Not applicable if "
                               "--which_norb == 'small'."))
 
-    # parser.add_argument("--equal_sizes",
-    #                     type=bool,
-    #                     required=False,
-    #                     default=True,
-    #                     help=("If True, ensures that the training set and "
-    #                           "test set are of equal sizes. If False, the "
-    #                           "test set is N-size_of_training_set, where N "
-    #                           "is the total number of examples in the "
-    #                           "dataset."))
-
     result = parser.parse_args(sys.argv[1:])
 
     if result.which_norb == 'small' and result.training_blanks is not None:
@@ -130,7 +120,7 @@ def get_training_rowmask(labels,
                          elevation_spacing,
                          azimuth_spacing,
                          lighting_spacing,
-                         training_blanks = None):
+                         training_blanks=None):
     """
     Returns a row mask that selects the testing set from the merged data.
     """
