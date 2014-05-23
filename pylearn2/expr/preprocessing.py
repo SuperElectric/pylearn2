@@ -71,11 +71,11 @@ def global_contrast_normalize(X, scale=1., subtract_mean=True, use_std=False,
     # object is the train, valid, or test set.
     print "computed per-example means"
     if subtract_mean:
-        X -= X.mean(axis=1)
-        X = X - mean[:, numpy.newaxis]  # Makes a copy.
+        X -= X.mean(axis=1)[:, numpy.newaxis]
+        # X = X - mean[:, numpy.newaxis]  # Makes a copy.
         print "subtracted means"
-    else:
-        X = X.copy()
+    # else:
+    #     X = X.copy()
 
 
     if use_std:
@@ -87,10 +87,15 @@ def global_contrast_normalize(X, scale=1., subtract_mean=True, use_std=False,
         if X.shape[1] == 1:
             ddof = 0
 
-        normalizers = numpy.sqrt(sqrt_bias + X.var(axis=1, ddof=ddof)) / scale
+        normalizers = X.var(axis=1, ddof=ddof)
+        # normalizers = numpy.sqrt(sqrt_bias + X.var(axis=1, ddof=ddof)) / scale
     else:
-        normalizers = numpy.sqrt(sqrt_bias + numpy.einsum('ik,ik->i', X, X)) / scale
+        normalizers = numpy.einsum('ik,ik->i', X, X)
+        # normalizers = numpy.sqrt(sqrt_bias + numpy.einsum('ik,ik->i', X, X)) / scale
         # normalizers = numpy.sqrt(sqrt_bias + (X ** 2).sum(axis=1)) / scale
+
+    normalizers += sqrt_bias
+    numpy.sqrt(normalizers, out=normalizers)
 
     print "computed normalizers (shape: %s)" % str(normalizers.shape)
 
@@ -101,4 +106,5 @@ def global_contrast_normalize(X, scale=1., subtract_mean=True, use_std=False,
 
     print "divided X in-place by normalizers."
 
-    return X
+    if not in_place:
+        return X

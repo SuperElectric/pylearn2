@@ -1,0 +1,5 @@
+* Once preprocess_small_norb.py is working, delete create_instance_norb_dataset.py. It's not even in git.
+* Re-run preprocess_small_norb.py on small norb to make sure it still works.
+* Try making preprocess_small_norb.py normalize the image pixel values to [0..1] (from 0..255), see if the training works better or worse.
+* ZCA can't handle the size of full NORB. Is there a way to fix this? Find the numpy functions involved, and google for how people run them on large matrices.
+
