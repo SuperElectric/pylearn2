@@ -1,2 +1,2 @@
-# last tested with commit ecc0f24d74c2a865f1cb3f1f9a53328f32fd3604
+# last tested with commit 89bebe2c8d6839e948b4b488ad83cb77989950bc
 ../view_confusion_matrix.py -i ../norb_small_experiments/2014_03_25_0.05_error/norb_small_best_small_norb_02_00_test.npz -t ~/datasets/norb_small/instance_recognition/small_norb_02_00_test.pkl
