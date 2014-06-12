@@ -403,14 +403,6 @@ def main():
     # See: http://stackoverflow.com/a/16300177/399397
     del training_set, testing_set
 
-    # print("Saving preprocessor with:\n"
-    #       "  P_     of shape %s\n"
-    #       "  inv_P_ of shape %s\n"
-    #       "  mean_  of shape %s" %
-    #       tuple(x.shape for x in (preprocessor.P_,
-    #                               preprocessor.inv_P_,
-    #                               preprocessor.mean_)))
-
     # Saves preprocessor
     preprocessor_basepath = os.path.join(output_dir, prefix + "_preprocessor")
     preprocessor.set_matrices_save_path(preprocessor_basepath + '.npz')
