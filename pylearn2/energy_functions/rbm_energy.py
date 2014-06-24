@@ -7,8 +7,8 @@ __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2010-2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
-__email__ = "goodfeli@iro"
+__maintainer__ = "LISA Lab"
+__email__ = "pylearn-dev@googlegroups"
 from pylearn2.energy_functions.energy_function import EnergyFunction
 import theano.tensor as T
 
@@ -18,12 +18,8 @@ class RBM_EnergyFunction(EnergyFunction):
 
         WRITEME
     """
-    def __init__(self):
-        """
-        .. todo::
 
-            WRITEME
-        """
+    def __init__(self):
         pass
 
 class GRBM_EnergyFunction(RBM_EnergyFunction):
@@ -32,6 +28,7 @@ class GRBM_EnergyFunction(RBM_EnergyFunction):
 
         WRITEME
     """
+
     def supports_vector_sigma(self):
         """
         .. todo::
@@ -97,14 +94,16 @@ class GRBM_Type_1(GRBM_EnergyFunction):
     of GRBMs up as a way of testing SMD, so don't try to use it to exactly
     reproduce any published GRBM results, as they probably use one of the
     other parameterizations)
+
+    Parameters
+    ----------
+    transformer : WRITEME
+    bias_hid : WRITEME
+    bias_vis : WRITEME
+    sigma : WRITEME
     """
 
     def __init__(self, transformer, bias_hid, bias_vis, sigma):
-        """
-        .. todo::
-
-            WRITEME
-        """
         super(GRBM_Type_1,self).__init__()
 
         self.transformer = transformer

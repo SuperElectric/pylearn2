@@ -1,21 +1,25 @@
-"""
-Code for listing files that belong to the library.
-"""
+"""Code for listing files that belong to the library."""
+import logging
 import pylearn2
 import os
 __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2010-2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
-__email__ = "goodfeli@iro"
+__maintainer__ = "LISA Lab"
+__email__ = "pylearn-dev@googlegroups"
+
+logger = logging.getLogger(__name__)
 
 
 def list_files(suffix=""):
     """
+    Returns a list of all files in pylearn2 with the given suffix.
+
     Parameters
     ----------
     suffix : str
+
     Returns
     -------
 
@@ -32,6 +36,10 @@ def list_files(suffix=""):
 
 def _list_files(path, suffix=""):
     """
+    .. todo::
+
+        WRITEME
+
     Parameters
     ----------
     path : str
@@ -42,8 +50,8 @@ def _list_files(path, suffix=""):
     -------
     l : list
         A list of all files ending in `suffix` contained within `path`.
-        (If `path` is a file rather than a directory, it is considered to
-        "contain" itself)
+        (If `path` is a file rather than a directory, it is considered
+        to "contain" itself)
     """
     if os.path.isdir(path):
         incomplete = os.listdir(path)
@@ -64,4 +72,4 @@ if __name__ == '__main__':
     # Print all .py files in the library
     result = list_files('.py')
     for path in result:
-        print path
+        logger.info(path)

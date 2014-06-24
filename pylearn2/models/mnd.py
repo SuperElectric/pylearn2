@@ -2,8 +2,8 @@ __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2010-2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
-__email__ = "goodfeli@iro"
+__maintainer__ = "LISA Lab"
+__email__ = "pylearn-dev@googlegroups"
 from pylearn2.models.model import Model
 from pylearn2.utils import sharedX
 import numpy as np
@@ -101,7 +101,7 @@ class DiagonalMND(Model):
         self.register_names_to_del( [name for name in final_names if name not in init_names])
 
 
-    def censor_updates(self, updates):
+    def _modify_updates(self, updates):
         """
         .. todo::
 

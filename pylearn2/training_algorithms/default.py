@@ -16,30 +16,35 @@ class DefaultTrainingAlgorithm(TrainingAlgorithm):
 
     Parameters
     ----------
-    batch_size : int
+    batch_size : int, optional
         If batch_size is None, reverts to the `force_batch_size` field of
         the model
-    batches_per_iter : int
+    batches_per_iter : int, optional
         WRITEME
-    monitoring_batches : int
+    monitoring_batch_size : int, optional
+        Size of monitoring batches.
+    monitoring_batches : int, optional
         WRITEME
-    monitoring_dataset: Dataset or dict
+    monitoring_dataset : Dataset or dict, optional
         A Dataset or a dictionary mapping string dataset names to Datasets
     termination_criterion : WRITEME
         If specified, can cause the algorithm to terminate before
         `model.learn_batch` says to
-    set_batch_size : bool
+    set_batch_size : bool, optional
         If True, if `model` has a batch size but is not forced to use that
         one, the training algorithm will set the model to use `batch_size`
         instead.
     """
+
     def __init__(self, batch_size=None, batches_per_iter=1000,
-                 monitoring_batches=-1, monitoring_dataset=None,
-                 termination_criterion=None, set_batch_size=False):
+                 monitoring_batch_size=None, monitoring_batches=-1,
+                 monitoring_dataset=None, termination_criterion=None,
+                 set_batch_size=False):
         self.__dict__.update(locals())
         del self.self
         if monitoring_dataset is None:
             assert monitoring_batches == -1
+            assert monitoring_batch_size is None
 
         self._set_monitoring_dataset(monitoring_dataset)
         self.monitoring_batches = monitoring_batches
@@ -56,7 +61,7 @@ class DefaultTrainingAlgorithm(TrainingAlgorithm):
         Parameters
         ----------
         model : object
-            Python object representing the model to train loosely \
+            Python object representing the model to train loosely
             implementing the interface of models.model.Model.
 
         dataset : pylearn2.datasets.dataset.Dataset
@@ -97,9 +102,14 @@ class DefaultTrainingAlgorithm(TrainingAlgorithm):
                     prefix = dataset_name + '_'
                 monitoring_dataset = self.monitoring_dataset[dataset_name]
 
+                if (self.monitoring_batch_size is None and
+                        self.monitoring_batches == -1):
+                    self.monitoring_batch_size = self.batch_size
+                    self.monitoring_batches = self.batches_per_iter
                 self.monitor.add_dataset(dataset=monitoring_dataset,
                                          mode="sequential",
-                                         batch_size=self.batch_size)
+                                         batch_size=self.monitoring_batch_size,
+                                         num_batches=self.monitoring_batches)
 
                 for name in channels:
                     J = channels[name]

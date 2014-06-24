@@ -1,19 +1,16 @@
-"""
-A key-aware analog to defaultdict.
-"""
+"""A key-aware analog to defaultdict."""
 
 
 class KeyAwareDefaultDict(dict):
     """
     Like a standard library defaultdict, but pass the key
     to the default factory.
+
+    Parameters
+    ----------
+    default_factory : WRITEME
     """
     def __init__(self, default_factory=None):
-        """
-        .. todo::
-
-            WRITEME
-        """
         self.default_factory = default_factory
 
     def __getitem__(self, key):

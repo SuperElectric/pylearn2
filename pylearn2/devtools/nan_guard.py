@@ -5,13 +5,18 @@ __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2010-2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
-__email__ = "goodfeli@iro"
+__maintainer__ = "LISA Lab"
+__email__ = "pylearn-dev@googlegroups"
 
+import logging
 from theano.compile import Mode
 import theano
 import numpy as np
 from pylearn2.models.dbm import flatten
+
+
+logger = logging.getLogger(__name__)
+
 
 class NanGuardMode(Mode):
     """
@@ -23,9 +28,13 @@ class NanGuardMode(Mode):
     nan_is_error : bool
         If True, raise an error anytime a NaN is encountered
     inf_is_error: bool
-        If True, raise an error anytime an Inf is encountered
+        If True, raise an error anytime an Inf is encountered.  Note that some
+        pylearn2 modules currently use np.inf as a default value (e.g.
+        mlp.max_pool) and these will cause an error if inf_is_error is True.
+    big_is_error: bool
+        If True, raise an error when a value greater than 1e10 is encountered.
     """
-    def __init__(self, nan_is_error, inf_is_error):
+    def __init__(self, nan_is_error, inf_is_error, big_is_error=True):
         def do_check_on(var, nd, f, is_input):
             """
             Checks `var` for NaNs / Infs. If detected, raises an exception
@@ -47,29 +56,30 @@ class NanGuardMode(Mode):
             error = False
             if nan_is_error:
                 if np.any(np.isnan(var)):
-                    print 'NaN detected'
+                    logger.error('NaN detected')
                     error = True
             if inf_is_error:
                 if np.any(np.isinf(var)):
-                    print 'Inf detected'
+                    logger.error('Inf detected')
                     error = True
-            if np.abs(var).max() > 1e10:
-                print 'Big value detected'
-                error = True
+            if big_is_error:
+                if np.abs(var).max() > 1e10:
+                    logger.error('Big value detected')
+                    error = True
             if error:
                 if is_input:
-                    print 'In an input'
+                    logger.error('In an input')
                 else:
-                    print 'In an output'
-                print 'Inputs: '
+                    logger.error('In an output')
+                logger.error('Inputs: ')
                 for ivar, ival in zip(nd.inputs, f.inputs):
-                    print 'var'
-                    print ivar
-                    print theano.printing.min_informative_str(ivar)
-                    print 'val'
-                    print ival
-                print 'Node:'
-                print nd
+                    logger.error('var')
+                    logger.error(ivar)
+                    logger.error(theano.printing.min_informative_str(ivar))
+                    logger.error('val')
+                    logger.error(ival)
+                logger.error('Node:')
+                logger.error(nd)
                 assert False
 
         def nan_check(i, node, fn):

@@ -7,9 +7,10 @@ __authors__ = ["Ian Goodfellow", "Vincent Dumoulin"]
 __copyright__ = "Copyright 2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
+__maintainer__ = "LISA Lab"
 
 import numpy as np
+import logging
 import warnings
 
 from theano.compat.python2x import OrderedDict
@@ -36,6 +37,9 @@ from pylearn2.utils import sharedX
 from pylearn2.utils.rng import make_theano_rng
 
 
+logger = logging.getLogger(__name__)
+
+
 class BaseCD(Cost):
     """
     Parameters
@@ -58,6 +62,7 @@ class BaseCD(Cost):
         If specified, uses this object to generate all random numbers.
         Otherwise, makes its own random number generator.
     """
+
     def __init__(self, num_chains, num_gibbs_steps, supervised=False,
                  toronto_neg=False, theano_rng=None):
         self.__dict__.update(locals())
@@ -203,15 +208,16 @@ class BaseCD(Cost):
         .. todo::
 
             WRITEME
+
+        TODO:reduce variance of negative phase by
+             integrating out the even-numbered layers. The
+             Rao-Blackwellize method can do this for you when
+             expected gradient = gradient of expectation, but
+             doing this in general is trickier.
         """
         params = list(model.get_params())
 
-        warnings.warn("""TODO: reduce variance of negative phase by
-                         integrating out the even-numbered layers. The
-                         Rao-Blackwellize method can do this for you when
-                         expected gradient = gradient of expectation, but
-                         doing this in general is trickier.""")
-        #layer_to_chains = model.rao_blackwellize(layer_to_chains)
+        # layer_to_chains = model.rao_blackwellize(layer_to_chains)
         expected_energy_p = model.energy(
             layer_to_chains[model.visible_layer],
             [layer_to_chains[layer] for layer in model.hidden_layers]
@@ -344,6 +350,7 @@ class PCD(DefaultDataSpecsMixin, BaseCD):
     BaseCD : The base class of this class (where the constructor
         parameters are documented)
     """
+
     def _get_positive_phase(self, model, X, Y=None):
         """
         .. todo::
@@ -720,6 +727,79 @@ class VariationalCD(DefaultDataSpecsMixin, BaseCD):
 
         return neg_phase_grads, OrderedDict()
 
+class MF_L1_ActCost(DefaultDataSpecsMixin, Cost):
+    """
+    L1 activation cost on the mean field parameters.
+
+    Adds a cost of:
+
+    coeff * max( abs(mean_activation - target) - eps, 0)
+
+    averaged over units
+
+    for each layer.
+
+    """
+
+    def __init__(self, targets, coeffs, eps, supervised):
+        """
+        targets: a list, one element per layer, specifying the activation
+                each layer should be encouraged to have
+                    each element may also be a list depending on the
+                    structure of the layer.
+                See each layer's get_l1_act_cost for a specification of
+                    what the state should be.
+        coeffs: a list, one element per layer, specifying the coefficient
+                to put on the L1 activation cost for each layer
+        supervised: If true, runs mean field on both X and Y, penalizing
+                the layers in between only
+        """
+        self.__dict__.update(locals())
+        del self.self
+
+    def expr(self, model, data, ** kwargs):
+
+        if self.supervised:
+            X, Y = data
+            H_hat = model.mf(X, Y= Y)
+        else:
+            X = data
+            H_hat = model.mf(X)
+
+        hidden_layers = model.hidden_layers
+        if self.supervised:
+            hidden_layers = hidden_layers[:-1]
+            H_hat = H_hat[:-1]
+
+        layer_costs = []
+        for layer, mf_state, targets, coeffs, eps in \
+            safe_zip(hidden_layers, H_hat, self.targets, self.coeffs,
+                    self.eps):
+            cost = None
+            try:
+                cost = layer.get_l1_act_cost(mf_state, targets, coeffs, eps)
+            except NotImplementedError:
+                assert isinstance(coeffs, float) and coeffs == 0.
+                assert cost is None # if this gets triggered, there might
+                    # have been a bug, where costs from lower layers got
+                    # applied to higher layers that don't implement the cost
+                cost = None
+            if cost is not None:
+                layer_costs.append(cost)
+
+
+        assert T.scalar() != 0. # make sure theano semantics do what I want
+        layer_costs = [cost_ for cost_ in layer_costs if cost_ != 0.]
+
+        if len(layer_costs) == 0:
+            return T.as_tensor_variable(0.)
+        else:
+            total_cost = reduce(lambda x, y: x + y, layer_costs)
+        total_cost.name = 'MF_L1_ActCost'
+
+        assert total_cost.ndim == 0
+
+        return total_cost
 
 class MF_L2_ActCost(DefaultDataSpecsMixin, Cost):
     """
@@ -857,7 +937,7 @@ class TorontoSparsity(Cost):
             if term == 0.:
                 continue
             else:
-                print 'term is ',term
+                logger.info('term is {0}'.format(term))
 
             if i == 0:
                 state_below = X
@@ -909,7 +989,8 @@ class WeightDecay(NullDataSpecsMixin, Cost):
 
     Parameters
     ----------
-    coeffs: a list, one element per layer, specifying the coefficient
+    coeffs : list
+        One element per layer, specifying the coefficient
         to put on the L1 activation cost for each layer.
         Each element may in turn be a list, ie, for CompositeLayers.
     """
@@ -1125,7 +1206,6 @@ class MultiPrediction(DefaultDataSpecsMixin, Cost):
 
             WRITEME
         """
-
         if self.supervised:
             X, Y = data
         else:
@@ -1243,7 +1323,6 @@ class MultiPrediction(DefaultDataSpecsMixin, Cost):
 
             WRITEME
         """
-
         X, Y = data
 
         assert Y is not None
@@ -1352,8 +1431,8 @@ class MultiPrediction(DefaultDataSpecsMixin, Cost):
 
                 fake_s = T.dot(below, hack_W) + hack_b
                 if fake_s.ndim != real_grads.ndim:
-                    print fake_s.ndim
-                    print real_grads.ndim
+                    logger.error(fake_s.ndim)
+                    logger.error(real_grads.ndim)
                     assert False
                 sources = [ (fake_s, real_grads) ]
 

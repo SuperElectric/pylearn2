@@ -5,14 +5,9 @@ Miscellaneous
 .. contents::
    :depth: 3
 
-Base
-====
-.. automodule:: pylearn2.base
-    :members:
-
-Principal Component Analysis
-============================
-.. automodule:: pylearn2.pca
+Blocks
+======
+.. automodule:: pylearn2.blocks
     :members:
 
 RBM tools
@@ -20,7 +15,3 @@ RBM tools
 .. automodule:: pylearn2.rbm_tools
     :members:
 
-Scalar
-======
-.. automodule:: pylearn2.scalar
-    :members:

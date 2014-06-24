@@ -7,8 +7,8 @@ uthors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2010-2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
-__email__ = "goodfeli@iro"
+__maintainer__ = "LISA Lab"
+__email__ = "pylearn-dev@googlegroups"
 import numpy as N
 import theano.tensor as T
 from theano import config
@@ -23,11 +23,6 @@ class UniformHypersphere(object):
         WRITEME
     """
     def __init__(self, dim, radius):
-        """
-        .. todo::
-
-            WRITEME
-        """
         self.dim = dim
         self.radius = radius
         self.s_rng = make_theano_rng(None, 42, which_method='normal')
@@ -42,9 +37,11 @@ class UniformHypersphere(object):
         .. todo::
 
             WRITEME properly
-        
-        Parameters:
-            X: Must contain only examples that lie on the hypersphere
+
+        Parameters
+        ----------
+        X : WRITEME
+            Must contain only examples that lie on the hypersphere
         """
         #design matrix format
 

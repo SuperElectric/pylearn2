@@ -7,8 +7,8 @@ __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2010-2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
-__email__ = "goodfeli@iro"
+__maintainer__ = "LISA Lab"
+__email__ = "pylearn-dev@googlegroups"
 
 from theano import tensor as T
 
@@ -33,13 +33,15 @@ class MatrixMul(LinearTransform):
     are always inserted whether they're needed or not, this can cause annoying
     things like the reshape breaking if you change the shape of W, bugs in
     Theano's optimization system being harder to avoid, etc.
+
+    Parameters
+    ----------
+    W : WRITEME
     """
 
     def __init__(self, W):
         """
-        .. todo::
-
-            WRITEME
+        Sets the initial values of the matrix
         """
         self._W = W
 
@@ -57,6 +59,11 @@ class MatrixMul(LinearTransform):
         .. todo::
 
             WRITEME
+
+        Parameters
+        ----------
+        x : ndarray, 1d or 2d
+            The input data
         """
 
         return T.dot(x, self._W)
@@ -66,6 +73,11 @@ class MatrixMul(LinearTransform):
         .. todo::
 
             WRITEME
+
+        Parameters
+        ----------
+        x : ndarray, 1d or 2d
+            The input data
         """
         return T.dot(x, self._W.T)
 

@@ -1,15 +1,21 @@
-"""Tests for space utilities."""
-import numpy as np
-import warnings, itertools
+"""
+Tests for space utilities.
+"""
+import itertools
+import warnings
 
+import numpy as np
 import theano
 from theano import tensor
 
-# Can't use nose.tools.assert_raises, only introduced in python 2.7
+# Can't use nose.tools.assert_raises, only introduced in python 2.7. Use
+# numpy.testing.assert_raises instead
 from pylearn2.space import (SimplyTypedSpace,
                             VectorSpace,
                             Conv2DSpace,
                             CompositeSpace,
+                            VectorSequenceSpace,
+                            IndexSequenceSpace,
                             IndexSpace,
                             NullSpace,
                             is_symbolic_batch)
@@ -48,6 +54,15 @@ def test_np_format_as_conv2d2conv2d():
     data = np.arange(5*8*8*3).reshape(5, 3, 8, 8)
     rval = conv2d_space_initial.np_format_as(data, conv2d_space_final)
     assert np.all(rval == data)
+
+    conv2d_space1 = Conv2DSpace(shape=(8, 8), num_channels=3,
+                                axes=('c', 'b', 1, 0))
+    conv2d_space0 = Conv2DSpace(shape=(8, 8), num_channels=3,
+                                axes=('b', 'c', 0, 1))
+    data = np.arange(5*8*8*3).reshape(5, 3, 8, 8)
+    rval = conv2d_space0.np_format_as(data, conv2d_space1)
+    nval = data.transpose(1, 0, 3, 2)
+    assert np.all(rval == nval)
 
 
 def test_np_format_as_vector2conv2d():
@@ -90,17 +105,6 @@ def test_np_format_as_conv2d2vector():
     assert np.all(rval == nval)
 
 
-def test_np_format_as_conv2d2conv2d():
-    conv2d_space1 = Conv2DSpace(shape=(8, 8), num_channels=3,
-                                axes=('c', 'b', 1, 0))
-    conv2d_space0 = Conv2DSpace(shape=(8, 8), num_channels=3,
-                                axes=('b', 'c', 0, 1))
-    data = np.arange(5*8*8*3).reshape(5, 3, 8, 8)
-    rval = conv2d_space0.np_format_as(data, conv2d_space1)
-    nval = data.transpose(1, 0, 3, 2)
-    assert np.all(rval == nval)
-
-
 def test_np_format_as_conv2d_vector_conv2d():
     conv2d_space1 = Conv2DSpace(shape=(8, 8), num_channels=3,
                                 axes=('c', 'b', 1, 0))
@@ -116,6 +120,58 @@ def test_np_format_as_conv2d_vector_conv2d():
 
     nval = data.transpose(1, 0, 3, 2)
     assert np.allclose(nval, rval1)
+
+
+def test_np_format_as_vectorsequence2vectorsequence():
+    vector_sequence_space1 = VectorSequenceSpace(dim=3, dtype='float32')
+    vector_sequence_space2 = VectorSequenceSpace(dim=3, dtype='float64')
+
+    data = np.random.uniform(low=0.0, high=1.0, size=(10, 3))
+    rval = vector_sequence_space1.np_format_as(data, vector_sequence_space2)
+
+    assert np.all(rval == data)
+
+
+def test_np_format_as_indexsequence2indexsequence():
+    index_sequence_space1 = IndexSequenceSpace(max_labels=6, dim=1,
+                                               dtype='int16')
+    index_sequence_space2 = IndexSequenceSpace(max_labels=6, dim=1,
+                                               dtype='int32')
+
+    data = np.random.randint(low=0, high=5, size=(10, 1))
+    rval = index_sequence_space1.np_format_as(data, index_sequence_space2)
+
+    assert np.all(rval == data)
+
+
+def test_np_format_as_indexsequence2vectorsequence():
+    index_sequence_space = IndexSequenceSpace(max_labels=6, dim=1)
+    vector_sequence_space = VectorSequenceSpace(dim=6)
+
+    data = np.array([[0], [1], [4], [3]])
+    rval = index_sequence_space.np_format_as(data, vector_sequence_space)
+    true_val = np.array([[1, 0, 0, 0, 0, 0],
+                         [0, 1, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 1, 0],
+                         [0, 0, 0, 1, 0, 0]])
+
+    assert np.all(rval == true_val)
+
+
+def test_np_format_as_sequence2other():
+    vector_sequence_space = VectorSequenceSpace(dim=3)
+    vector_space = VectorSpace(dim=3)
+
+    data = np.random.uniform(low=0.0, high=1.0, size=(10, 3))
+    np.testing.assert_raises(ValueError, vector_sequence_space.np_format_as,
+                             data, vector_space)
+
+    index_sequence_space = IndexSequenceSpace(max_labels=6, dim=1)
+    index_space = IndexSpace(max_labels=6, dim=1)
+
+    data = np.random.randint(low=0, high=5, size=(10, 1))
+    np.testing.assert_raises(ValueError, index_sequence_space.np_format_as,
+                             data, index_space)
 
 
 def test_np_format_as_composite_composite():
@@ -277,19 +333,15 @@ def test_np_format_as_index2vector():
         merged = index_space.np_format_as(batch, vector_space_merge)
         concatenated = index_space.np_format_as(batch,
                                                 vector_space_concatenate)
-        if batch_size > 1:
-            assert merged.shape == (batch_size, max_labels)
-            assert concatenated.shape == (batch_size, max_labels * labels)
-        else:
-            assert merged.shape == (max_labels,)
-            assert concatenated.shape == (max_labels * labels,)
+        assert merged.shape == (batch_size, max_labels)
+        assert concatenated.shape == (batch_size, max_labels * labels)
         assert np.count_nonzero(merged) <= batch.size
         assert np.count_nonzero(concatenated) == batch.size
         assert np.all(np.unique(concatenated) == np.array([0, 1]))
     # Make sure Theano variables give the same result
     batch = tensor.lmatrix('batch')
     single = tensor.lvector('single')
-    batch_size = np.random.randint(2, 10)
+    batch_size = np.random.randint(1, 10)
     np_batch = np.random.random_integers(max_labels - 1,
                                          size=(batch_size, labels))
     np_single = np.random.random_integers(max_labels - 1,
@@ -820,17 +872,17 @@ def test_dtypes():
         actual_dtypes = get_batch_dtype(to_batch)
 
         assert expected_dtypes == actual_dtypes, \
-               ("\nexpected_dtypes: %s,\n"
-                "actual_dtypes: %s \n"
-                "from_space: %s\n"
-                "from_batch's dtype: %s\n"
-                "from_batch is theano?: %s\n"
-                "to_space: %s" % (expected_dtypes,
-                                  actual_dtypes,
-                                  from_space,
-                                  get_batch_dtype(from_batch),
-                                  is_symbolic_batch(from_batch),
-                                  to_space))
+            ("\nexpected_dtypes: %s,\n"
+             "actual_dtypes: %s \n"
+             "from_space: %s\n"
+             "from_batch's dtype: %s\n"
+             "from_batch is theano?: %s\n"
+             "to_space: %s" % (expected_dtypes,
+                               actual_dtypes,
+                               from_space,
+                               get_batch_dtype(from_batch),
+                               is_symbolic_batch(from_batch),
+                               to_space))
 
     #
     #
@@ -861,15 +913,12 @@ def test_dtypes():
         elif isinstance(space, NullSpace):
             assert space.dtype == "NullSpace's dtype"
         elif isinstance(space, CompositeSpace):
-            composite_dtype = space.dtype
             assert_composite_dtype_eq(space, space.dtype)
 
     def test_dtype_setter(space, dtype):
         """
         Tests the setter method of space's dtype property.
         """
-        old_dtype = space.dtype
-
         def get_expected_error(space, dtype):
             """
             If calling space.dtype = dtype is expected to throw an exception,
@@ -942,7 +991,7 @@ def test_dtypes():
                 space.dtype = dtype
             except expected_error, ex:
                 assert expected_message in str(ex)
-            except Exception, unexpected_ex:
+            except Exception:
                 print "Expected exception of type %s, got %s instead." % \
                       (expected_error.__name__, type(ex))
                 raise ex
@@ -1029,4 +1078,3 @@ def test_dtypes():
         for to_space in all_spaces:
             for is_numeric in (True, False):
                 test_format(from_space, to_space, is_numeric)
-

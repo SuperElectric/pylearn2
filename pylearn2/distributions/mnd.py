@@ -3,8 +3,8 @@ __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2010-2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
-__email__ = "goodfeli@iro"
+__maintainer__ = "LISA Lab"
+__email__ = "pylearn-dev@googlegroups"
 import warnings
 try:
     from scipy.linalg import cholesky, det, solve
@@ -19,18 +19,24 @@ N = np
 
 
 class MND(object):
-    """A Multivariate Normal Distribution"""
-    def __init__(self, sigma, mu, seed=42):
-        """
-        .. todo::
+    """
+    A Multivariate Normal Distribution
 
-            WRITEME properly
-        
-        Parameters
-        -----------
-        sigma: a numpy ndarray of shape (n,n)
-        mu: a numpy ndarray of shape (n,)
-        seed: the seed for the theano random number generator used to sample from this distribution"""
+    .. todo::
+
+        WRITEME properly
+    
+    Parameters
+    -----------
+    sigma : WRITEME
+        A numpy ndarray of shape (n,n)
+    mu : WRITEME
+        A numpy ndarray of shape (n,)
+    seed : WRITEME
+        The seed for the theano random number generator used to sample from
+        this distribution
+    """
+    def __init__(self, sigma, mu, seed=42):
         self.sigma = sigma
         self.mu = mu
         if not (len(mu.shape) == 1):
@@ -101,22 +107,16 @@ def fit(dataset, n_samples=None):
 
 class AdditiveDiagonalMND:
     """
-    .. todo::
+    A conditional distribution that adds gaussian noise with diagonal precision
+    matrix beta to another variable that it conditions on
 
-        WRITEME
+    Parameters
+    ----------
+    init_beta : WRITEME
+    nvis : WRITEME
     """
+
     def __init__(self, init_beta, nvis):
-        """
-        .. todo::
-
-            WRITEME properly
-
-        A conditional distribution that adds
-        gaussian noise with diagonal precision
-        matrix beta to another variable that it
-        conditions on
-        """
-
         self.__dict__.update(locals())
         del self.self
 
@@ -131,8 +131,12 @@ class AdditiveDiagonalMND:
 
             WRITEME properly
 
-        X: a theano variable containing a design matrix
-        of observations of the random vector to condition on."""
+        Parameters
+        ----------
+        X : WRITEME
+            A theano variable containing a design matrix of 
+            observations of the random vector to condition on.
+        """
         Z = self.s_rng.normal(size=X.shape,
                               avg=X, std=1./T.sqrt(self.beta), dtype=config.floatX)
         return Z

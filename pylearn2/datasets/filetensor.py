@@ -19,10 +19,19 @@ For rank >= 3, the number of dimensions matches the rank exactly.
 """
 import bz2
 import gzip
+import logging
 
 import numpy
 
+logger = logging.getLogger(__name__)
+
+
 def _prod(lst):
+    """
+    .. todo::
+
+        WRITEME
+    """
     p = 1
     for l in lst:
         p *= l
@@ -57,7 +66,7 @@ def _read_header(f, debug=False, fromgzip=None):
     ----------
     f : file or gzip.GzipFile
         An open file handle.
-    fromgzip: bool or None
+    fromgzip : bool or None
         If None determine the type of file handle.
 
     Returns
@@ -73,13 +82,14 @@ def _read_header(f, debug=False, fromgzip=None):
     magic = _read_int32(f)
     magic_t, elsize = _magic_dtype[magic]
     if debug:
-        print 'header magic', magic, magic_t, elsize
+        logger.debug('header magic {0} {1} {2}'.format(magic, magic_t, elsize))
     if magic_t == 'packed matrix':
         raise NotImplementedError('packed matrix not supported')
 
     #what is the rank of the tensor?
     ndim = _read_int32(f)
-    if debug: print 'header ndim', ndim
+    if debug:
+        logger.debug('header ndim {0}'.format(ndim))
 
     #what are the dimensions of the tensor?
     if fromgzip:
@@ -88,7 +98,8 @@ def _read_header(f, debug=False, fromgzip=None):
     else:
         dim = numpy.fromfile(f, dtype='int32', count=max(ndim,3))[:ndim]
     dim_size = _prod(dim)
-    if debug: print 'header dim', dim, dim_size
+    if debug:
+        logger.debug('header dim {0} {1}'.format(dim, dim_size))
 
     return magic_t, elsize, ndim, dim, dim_size
 
@@ -140,6 +151,11 @@ class arraylike(object):
     """
 
     def __init__(self, f, rank=0, debug=False):
+        """
+        .. todo::
+
+            WRITEME
+        """
         self.f = f
         self.magic_t, self.elsize, self.ndim, self.dim, self.dim_size = _read_header(f,debug)
         self.f_start = f.tell()
@@ -159,12 +175,25 @@ class arraylike(object):
         #padding = tuple() if rank <= self.ndim else (1,) * (rank - self.ndim)
         self.returnshape = padding + self.readshape
         self.readsize = _prod(self.readshape)
-        if debug: print 'READ PARAM', self.readshape, self.returnshape, self.readsize
+        if debug:
+            logger.debug('READ PARAM {0} {1}'.format(self.readshape,
+                                                     self.returnshape,
+                                                     self.readsize))
 
     def __len__(self):
+        """
+        .. todo::
+
+            WRITEME
+        """
         return _prod(self.dim[:self.ndim-len(self.readshape)])
 
     def __getitem__(self, idx):
+        """
+        .. todo::
+
+            WRITEME
+        """
         if idx >= len(self):
             raise IndexError(idx)
         self.f.seek(self.f_start + idx * self.elsize * self.readsize)
@@ -242,7 +271,8 @@ def write(f, mat):
     """
     def _write_int32(f, i):
         i_array = numpy.asarray(i, dtype='int32')
-        if 0: print 'writing int32', i, i_array
+        if 0:
+            logger.debug('writing int32 {0} {1}'.format(i, i_array))
         i_array.tofile(f)
 
     try:
@@ -254,8 +284,8 @@ def write(f, mat):
     shape = mat.shape
     if len(shape) < 3:
         shape = list(shape) + [1] * (3 - len(shape))
-    if 0: print 'writing shape =', shape
+    if 0:
+        logger.debug('writing shape = {0}'.format(shape))
     for sh in shape:
         _write_int32(f, sh)
     mat.tofile(f)
-

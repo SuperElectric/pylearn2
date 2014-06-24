@@ -3,6 +3,7 @@
 
     WRITEME
 """
+import logging
 import numpy as np
 plt = None
 axes = None
@@ -21,16 +22,16 @@ except ImportError:
     Image = None
 
 from pylearn2.utils import string_utils as string
-from tempfile import NamedTemporaryFile
+from tempfile import mkstemp
 from multiprocessing import Process
 
 import subprocess
 
+logger = logging.getLogger(__name__)
+
 
 def ensure_Image():
-    """
-    Makes sure Image has been imported from PIL
-    """
+    """Makes sure Image has been imported from PIL"""
     global Image
     if Image is None:
         raise RuntimeError("You are trying to use PIL-dependent functionality"
@@ -45,14 +46,14 @@ def imview(*args, **kwargs):
     Parameters are identical to `matplotlib.pyplot.imshow`
     but this behaves somewhat differently:
 
-      * By default, it creates a new figure (unless a
-        `figure` keyword argument is supplied.
-      * It modifies the axes of that figure to use the
-        full frame, without ticks or tick labels.
-      * It turns on `nearest` interpolation by default
-        (i.e., it does not antialias pixel data). This
-        can be overridden with the `interpolation`
-        argument as in `imshow`.
+    * By default, it creates a new figure (unless a
+      `figure` keyword argument is supplied.
+    * It modifies the axes of that figure to use the
+      full frame, without ticks or tick labels.
+    * It turns on `nearest` interpolation by default
+      (i.e., it does not antialias pixel data). This
+      can be overridden with the `interpolation`
+      argument as in `imshow`.
 
     All other arguments and keyword arguments are passed
     on to `imshow`.`
@@ -101,10 +102,14 @@ def imview_async(*args, **kwargs):
 
 def show(image):
     """
+    .. todo::
+
+        WRITEME
+
     Parameters
     ----------
     image : PIL Image object or ndarray
-        If ndarray, integer formats are assumed to use 0-255 \
+        If ndarray, integer formats are assumed to use 0-255
         and float formats are assumed to use 0-1
     """
     if hasattr(image, '__array__'):
@@ -133,26 +138,27 @@ def show(image):
                             str(image.shape) + " and dtype " +
                             str(image.dtype))
 
+    # Create a temporary file with the suffix '.png'.
+    fd, name = mkstemp(suffix='.png')
+    os.close(fd)
 
-    try:
-        f = NamedTemporaryFile(mode='r', suffix='.png', delete=False)
-    except TypeError:
-        # before python2.7, we can't use the delete argument
-        f = NamedTemporaryFile(mode='r', suffix='.png')
-        """
-        TODO: prior to python 2.7, NamedTemporaryFile has no delete = False
-        argument unfortunately, that means f.close() deletes the file.  we then
-        save an image to the file in the next line, so there's a race condition
-        where for an instant we  don't actually have the file on the filesystem
-        reserving the name, and then write to that name anyway
+    # Note:
+    #   Although we can use tempfile.NamedTemporaryFile() to create
+    #   a temporary file, the function should be used with care.
+    #
+    #   In Python earlier than 2.7, a temporary file created by the
+    #   function will be deleted just after the file is closed.
+    #   We can re-use the name of the temporary file, but there is an
+    #   instant where a file with the name does not exist in the file
+    #   system before we re-use the name. This may cause a race
+    #   condition.
+    #
+    #   In Python 2.7 or later, tempfile.NamedTemporaryFile() has
+    #   the 'delete' argument which can control whether a temporary
+    #   file will be automatically deleted or not. With the argument,
+    #   the above race condition can be avoided.
+    #
 
-        TODO: see if this can be remedied with lower level calls (mkstemp)
-        """
-        warnings.warn('filesystem race condition')
-
-    name = f.name
-    f.flush()
-    f.close()
     image.save(name)
     viewer_command = string.preprocess('${PYLEARN2_VIEWER_COMMAND}')
     if os.name == 'nt':
@@ -182,10 +188,10 @@ def pil_from_ndarray(ndarray):
         rval = Image.fromarray(ndarray)
         return rval
     except Exception, e:
-        print 'original exception: '
-        print e
-        print 'ndarray.dtype: ', ndarray.dtype
-        print 'ndarray.shape: ', ndarray.shape
+        logger.exception('original exception: ')
+        logger.exception(e)
+        logger.exception('ndarray.dtype: {0}'.format(ndarray.dtype))
+        logger.exception('ndarray.shape: {0}'.format(ndarray.shape))
         raise
 
     assert False
@@ -213,8 +219,8 @@ def ndarray_from_pil(pil, dtype='uint8'):
 
 def rescale(image, shape):
     """
-    Scales image to be no larger than shape. PIL might give you unexpected
-    results beyond that
+    Scales image to be no larger than shape. PIL might give you
+    unexpected results beyond that.
 
     Parameters
     ----------
@@ -361,9 +367,9 @@ def load(filepath, rescale_image=True, dtype='float64'):
     numpy_rval = np.array(rval)
 
     if numpy_rval.ndim not in [2,3]:
-        print dir(rval)
-        print rval
-        print rval.size
+        logger.error(dir(rval))
+        logger.error(rval)
+        logger.error(rval.size)
         rval.show()
         raise AssertionError("Tried to load an image, got an array with " +
                 str(numpy_rval.ndim)+" dimensions. Expected 2 or 3."
@@ -431,12 +437,12 @@ def tile_raster_images(X, img_shape, tile_shape, tile_spacing=(0, 0),
     Parameters
     ----------
     x : numpy.ndarray
-        2-d ndarray or 4 tuple of 2-d ndarrays or None for channels, in which \
-        every row is a flattened image.
+        2-d ndarray or 4 tuple of 2-d ndarrays or None for channels,
+        in which every row is a flattened image.
 
     shape : 2-tuple of ints
-        The first component is the height of each image, the second component \
-        is the width.
+        The first component is the height of each image,
+        the second component is the width.
 
     tile_shape : 2-tuple of ints
         The number of images to tile in (row, columns) form.
@@ -445,13 +451,13 @@ def tile_raster_images(X, img_shape, tile_shape, tile_spacing=(0, 0),
         Whether or not the values need to be before being plotted to [0, 1].
 
     output_pixel_vals : bool
-        Whether or not the output should be pixel values (int8) or floats
+        Whether or not the output should be pixel values (int8) or floats.
 
     Returns
     -------
     y : 2d-ndarray
-        The return value has the same dtype as X, and is suitable for viewing \
-        as an image with PIL.Image.fromarray.
+        The return value has the same dtype as X, and is suitable for
+        viewing as an image with PIL.Image.fromarray.
     """
 
     assert len(img_shape) == 2

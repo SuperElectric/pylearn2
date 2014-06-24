@@ -8,9 +8,10 @@ __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2010-2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
-__email__ = "goodfeli@iro"
+__maintainer__ = "LISA Lab"
+__email__ = "pylearn-dev@googlegroups"
 
+import logging
 import numpy as np
 from theano import config
 from theano.compat.python2x import OrderedDict
@@ -28,73 +29,78 @@ from pylearn2.utils.data_specs import DataSpecsMapping
 from pylearn2.utils.rng import make_np_rng
 
 
-class BGD(TrainingAlgorithm):
-    """Batch Gradient Descent training algorithm class
+logger = logging.getLogger(__name__)
 
+
+class BGD(TrainingAlgorithm):
+    """
+    Batch Gradient Descent training algorithm class
 
     Parameters
     ----------
-    cost : pylearn2.costs.Cost
-        A pylearn2 Cost, or None, in which case model.get_default_cost() \
+    cost : pylearn2.costs.Cost, optional
+        A pylearn2 Cost, or None, in which case model.get_default_cost()
         will be used
-    batch_size : int
-        Like the SGD TrainingAlgorithm, this TrainingAlgorithm still \
-        iterates over minibatches of data. The difference is that this \
-        class uses partial line searches to choose the step size along \
-        each gradient direction, and can do repeated updates on the same \
-        batch. The assumption is that you use big enough minibatches with \
-        this algorithm that a large step size will generalize reasonably \
-        well to other minibatches. To implement true Batch Gradient \
-        Descent, set the batch_size to the total number of examples \
-        available. If batch_size is None, it will revert to the model's \
+    batch_size : int, optional
+        Like the SGD TrainingAlgorithm, this TrainingAlgorithm still
+        iterates over minibatches of data. The difference is that this
+        class uses partial line searches to choose the step size along
+        each gradient direction, and can do repeated updates on the same
+        batch. The assumption is that you use big enough minibatches with
+        this algorithm that a large step size will generalize reasonably
+        well to other minibatches. To implement true Batch Gradient
+        Descent, set the batch_size to the total number of examples
+        available. If batch_size is None, it will revert to the model's
         force_batch_size attribute.
-    batches_per_iter : int
+    batches_per_iter : int, optional
         WRITEME
-    updates_per_batch : int
-        Passed through to the optimization.BatchGradientDescent's \
+    updates_per_batch : int, optional
+        Passed through to the optimization.BatchGradientDescent's
         `max_iters parameter`
+    monitoring_batch_size : int
+        Size of monitoring batches.
     monitoring_batches : WRITEME
-    monitoring_dataset: Dataset or dict
+    monitoring_dataset : Dataset or dict, optional
         A Dataset or a dictionary mapping string dataset names to Datasets
     termination_criterion : WRITEME
-    set_batch_size : bool
-        If True, BGD will attempt to override the model's \
+    set_batch_size : bool, optional
+        If True, BGD will attempt to override the model's
         `force_batch_size` attribute by calling set_batch_size on it.
-    reset_alpha : bool
-        Passed through to the optimization.BatchGradientDescent's \
-        `max_iters parameter`
-    conjugate : bool
-        Passed through to the optimization.BatchGradientDescent's \
-        `max_iters parameter`
-    min_init_alpha : float
+    reset_alpha : bool, optional
+        Passed through to the optimization.BatchGradientDescent's
+        `reset_alpha` parameter
+    conjugate : bool, optional
+        Passed through to the optimization.BatchGradientDescent's
+        `conjugate` parameter
+    min_init_alpha : float, optional
         WRITEME
-    reset_conjugate : bool
-        Passed through to the optimization.BatchGradientDescent's \
-        `max_iters parameter`
+    reset_conjugate : bool, optional
+        Passed through to the optimization.BatchGradientDescent's
+        `reset_conjugate` parameter
     line_search_mode : WRITEME
-    verbose_optimization : bool
+    verbose_optimization : bool, optional
         WRITEME
-    scale_step : float
+    scale_step : float, optional
         WRITEME
     theano_function_mode : WRITEME
     init_alpha : WRITEME
     seed : WRITEME
     """
     def __init__(self, cost=None, batch_size=None, batches_per_iter=None,
-                 updates_per_batch=10, monitoring_batches=None,
-                 monitoring_dataset=None, termination_criterion = None,
-                 set_batch_size=False, reset_alpha=True, conjugate=False,
-                 min_init_alpha=.001, reset_conjugate=True,
-                 line_search_mode=None, verbose_optimization=False,
-                 scale_step=1., theano_function_mode=None, init_alpha=None,
-                 seed=None):
+                 updates_per_batch=10, monitoring_batch_size=None,
+                 monitoring_batches=None, monitoring_dataset=None,
+                 termination_criterion=None, set_batch_size=False,
+                 reset_alpha=True, conjugate=False, min_init_alpha=.001,
+                 reset_conjugate=True, line_search_mode=None,
+                 verbose_optimization=False, scale_step=1.,
+                 theano_function_mode=None, init_alpha=None, seed=None):
 
         self.__dict__.update(locals())
         del self.self
 
         if monitoring_dataset is None:
-            assert monitoring_batches == None
-
+            assert monitoring_batches is None
+            assert monitoring_batch_size is None
 
         self._set_monitoring_dataset(monitoring_dataset)
 
@@ -113,7 +119,7 @@ class BGD(TrainingAlgorithm):
         Parameters
         ----------
         model : object
-            A Python object representing the model to train loosely \
+            A Python object representing the model to train. Loosely
             implementing the interface of models.model.Model.
         dataset : pylearn2.datasets.dataset.Dataset
             Dataset object used to draw training data
@@ -183,10 +189,14 @@ class BGD(TrainingAlgorithm):
         obj_prereqs = [capture(f) for f in fixed_var_descr.on_load_batch]
 
         if self.monitoring_dataset is not None:
+            if (self.monitoring_batch_size is None and
+                    self.monitoring_batches is None):
+                self.monitoring_batch_size = self.batch_size
+                self.monitoring_batches = self.batches_per_iter
             self.monitor.setup(
                     dataset=self.monitoring_dataset,
                     cost=self.cost,
-                    batch_size=self.batch_size,
+                    batch_size=self.monitoring_batch_size,
                     num_batches=self.monitoring_batches,
                     obj_prereqs=obj_prereqs,
                     cost_monitoring_args=fixed_var_descr.fixed_vars)
@@ -199,7 +209,7 @@ class BGD(TrainingAlgorithm):
                             gradients = grads,
                             gradient_updates = grad_updates,
                             params = params,
-                            param_constrainers = [ model.censor_updates ],
+                            param_constrainers = [ model.modify_updates ],
                             lr_scalers = model.get_lr_scalers(),
                             inputs = theano_args,
                             verbose = self.verbose_optimization,
@@ -330,6 +340,7 @@ class StepShrinker(TrainExtension, TerminationCriterion):
 
         WRITEME
     """
+
     def __init__(self, channel, scale, giveup_after, scale_up=1.,
             max_scale=1.):
         self.__dict__.update(locals())
@@ -361,30 +372,30 @@ class StepShrinker(TrainExtension, TerminationCriterion):
         if len(v) == 1:
             return
         latest = v[-1]
-        print "Latest "+self.channel+": "+str(latest)
+        logger.info("Latest {0}: {1}".format(self.channel, latest))
         # Only compare to the previous step, not the best step so far
         # Another extension can be in charge of saving the best parameters ever
         # seen.We want to keep learning as long as we're making progress. We
         # don't want to give up on a step size just because it failed to undo
         # the damage of the bigger one that preceded it in a single epoch
-        print "Previous is "+str(self.prev)
+        logger.info("Previous is {0}".format(self.prev))
         cur = algorithm.scale_step
         if latest >= self.prev:
-            print "Looks like using " + str(cur) + \
-                    " isn't working out so great for us."
+            logger.info("Looks like using {0} "
+                        "isn't working out so great for us.".format(cur))
             cur *= self.scale
             if cur < self.giveup_after:
-                print "Guess we just have to give up."
+                logger.info("Guess we just have to give up.")
                 self.continue_learning = False
                 cur = self.giveup_after
-            print "Let's see how "+str(cur)+" does."
+            logger.info("Let's see how {0} does.".format(cur))
         elif latest <= self.prev and self.scale_up != 1.:
-            print "Looks like we're making progress on the validation set," +\
-                    "let's try speeding up"
+            logger.info("Looks like we're making progress "
+                        "on the validation set, let's try speeding up")
             cur *= self.scale_up
             if cur > self.max_scale:
                 cur = self.max_scale
-            print "New scale is",cur
+            logger.info("New scale is {0}".format(cur))
         algorithm.scale_step = cur
         self.monitor_channel.set_value(np.cast[config.floatX](cur))
         self.prev = latest
@@ -404,6 +415,7 @@ class ScaleStep(TrainExtension):
 
         WRITEME
     """
+
     def __init__(self, scale, min_value):
         self.scale = scale
         self.min_value = min_value
@@ -437,6 +449,7 @@ class BacktrackingStepShrinker(TrainExtension, TerminationCriterion):
 
         WRITEME
     """
+
     def __init__(self, channel, scale, giveup_after, scale_up=1.,
             max_scale=1.):
         self.__dict__.update(locals())
@@ -467,34 +480,34 @@ class BacktrackingStepShrinker(TrainExtension, TerminationCriterion):
         if len(v) == 1:
             return
         latest = v[-1]
-        print "Latest "+self.channel+": "+str(latest)
+        logger.info("Latest {0}: {1}".format(self.channel, latest))
         # Only compare to the previous step, not the best step so far
         # Another extension can be in charge of saving the best parameters ever
         # seen.We want to keep learning as long as we're making progress. We
         # don't want to give up on a step size just because it failed to undo
         # the damage of the bigger one that preceded it in a single epoch
-        print "Previous is "+str(self.prev)
+        logger.info("Previous is {0}".format(self.prev))
         cur = algorithm.scale_step
         if latest >= self.prev:
-            print "Looks like using " + str(cur) + \
-                    " isn't working out so great for us."
+            logger.info("Looks like using {0} "
+                        "isn't working out so great for us.".format(cur))
             cur *= self.scale
             if cur < self.giveup_after:
-                print "Guess we just have to give up."
+                logger.info("Guess we just have to give up.")
                 self.continue_learning = False
                 cur = self.giveup_after
-            print "Let's see how "+str(cur)+" does."
-            print "Reloading saved params from last call"
+            logger.info("Let's see how {0} does.".format(cur))
+            logger.info("Reloading saved params from last call")
             for p, v in safe_zip(model.get_params(), self.stored_values):
                 p.set_value(v)
             latest = self.prev
         elif latest <= self.prev and self.scale_up != 1.:
-            print "Looks like we're making progress on the validation set," +\
-                    "let's try speeding up"
+            logger.info("Looks like we're making progress "
+                        "on the validation set, let's try speeding up")
             cur *= self.scale_up
             if cur > self.max_scale:
                 cur = self.max_scale
-            print "New scale is",cur
+            logger.info("New scale is {0}".format(cur))
         algorithm.scale_step = cur
         self.monitor_channel.set_value(np.cast[config.floatX](cur))
         self.prev = latest

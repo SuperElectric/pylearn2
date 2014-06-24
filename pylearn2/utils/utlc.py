@@ -1,7 +1,6 @@
-"""
-Several utilities for experimenting upon utlc datasets
-"""
+"""Several utilities for experimenting upon utlc datasets"""
 # Standard library imports
+import logging
 import os
 import inspect
 import zipfile
@@ -12,6 +11,9 @@ import numpy
 import theano
 from pylearn2.datasets.utlc import load_ndarray_dataset, load_sparse_dataset
 from pylearn2.utils import subdict, sharedX
+
+
+logger = logging.getLogger(__name__)
 
 
 ##################################################
@@ -60,7 +62,7 @@ def load_data(conf):
     -------
     WRITEME
     """
-    print '... loading dataset'
+    logger.info('... loading dataset')
 
     # Special case for sparse format
     if conf.get('sparse', False):
@@ -111,7 +113,7 @@ def save_submission(conf, valid_repr, test_repr):
     valid_repr : WRITEME
     test_repr : WRITEME
     """
-    print '... creating zipfile'
+    logger.info('... creating zipfile')
 
     # Ensure the given directory is correct
     submit_dir = conf['savedir']
@@ -161,6 +163,7 @@ def create_submission(conf, transform_valid, transform_test=None, features=None)
 
     Parameters
     ----------
+    conf : WRITEME
     transform_valid : WRITEME
     transform_test : WRITEME
     features : WRITEME
@@ -223,7 +226,7 @@ def compute_alc(valid_repr, test_repr):
     dataset = numpy.vstack((valid_repr, test_repr))
     label = numpy.vstack((_labvalid, _labtest))
 
-    print '... computing the ALC'
+    logger.info('... computing the ALC')
     raise NotImplementedError("This got broken by embed no longer being "
             "where it used to be (if it even still exists, I haven't "
             "looked for it)")

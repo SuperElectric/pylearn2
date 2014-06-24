@@ -13,12 +13,14 @@ __authors__ = "Ian Goodfellow, Harm Aarts"
 __copyright__ = "Copyright 2010-2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
-__email__ = "goodfeli@iro"
+__maintainer__ = "LISA Lab"
+__email__ = "pylearn-dev@googlegroups"
 
-from pylearn2.utils import serial
+import gc
 import numpy as np
 import sys
+
+from pylearn2.utils import serial
 from theano.printing import _TagGenerator
 from pylearn2.utils.string_utils import number_aware_alphabetical_key
 import argparse
@@ -26,6 +28,11 @@ import argparse
 channels = {}
 
 def unique_substring(s, other, min_size=1):
+    """
+    .. todo::
+
+        WRITEME
+    """
     size = min(len(s), min_size)
     while size <= len(s):
         for pos in xrange(0,len(s)-size+1):
@@ -42,10 +49,20 @@ def unique_substring(s, other, min_size=1):
     return s
 
 def unique_substrings(l, min_size=1):
+    """
+    .. todo::
+
+        WRITEME
+    """
     return [unique_substring(s, [x for x in l if x is not s], min_size)
             for s in l]
 
 def main():
+    """
+    .. todo::
+
+        WRITEME
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--out")
     parser.add_argument("model_paths", nargs='+')
@@ -83,6 +100,8 @@ def main():
 
         for channel in this_model_channels:
             channels[channel+postfix] = this_model_channels[channel]
+        del model
+        gc.collect()
 
 
     while True:
@@ -121,7 +140,7 @@ def main():
                     "epochs, batches, seconds, or hours, respectively."
             response = raw_input('Enter a list of channels to plot ' + \
                     '(example: A, C,F-G, h, <test_err>) or q to quit' + \
-                    'or o for options: ')
+                    ' or o for options: ')
 
             if response == 'o':
                 print '1: smooth all channels'

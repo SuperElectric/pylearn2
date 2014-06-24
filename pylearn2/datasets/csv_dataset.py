@@ -25,7 +25,16 @@ class CSVDataset(DenseDesignMatrix):
     labels, if present, should be in the first column
     if there's no labels, set expect_labels to False
     if there's no header line in your file, set expect_headers to False
+
+    Parameters
+    ----------
+    path : WRITEME
+    one_hot : WRITEME
+    expect_labels : WRITEME
+    expect_headers : WRITEME
+    delimiter : WRITEME
     """
+
     def __init__(self, 
             path = 'train.csv',
             one_hot = False,
@@ -37,7 +46,6 @@ class CSVDataset(DenseDesignMatrix):
 
             WRITEME
         """
-
         self.path = path
         self.one_hot = one_hot
         self.expect_labels = expect_labels
@@ -59,7 +67,6 @@ class CSVDataset(DenseDesignMatrix):
 
             WRITEME
         """
-    
         assert self.path.endswith('.csv')
     
         if self.expect_headers:

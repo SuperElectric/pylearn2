@@ -13,11 +13,16 @@ __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2010-2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
-__email__ = "goodfeli@iro"
+__maintainer__ = "LISA Lab"
+__email__ = "pylearn-dev@googlegroups"
 
+import logging
 from pylearn2.devtools.list_files import list_files
 from pylearn2.utils.shell import run_shell_command
+
+
+logger = logging.getLogger(__name__)
+
 
 def run_pyflakes(no_warnings = False):
     """
@@ -61,6 +66,10 @@ def run_pyflakes(no_warnings = False):
 
 def _filter(output, no_warnings):
     """
+    .. todo::
+
+        WRITEME
+
     Parameters
     ----------
     output : str
@@ -70,7 +79,7 @@ def _filter(output, no_warnings):
 
     Returns
     -------
-    rval: None or str
+    rval : None or str
         `output` with blank lines and optionally lines corresponding to
         warnings removed, or, if all lines are removed, returns None.
         A return value of None indicates that the file is validly formatted.
@@ -106,6 +115,6 @@ if __name__ == '__main__':
     d = run_pyflakes( no_warnings = no_warnings)
 
     for key in d:
-        print key +':'
+        logger.info('{0}:'.format(key))
         for l in d[key].split('\n'):
-            print '\t'+l
+            logger.info('\t{0}'.format(l))

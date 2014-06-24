@@ -7,8 +7,8 @@ __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2010-2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
-__email__ = "goodfeli@iro"
+__maintainer__ = "LISA Lab"
+__email__ = "pylearn-dev@googlegroups"
 
 class LinearTransform(object):
     """
@@ -36,6 +36,7 @@ class LinearTransform(object):
         Return a batch of filters, formatted topologically.
         This only really makes sense if you are working with a topological space,
         such as for a convolution operator.
+
         If your transformation is defined on a VectorSpace then some other class
         like a ViewConverter will need to transform your vector into a topological
         space; you are not responsible for doing so here.
@@ -47,5 +48,10 @@ class LinearTransform(object):
         """
         Some transformers such as Conv2D have a fixed batch size.
         Use this method to change the batch size.
+
+        Parameters
+        ----------
+        batch_size : int
+            The size of the batch
         """
         pass

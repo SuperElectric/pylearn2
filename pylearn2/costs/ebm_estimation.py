@@ -3,9 +3,9 @@ Training costs for unsupervised learning of energy-based models
 """
 import functools
 from itertools import izip
+import logging
 import numpy as np
 import sys
-import warnings
 
 from theano.compat.python2x import OrderedDict
 from theano import scan
@@ -16,7 +16,10 @@ from pylearn2.utils import py_integer_types
 from pylearn2.utils.rng import make_theano_rng
 from pylearn2.models.rbm import BlockGibbsSampler
 
-warnings.warn("Cost changing the recursion limit.")
+
+logger = logging.getLogger(__name__)
+
+logger.debug("Cost changing the recursion limit.")
 # We need this to be high enough that the big theano graphs we make
 # when unrolling inference don't cause python to complain.
 # python intentionally declares stack overflow well before the stack
@@ -38,6 +41,13 @@ class NCE(DefaultDataSpecsMixin, Cost):
 
     See "Noise-Contrastive Estimation: A new estimation principle for unnormalized models "
     by Gutmann and Hyvarinen
+
+    Parameters
+    ----------
+    noise : WRITEME
+        A Distribution from which noisy examples are generated
+    noise_per_clean : WRITEME
+        Number of noisy examples to generate for each clean example given
     """
     def h(self, X, model):
         """
@@ -101,17 +111,6 @@ class NCE(DefaultDataSpecsMixin, Cost):
         return rval
 
     def __init__(self, noise, noise_per_clean):
-        """
-        .. todo::
-
-            WRITEME properly
-
-        params
-        -------
-            noise: a Distribution from which noisy examples are generated
-            noise_per_clean: # of noisy examples to generate for each clean example given
-        """
-
         self.noise = noise
 
         assert isinstance(noise_per_clean, py_integer_types)
@@ -131,14 +130,12 @@ class SM(DefaultDataSpecsMixin, Cost):
 
     Uses the mean over visible units rather than sum over visible units
     so that hyperparameters won't depend as much on the # of visible units
+
+    Parameters
+    ----------
+    lambd : WRITEME
     """
-
     def __init__(self, lambd = 0):
-        """
-        .. todo::
-
-            WRITEME
-        """
         assert lambd >= 0
         self.lambd = lambd
 
@@ -232,20 +229,17 @@ class SML(Cost):
     Also known as Persistent Constrastive Divergence (PCD)
     See "Training restricted boltzmann machines using approximations to
     the likelihood gradient" by Tijmen Tieleman  (2008)
+
+    The number of particles fits the batch size.
+
+    Parameters
+    ----------
+    batch_size: int
+        Batch size of the training algorithm
+    nsteps: int
+        Number of steps made by the block Gibbs sampler between each epoch
     """
-
     def __init__(self, batch_size, nsteps ):
-        """
-            The number of particles fits the batch size.
-
-            Parameters
-            ---------
-            batch_size: int
-                batch size of the training algorithm
-            nsteps: int
-                number of steps made by the block Gibbs sampler
-                between each epoch
-        """
         super(SML, self).__init__()
         self.nchains = batch_size
         self.nsteps  = nsteps
@@ -294,22 +288,20 @@ class SML(Cost):
         return (model.get_input_space(), model.get_input_source())
 
 class CDk(Cost):
-    """ Contrastive Divergence
-
-        See "Training products of experts by minimizing contrastive divergence"
-        by Geoffrey E. Hinton (2002)
     """
+    Contrastive Divergence
 
+    See "Training products of experts by minimizing contrastive divergence"
+    by Geoffrey E. Hinton (2002)
+
+    Parameters
+    ----------
+    nsteps : int
+        Number of Markov chain steps for the negative sample
+    seed : int
+        Seed for the random number generator
+    """
     def __init__(self, nsteps, seed=42):
-        """
-            Parametes
-            ---------
-            nsteps: int
-                number of Markov chain steps for the negative sample
-            seed: int
-                seed for the random number generator
-        """
-
         super(CDk, self).__init__()
         self.nsteps  = nsteps
         self.rng = make_theano_rng(seed, which_method='binomial')

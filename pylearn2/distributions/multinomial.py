@@ -7,8 +7,8 @@ __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2010-2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
-__email__ = "goodfeli@iro"
+__maintainer__ = "LISA Lab"
+__email__ = "pylearn-dev@googlegroups"
 import numpy as N
 
 
@@ -18,12 +18,8 @@ class Multinomial(object):
 
         WRITEME
     """
-    def __init__(self, rng, pi, renormalize=False):
-        """
-        .. todo::
 
-            WRITEME
-        """
+    def __init__(self, rng, pi, renormalize=False):
         self.pi = pi
         assert self.pi.min() >= 0.0
         self.rng = rng

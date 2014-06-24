@@ -1,17 +1,17 @@
-"""
-Plugins for the Train object.
-"""
+"""Plugins for the Train object."""
 __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2010-2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow", "David Warde-Farley"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
-__email__ = "goodfeli@iro"
+__maintainer__ = "LISA Lab"
+__email__ = "pylearn-dev@googlegroups"
 
+import functools
+import logging
 import numpy as np
-import os.path
-from pylearn2.utils import serial
-from pylearn2.gui.get_weights_report import get_weights_report
+
+logger = logging.getLogger(__name__)
+
 
 class TrainExtension(object):
     """
@@ -31,18 +31,15 @@ class TrainExtension(object):
 
         Parameters
         ----------
-        model : object
-            The model object being trained (implementing some subset of the \
-            `pylearn2.models` interface).
+        model : pylearn2.models.Model
+            The model object being trained.
 
-        dataset : object
-            The dataset object being trained (implementing the \
-            `pylearn2.datasets` interface).
+        dataset : pylearn2.datasets.Dataset
+            The dataset object used for training.
 
-        algorithm : object
-            The object representing the training algorithm being \
-            used to train the model (and thus implementing the \
-            `pylearn2.training_algorithms` interface).
+        algorithm : pylearn2.training_algorithms.TrainingAlgorithm
+            The object representing the training algorithm being
+            used to train the model.
         """
 
     def on_monitor(self, model, dataset, algorithm):
@@ -52,18 +49,15 @@ class TrainExtension(object):
 
         Parameters
         ----------
-        model : object
-            The model object being trained (implementing some \
-            subset of the `pylearn2.models` interface).
+        model : pylearn2.models.Model
+            The model object being trained
 
-        dataset : object
-            The dataset object being trained (implementing the \
-            `pylearn2.datasets` interface).
+        dataset : pylearn2.datasets.Dataset
+            The dataset object being trained.
 
-        algorithm : object
-            The object representing the training algorithm being \
-            used to train the model (and thus implementing the \
-            `pylearn2.training_algorithms` interface).
+        algorithm : pylearn2.training_algorithms.TrainingAlgorithm
+            The object representing the training algorithm being
+            used to train the model.
         """
 
     def setup(self, model, dataset, algorithm):
@@ -73,18 +67,15 @@ class TrainExtension(object):
 
         Parameters
         ----------
-        model : object
-            The model object being trained (implementing some \
-            subset of the `pylearn2.models` interface).
+        model : pylearn2.models.Model
+            The model object being trained.
 
-        dataset : object
-            The dataset object being trained (implementing the \
-            `pylearn2.datasets` interface).
+        dataset : pylearn2.datasets.Dataset
+            The dataset object being trained.
 
-        algorithm : object
-            The object representing the training algorithm being \
-            used to train the model (and thus implementing the \
-            `pylearn2.training_algorithms` interface).
+        algorithm : pylearn2.training_algorithms.TrainingAlgorithm
+            The object representing the training algorithm being
+            used to train the model.
         """
 
 class SharedSetter(TrainExtension):
@@ -97,14 +88,13 @@ class SharedSetter(TrainExtension):
     means run x.set_value(cast(y))
 
     after i epochs have passed.
+
+    Parameters
+    ----------
+    epoch_updates : WRITEME
     """
 
     def __init__(self, epoch_updates):
-        """
-        .. todo::
-
-            WRITEME
-        """
         self._count = 0
         self._epoch_to_updates = {}
         self._vars = set([])
@@ -117,12 +107,9 @@ class SharedSetter(TrainExtension):
             assert var.name is not None
             self._epoch_to_updates[epoch].append((var,val))
 
+    @functools.wraps(TrainExtension.on_monitor)
     def on_monitor(self, model, dataset, algorithm):
-        """
-        .. todo::
-
-            WRITEME
-        """
+        # TODO: write more specific docstring
         if self._count == 0:
             monitor = model.monitor
             # TODO: make Monitor support input-less channels so this hack
@@ -149,23 +136,21 @@ class ChannelSmoother(TrainExtension):
     support this kind of channel directly instead of hacking it in.
     Note that the Monitor will print this channel as having a value of -1, and
     then the extension will print the right value.
+
+    Parameters
+    ----------
+    channel_to_smooth : WRITEME
+    channel_to_publish : WRITEME
+    k : WRITEME
     """
 
     def __init__(self, channel_to_smooth, channel_to_publish, k=5):
-        """
-        .. todo::
-
-            WRITEME
-        """
         self.__dict__.update(locals())
         del self.self
 
+    @functools.wraps(TrainExtension.setup)
     def setup(self, model, dataset, algorithm):
-        """
-        .. todo::
-
-            WRITEME
-        """
+        # TODO: more specific docstring
         monitor = model.monitor
         channels = monitor.channels
         channel_to_smooth = channels[self.channel_to_smooth]
@@ -173,19 +158,16 @@ class ChannelSmoother(TrainExtension):
         dataset = channel_to_smooth.dataset
 
         monitor.add_channel(name=self.channel_to_publish,
-                            ipt=ipt,
-                            val=-1.,
-                            dataset=dataset)
+                ipt=ipt,
+                val=-1.,
+                dataset=dataset)
 
         self.in_ch = channel_to_smooth
         self.out_ch = channels[self.channel_to_publish]
 
+    @functools.wraps(TrainExtension.on_monitor)
     def on_monitor(self, model, dataset, algorithm):
-        """
-        .. todo::
-
-            WRITEME
-        """
+        # TODO: write more specific docstring
         val_record = self.in_ch.val_record
 
         start = max(0, len(val_record) - self.k + 1)
@@ -193,76 +175,4 @@ class ChannelSmoother(TrainExtension):
         mean = sum(values) / float(len(values))
 
         self.out_ch.val_record[-1] = mean
-        print '\t' + self.channel_to_publish + ': ' + str(mean)
-
-
-class EpochLogger(TrainExtension):
-    """
-    Saves the machine and/or an image of its first-level weights on each epoch.
-    """
-
-    def __init__(self, output_dir, save_models=False, save_images=True):
-
-        output_dir = os.path.abspath(output_dir)
-
-        def is_empty(dirname):
-            return len(os.listdir(dirname)) == 0
-
-        if os.path.exists(output_dir):
-            if not os.path.isdir(output_dir):
-                raise IOError("Output directory %s is not a directory." %
-                              output_dir)
-            elif not is_empty(output_dir):
-                raise IOError("Output directory %s is not empty." % output_dir)
-        else:
-            parent, dirname = os.path.split(output_dir)
-            if parent == '':
-                raise IOError("Are we really writing to the root directory?")
-            os.makedirs(output_dir)
-
-
-        self.output_dir = output_dir
-        self.num_finished_epochs = 0
-        self.save_models = save_models
-        self.save_images = save_images
-
-
-    def on_monitor(self, model, dataset, algorithm):
-        """
-        Overrides TrainExtension's on_monitor, which gets called once before
-        training, and after each epoch.
-        """
-        class SerializationGuard(object):
-
-            def __getstate__(self):
-                raise IOError("You tried to serialize something that should not"
-                              " be serialized.")
-
-
-        save_path = os.path.join(self.output_dir,
-                                 "model_after_%04d_epochs.pkl" %
-                                 self.num_finished_epochs)
-        if os.path.exists(save_path):
-            raise IOError("The output file already exists. "
-                          "This should never happen.")
-
-        if self.save_models:
-            try:
-                # Prevents the dataset from being saved along with the model.
-                dataset._serialization_guard = SerializationGuard()
-
-                serial.save(save_path, model, on_overwrite = 'ignore')
-            finally:
-                dataset._serialization_guard = None
-
-        if self.save_images:
-            # Uses same options as show_weights.py
-            patch_viewer = get_weights_report(model = model,
-                                              rescale = "individual",
-                                              border = False)
-            patch_viewer.save(os.path.join(self.output_dir,
-                                           "weights_after_%04d_epochs.png" %
-                                           self.num_finished_epochs))
-
-        self.num_finished_epochs = 1 + self.num_finished_epochs
-
+        logger.info('\t{0}: {1}'.format(self.channel_to_publish, mean))

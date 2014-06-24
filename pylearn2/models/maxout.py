@@ -8,7 +8,7 @@ If you use this code in your research, please cite this paper.
 
 The objects in this module are Layer objects for use with
 pylearn2.models.mlp.MLP. You need to make an MLP object in
-order for thse to do anything. For an example of how to build
+order for these to do anything. For an example of how to build
 an MLP with maxout hidden layers, see pylearn2/scripts/papers/maxout.
 
 Note that maxout is designed for use with dropout, so you probably should
@@ -23,11 +23,13 @@ __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2012-2013, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
+__maintainer__ = "LISA Lab"
 
 import functools
+import logging
 import numpy as np
 import warnings
+from itertools import izip
 
 from theano.compat.python2x import OrderedDict
 from theano.sandbox import cuda
@@ -45,7 +47,12 @@ from pylearn2.linear.conv2d_c01b import setup_detector_layer_c01b
 from pylearn2.linear import local_c01b
 if cuda.cuda_available:
     from pylearn2.sandbox.cuda_convnet.pool import max_pool_c01b
+else:
+    max_pool_c01b = None
 from pylearn2.sandbox.cuda_convnet import check_cuda
+
+
+logger = logging.getLogger(__name__)
 
 
 class Maxout(Layer):
@@ -72,7 +79,7 @@ class Maxout(Layer):
         The distance between the start of each max pooling region. Defaults
         to num_pieces, which makes the pooling regions disjoint. If set to
         a smaller number, can do overlapping pools.
-    randomize_pools : bool
+    randomize_pools : bool, optional
         If True, does max pooling over randomized subsets of the linear
         responses, rather than over sequential subsets.
     irange : float, optional
@@ -83,6 +90,8 @@ class Maxout(Layer):
         This is an integer specifying how many weights to make non-zero.
         All non-zero weights will be initialized randomly in
         N(0, sparse_stdev^2)
+    sparse_stdev : float, optional
+        WRITEME
     include_prob : float, optional
         probability of including a weight element in the set
         of weights initialized to U(-irange, irange). If not included
@@ -139,6 +148,8 @@ class Maxout(Layer):
                  max_row_norm=None,
                  mask_weights=None,
                  min_zero=False):
+
+        super(Maxout, self).__init__()
 
         detector_layer_dim = num_units * num_pieces
         pool_size = num_pieces
@@ -267,7 +278,7 @@ class Maxout(Layer):
                                  str(self.mask_weights.shape))
             self.mask = sharedX(self.mask_weights)
 
-    def censor_updates(self, updates):
+    def _modify_updates(self, updates):
         """
         Replaces the values in `updates` if needed to enforce the options set
         in the __init__ method, including `mask_weights` and `max_col_norm`.
@@ -327,7 +338,7 @@ class Maxout(Layer):
             coeff = float(coeff)
         assert isinstance(coeff, float) or hasattr(coeff, 'dtype')
         W, = self.transformer.get_params()
-        return coeff * T.abs(W).sum()
+        return coeff * T.abs_(W).sum()
 
     @functools.wraps(Model.get_weights)
     def get_weights(self):
@@ -395,6 +406,11 @@ class Maxout(Layer):
 
     @functools.wraps(Layer.get_monitoring_channels)
     def get_monitoring_channels(self):
+        warnings.warn("Layer.get_monitoring_channels is " +
+                      "deprecated. Use get_layer_monitoring_channels " +
+                      "instead. Layer.get_monitoring_channels " +
+                      "will be removed on or after september 24th 2014",
+                      stacklevel=2)
 
         W, = self.transformer.get_params()
 
@@ -419,6 +435,11 @@ class Maxout(Layer):
 
     @functools.wraps(Layer.get_monitoring_channels_from_state)
     def get_monitoring_channels_from_state(self, state):
+        warnings.warn("Layer.get_monitoring_channels_from_state is " +
+                      "deprecated. Use get_layer_monitoring_channels " +
+                      "instead. Layer.get_monitoring_channels_from_state " +
+                      "will be removed on or after september 24th 2014",
+                      stacklevel=2)
 
         P = state
 
@@ -455,6 +476,71 @@ class Maxout(Layer):
                              ('mean_x.mean_u', v_mean.mean()),
                              ('mean_x.min_u', v_mean.min())]:
                 rval[prefix+key] = val
+
+        return rval
+
+    @functools.wraps(Layer.get_layer_monitoring_channels)
+    def get_layer_monitoring_channels(self, state_below=None,
+                                      state=None, targets=None):
+
+        W, = self.transformer.get_params()
+
+        assert W.ndim == 2
+
+        sq_W = T.sqr(W)
+
+        row_norms = T.sqrt(sq_W.sum(axis=1))
+        col_norms = T.sqrt(sq_W.sum(axis=0))
+
+        row_norms_min = row_norms.min()
+        row_norms_min.__doc__ = ("The smallest norm of any row of the "
+                                 "weight matrix W. This is a measure of the "
+                                 "least influence any visible unit has.")
+
+        rval = OrderedDict([('row_norms_min',  row_norms_min),
+                            ('row_norms_mean', row_norms.mean()),
+                            ('row_norms_max',  row_norms.max()),
+                            ('col_norms_min',  col_norms.min()),
+                            ('col_norms_mean', col_norms.mean()),
+                            ('col_norms_max',  col_norms.max()), ])
+
+        if (state is not None) or (state_below is not None):
+            if state is None:
+                state = self.fprop(state_below)
+
+            P = state
+            if self.pool_size == 1:
+                vars_and_prefixes = [(P, '')]
+            else:
+                vars_and_prefixes = [(P, 'p_')]
+
+            for var, prefix in vars_and_prefixes:
+                v_max = var.max(axis=0)
+                v_min = var.min(axis=0)
+                v_mean = var.mean(axis=0)
+                v_range = v_max - v_min
+
+                # max_x.mean_u is "the mean over *u*nits of the max over
+                # e*x*amples" The x and u are included in the name because
+                # otherwise its hard to remember which axis is which when
+                # reading the monitor I use inner.outer
+                # rather than outer_of_inner or
+                # something like that because I want mean_x.* to appear next to
+                # each other in the alphabetical list, as these are commonly
+                # plotted together
+                for key, val in [('max_x.max_u', v_max.max()),
+                                 ('max_x.mean_u', v_max.mean()),
+                                 ('max_x.min_u', v_max.min()),
+                                 ('min_x.max_u', v_min.max()),
+                                 ('min_x.mean_u', v_min.mean()),
+                                 ('min_x.min_u', v_min.min()),
+                                 ('range_x.max_u', v_range.max()),
+                                 ('range_x.mean_u', v_range.mean()),
+                                 ('range_x.min_u', v_range.min()),
+                                 ('mean_x.max_u', v_mean.max()),
+                                 ('mean_x.mean_u', v_mean.mean()),
+                                 ('mean_x.min_u', v_mean.min())]:
+                    rval[prefix+key] = val
 
         return rval
 
@@ -535,22 +621,22 @@ class MaxoutConvC01B(Layer):
     layer_name : str
         A name for this layer that will be prepended to
         monitoring channels related to this layer.
-    irange : float
+    irange : float, optional
         if specified, initializes each weight randomly in
         U(-irange, irange)
-    init_bias : float
+    init_bias : float, optional
         All biases are initialized to this number
-    W_lr_scale : float
+    W_lr_scale : float, optional
         The learning rate on the weights for this layer is
         multiplied by this scaling factor
-    b_lr_scale : float
+    b_lr_scale : float, optional
         The learning rate on the biases for this layer is
         multiplied by this scaling factor
-    pad : int
+    pad : int, optional
         The amount of zero-padding to implicitly add to the boundary of the
         image when computing the convolution. Useful for making sure pixels
         at the edge still get to influence multiple hidden units.
-    fix_pool_shape : bool
+    fix_pool_shape : bool, optional
         If True, will modify self.pool_shape to avoid having
         pool shape bigger than the entire detector layer.
         If you have this on, you should probably also have
@@ -561,39 +647,43 @@ class MaxoutConvC01B(Layer):
         optimization package, which might often propose sets of
         hyperparameters that are not feasible, but can easily be projected
         back into the feasible set.
-    fix_kernel_shape : bool
+    fix_pool_stride : bool, optional
+        WRITEME
+    fix_kernel_shape : bool, optional
         if True, will modify self.kernel_shape to avoid having the kernel
         shape bigger than the implicitly zero padded input layer
-    partial_sum : int
+    partial_sum : int, optional
         a parameter that controls whether to prefer runtime savings
         or memory savings when computing the gradient with respect to
         the kernels. See pylearn2.sandbox.cuda_convnet.weight_acts.py
         for details. The default is to prefer high speed.
         Note that changing this setting may change the value of computed
         results slightly due to different rounding error.
-    tied_b : bool
+    tied_b : bool, optional
         If true, all biases in the same channel are constrained to be the
         same as each other. Otherwise, each bias at each location is
         learned independently.
-    max_kernel_norm: float
-        If specifed, each kernel is constrained to have at most this norm.
-    input_normalization : callable
+    max_kernel_norm : float, optional
+        If specified, each kernel is constrained to have at most this norm.
+    input_normalization : callable, optional
         see output normalization
-    detector_normalization : callable
+    detector_normalization : callable, optional
         see output normalization
-    output_normalization : callable
+    min_zero : bool, optional
+        WRITEME
+    output_normalization : callable, optional
         if specified, should be a callable object. the state of the
         network is optionally replaced with normalization(state) at each
         of the 3 points in processing:
 
-        - input: the input the layer receives can be normalized right
+          - input: the input the layer receives can be normalized right
             away
-        - detector: the maxout units can be normalized prior to the
+          - detector: the maxout units can be normalized prior to the
             spatial pooling
-        - output: the output of the layer, after sptial pooling,
+          - output: the output of the layer, after sptial pooling,
             can be normalized as well
-    kernel_stride : vertical and horizontal pixel stride between
-                   each detector.
+    kernel_stride : tuple, optional
+        vertical and horizontal pixel stride between each detector.
     """
 
     def __init__(self,
@@ -620,6 +710,7 @@ class MaxoutConvC01B(Layer):
                  output_normalization=None,
                  kernel_stride=(1, 1)):
         check_cuda(str(type(self)))
+        super(MaxoutConvC01B, self).__init__()
 
         detector_channels = num_channels * num_pieces
 
@@ -702,17 +793,16 @@ class MaxoutConvC01B(Layer):
 
         dummy_p = max_pool_c01b(c01b=dummy_detector,
                                 pool_shape=self.pool_shape,
-                                pool_stride=self.pool_stride,
-                                image_shape=self.detector_space.shape)
+                                pool_stride=self.pool_stride)
         dummy_p = dummy_p.eval()
         self.output_space = Conv2DSpace(shape=[dummy_p.shape[1],
                                                dummy_p.shape[2]],
                                         num_channels=self.num_channels,
                                         axes=('c', 0, 1, 'b'))
 
-        print 'Output space: ', self.output_space.shape
+        logger.info('Output space: {0}'.format(self.output_space.shape))
 
-    def censor_updates(self, updates):
+    def _modify_updates(self, updates):
         """
         Replaces the values in `updates` if needed to enforce the options set
         in the __init__ method, including `max_kernel_norm`.
@@ -776,6 +866,11 @@ class MaxoutConvC01B(Layer):
 
     @functools.wraps(Layer.get_monitoring_channels)
     def get_monitoring_channels(self):
+        warnings.warn("Layer.get_monitoring_channels is " +
+                      "deprecated. Use get_layer_monitoring_channels " +
+                      "instead. Layer.get_monitoring_channels " +
+                      "will be removed on or after september 24th 2014",
+                      stacklevel=2)
 
         W, = self.transformer.get_params()
 
@@ -843,8 +938,7 @@ class MaxoutConvC01B(Layer):
                 z = self.detector_normalization(z)
 
             p = max_pool_c01b(c01b=z, pool_shape=self.pool_shape,
-                              pool_stride=self.pool_stride,
-                              image_shape=self.detector_space.shape)
+                              pool_stride=self.pool_stride)
         else:
 
             if self.detector_normalization is not None:
@@ -853,8 +947,7 @@ class MaxoutConvC01B(Layer):
                                           "never exists as a stage of "
                                           "processing in this implementation.")
             z = max_pool_c01b(c01b=z, pool_shape=self.pool_shape,
-                              pool_stride=self.pool_stride,
-                              image_shape=self.detector_space.shape)
+                              pool_stride=self.pool_stride)
             if self.num_pieces != 1:
                 s = None
                 for i in xrange(self.num_pieces):
@@ -895,6 +988,11 @@ class MaxoutConvC01B(Layer):
 
     @functools.wraps(Layer.get_monitoring_channels_from_state)
     def get_monitoring_channels_from_state(self, state):
+        warnings.warn("Layer.get_monitoring_channels_from_state is " +
+                      "deprecated. Use get_layer_monitoring_channels " +
+                      "instead. Layer.get_monitoring_channels_from_state " +
+                      "will be removed on or after september 24th 2014",
+                      stacklevel=2)
 
         P = state
 
@@ -932,6 +1030,61 @@ class MaxoutConvC01B(Layer):
 
         return rval
 
+    @functools.wraps(Layer.get_layer_monitoring_channels)
+    def get_layer_monitoring_channels(self, state_below=None,
+                                      state=None, targets=None):
+
+        W, = self.transformer.get_params()
+
+        assert W.ndim == 4
+
+        sq_W = T.sqr(W)
+
+        row_norms = T.sqrt(sq_W.sum(axis=(0, 1, 2)))
+
+        rval = OrderedDict([('kernel_norms_min',  row_norms.min()),
+                            ('kernel_norms_mean', row_norms.mean()),
+                            ('kernel_norms_max',  row_norms.max()), ])
+
+        if (state is not None) or (state_below is not None):
+            if state is None:
+                state = self.fprop(state_below)
+
+            P = state
+
+            vars_and_prefixes = [(P, '')]
+
+            for var, prefix in vars_and_prefixes:
+                assert var.ndim == 4
+                v_max = var.max(axis=(1, 2, 3))
+                v_min = var.min(axis=(1, 2, 3))
+                v_mean = var.mean(axis=(1, 2, 3))
+                v_range = v_max - v_min
+
+                # max_x.mean_u is "the mean over *u*nits of the max over
+                # e*x*amples" The x and u are included in the name because
+                # otherwise its hard to remember which axis is which when
+                # reading the monitor I use inner.outer rather than
+                # outer_of_inner or something like that because I want
+                # mean_x.* to appear next to each other in the
+                # alphabetical list, as these are commonly plotted
+                # together
+                for key, val in [('max_x.max_u',    v_max.max()),
+                                 ('max_x.mean_u',   v_max.mean()),
+                                 ('max_x.min_u',    v_max.min()),
+                                 ('min_x.max_u',    v_min.max()),
+                                 ('min_x.mean_u',   v_min.mean()),
+                                 ('min_x.min_u',    v_min.min()),
+                                 ('range_x.max_u',  v_range.max()),
+                                 ('range_x.mean_u', v_range.mean()),
+                                 ('range_x.min_u',  v_range.min()),
+                                 ('mean_x.max_u',   v_mean.max()),
+                                 ('mean_x.mean_u',  v_mean.mean()),
+                                 ('mean_x.min_u',   v_mean.min())]:
+                    rval[prefix+key] = val
+
+        return rval
+
 
 class MaxoutLocalC01B(Layer):
     """
@@ -961,33 +1114,33 @@ class MaxoutLocalC01B(Layer):
         The number of linear pieces used to make each maxout unit.
     kernel_shape : tuple
         The shape of the convolution kernel.
-    pool_shape : tuple
+    layer_name : str
+        A name for this layer that will be prepended to
+        monitoring channels related to this layer.
+    pool_shape : tuple, optional
         The shape of the spatial max pooling. A two-tuple of ints.
         This is redundant as cuda-convnet requires the pool shape to
         be square.
         Defaults to None, which means no spatial pooling
-    pool_stride : tuple
+    pool_stride : tuple, optional
         The stride of the spatial max pooling. Also must be square.
         Defaults to None, which means no spatial pooling.
-    layer_name : str
-        A name for this layer that will be prepended to
-        monitoring channels related to this layer.
-    irange : float
+    irange : float, optional
         if specified, initializes each weight randomly in
         U(-irange, irange)
-    init_bias : float
+    init_bias : float, optional
         All biases are initialized to this number
-    W_lr_scale : float
+    W_lr_scale : float, optional
         The learning rate on the weights for this layer is
         multiplied by this scaling factor
-    b_lr_scale : float
+    b_lr_scale : float, optional
         The learning rate on the biases for this layer is
         multiplied by this scaling factor
-    pad : int
+    pad : int, optional
         The amount of zero-padding to implicitly add to the boundary of the
         image when computing the convolution. Useful for making sure pixels
         at the edge still get to influence multiple hidden units.
-    fix_pool_shape : bool
+    fix_pool_shape : bool, optional
         If True, will modify self.pool_shape to avoid having
         pool shape bigger than the entire detector layer.
         If you have this on, you should probably also have
@@ -998,38 +1151,48 @@ class MaxoutLocalC01B(Layer):
         optimization package, which might often propose sets of
         hyperparameters that are not feasible, but can easily be projected
         back into the feasible set.
-    fix_kernel_shape : bool
+    fix_pool_stride : bool, optional
+        WRITEME
+    fix_kernel_shape : bool, optional
         if True, will modify self.kernel_shape to avoid
         having the kernel shape bigger than the implicitly
         zero padded input layer
-    partial_sum : int
+    partial_sum : int, optional
         a parameter that controls whether to prefer runtime savings
         or memory savings when computing the gradient with respect to
         the kernels. See pylearn2.sandbox.cuda_convnet.weight_acts.py
         for details. The default is to prefer high speed.
         Note that changing this setting may change the value of computed
         results slightly due to different rounding error.
-    tied_b : bool
+    tied_b : bool, optional
         If true, all biases in the same channel are constrained to be the
         same as each other. Otherwise, each bias at each location is
         learned independently.
-    max_kernel_norm : float
-        If specifed, each kernel is constrained to have at most this norm.
+    max_filter_norm : float, optional
+        DEPRECATED, use max_kernel_norm instead.
+    max_kernel_norm : float, optional
+        If specified, each kernel is constrained to have at most this norm.
     input_normalization : callable
         see output_normalization
     detector_normalization : callable
         see output_normalization
+    min_zero : bool, optional
+        WRITEME
     output_normalization : callable
         if specified, should be a callable object. the state of the network
         is optionally replaced with normalization(state) at each of the 3
         points in processing:
 
-        - input: the input the layer receives can be normalized right
+          - input: the input the layer receives can be normalized right
             away
-        - detector: the maxout units can be normalized prior to the
+          - detector: the maxout units can be normalized prior to the
             spatial pooling
-        - output: the output of the layer, after sptial pooling, can be
+          - output: the output of the layer, after sptial pooling, can be
             normalized as well
+    kernel_stride : tuple, optional
+        Vertical and horizontal pixel stride between each detector.
+    input_groups : int, optional
+        WRITEME
     """
 
     def __init__(self,
@@ -1050,12 +1213,20 @@ class MaxoutLocalC01B(Layer):
                  partial_sum=1,
                  tied_b=False,
                  max_filter_norm=None,
+                 max_kernel_norm=None,
                  input_normalization=None,
                  detector_normalization=None,
                  min_zero=False,
                  output_normalization=None,
                  input_groups=1,
                  kernel_stride=(1, 1)):
+
+        if max_filter_norm is not None:
+            max_kernel_norm = max_filter_norm
+            warnings.warn("max_filter_norm argument is deprecated, use "
+                          "max_kernel_norm instead. max_filter_norm "
+                          "will be removed on or after 2014-10-02.",
+                          stacklevel=2)
 
         assert (pool_shape is None) == (pool_stride is None)
 
@@ -1124,9 +1295,11 @@ class MaxoutLocalC01B(Layer):
 
         rng = self.mlp.rng
 
-        output_shape = [(self.input_space.shape[i] +
-                         2 * self.pad -
-                         self.kernel_shape[i] + 1) for i in range(2)]
+        output_shape = \
+            [int(np.ceil((i_sh + 2. * self.pad - k_sh) / float(k_st))) + 1
+             for i_sh, k_sh, k_st in izip(self.input_space.shape,
+                                          self.kernel_shape,
+                                          self.kernel_stride)]
 
         def handle_kernel_shape(idx):
             if self.kernel_shape[idx] < 1:
@@ -1204,35 +1377,37 @@ class MaxoutLocalC01B(Layer):
             self.b = sharedX(self.detector_space.get_origin() + self.init_bias)
         self.b.name = 'b'
 
-        print 'Input shape: ', self.input_space.shape
-        print 'Detector space: ', self.detector_space.shape
+        logger.info('Input shape: {0}'.format(self.input_space.shape))
+        logger.info(self.layer_name +
+                    ' detector space: {0}'.format(self.detector_space.shape))
 
         assert self.detector_space.num_channels >= 16
 
-        if self.pool_shape is None:
+        if self.pool_shape is None or np.prod(self.pool_shape) == 1:
             self.output_space = Conv2DSpace(shape=self.detector_space.shape,
                                             num_channels=self.num_channels,
                                             axes=('c', 0, 1, 'b'))
-        else:
+        elif max_pool_c01b is not None:
             ds = self.detector_space
             dummy_detector = sharedX(ds.get_origin_batch(2)[0:16, :, :, :])
 
             dummy_p = max_pool_c01b(c01b=dummy_detector,
                                     pool_shape=self.pool_shape,
-                                    pool_stride=self.pool_stride,
-                                    image_shape=self.detector_space.shape)
+                                    pool_stride=self.pool_stride)
             dummy_p = dummy_p.eval()
             self.output_space = Conv2DSpace(shape=[dummy_p.shape[1],
                                                    dummy_p.shape[2]],
                                             num_channels=self.num_channels,
                                             axes=('c', 0, 1, 'b'))
+        else:
+            raise NotImplementedError("Pooling is not implemented for CPU")
 
-        print 'Output space: ', self.output_space.shape
+        logger.info('Output space: {0}'.format(self.output_space.shape))
 
-    def censor_updates(self, updates):
+    def _modify_updates(self, updates):
         """
         Replaces the values in `updates` if needed to enforce the options set
-        in the __init__ method, including `max_filter_norm`.
+        in the __init__ method, including `max_kernel_norm`.
 
         Parameters
         ----------
@@ -1245,13 +1420,13 @@ class MaxoutLocalC01B(Layer):
             by the learning algorithm.
         """
 
-        if self.max_filter_norm is not None:
+        if self.max_kernel_norm is not None:
             W, = self.transformer.get_params()
             if W in updates:
                 # TODO:    push some of this into the transformer itself
                 updated_W = updates[W]
                 updated_norms = self.get_filter_norms(updated_W)
-                desired_norms = T.clip(updated_norms, 0, self.max_filter_norm)
+                desired_norms = T.clip(updated_norms, 0, self.max_kernel_norm)
                 scales = desired_norms / (1e-7 + updated_norms)
                 updates[W] = (updated_W *
                               scales.dimshuffle(0, 1, 'x', 'x', 'x', 2, 3))
@@ -1319,6 +1494,11 @@ class MaxoutLocalC01B(Layer):
 
     @functools.wraps(Layer.get_monitoring_channels)
     def get_monitoring_channels(self):
+        warnings.warn("Layer.get_monitoring_channels is " +
+                      "deprecated. Use get_layer_monitoring_channels " +
+                      "instead. Layer.get_monitoring_channels " +
+                      "will be removed on or after september 24th 2014",
+                      stacklevel=2)
 
         filter_norms = self.get_filter_norms()
 
@@ -1381,13 +1561,12 @@ class MaxoutLocalC01B(Layer):
             if self.detector_normalization:
                 z = self.detector_normalization(z)
 
-            if self.pool_shape is None:
+            if self.pool_shape is None or np.prod(self.pool_shape) == 1:
                 p = z
             else:
                 p = max_pool_c01b(c01b=z,
                                   pool_shape=self.pool_shape,
-                                  pool_stride=self.pool_stride,
-                                  image_shape=self.detector_space.shape)
+                                  pool_stride=self.pool_stride)
         else:
 
             if self.detector_normalization is not None:
@@ -1396,11 +1575,10 @@ class MaxoutLocalC01B(Layer):
                                           "never exists as a stage of "
                                           "processing in this "
                                           "implementation.")
-            if self.pool_shape is not None:
+            if self.pool_shape is not None or np.prod(self.pool_shape) > 1:
                 z = max_pool_c01b(c01b=z,
                                   pool_shape=self.pool_shape,
-                                  pool_stride=self.pool_stride,
-                                  image_shape=self.detector_space.shape)
+                                  pool_stride=self.pool_stride)
             if self.num_pieces != 1:
                 s = None
                 for i in xrange(self.num_pieces):
@@ -1441,6 +1619,11 @@ class MaxoutLocalC01B(Layer):
 
     @functools.wraps(Layer.get_monitoring_channels_from_state)
     def get_monitoring_channels_from_state(self, state):
+        warnings.warn("Layer.get_monitoring_channels_from_state is " +
+                      "deprecated. Use get_layer_monitoring_channels " +
+                      "instead. Layer.get_monitoring_channels_from_state " +
+                      "will be removed on or after september 24th 2014",
+                      stacklevel=2)
 
         P = state
 
@@ -1477,3 +1660,52 @@ class MaxoutLocalC01B(Layer):
                 rval[prefix+key] = val
 
         return rval
+
+    @functools.wraps(Layer.get_layer_monitoring_channels)
+    def get_layer_monitoring_channels(self, state_below=None,
+                                      state=None, targets=None):
+
+        filter_norms = self.get_filter_norms()
+
+        rval = OrderedDict([('filter_norms_min',  filter_norms.min()),
+                            ('filter_norms_mean', filter_norms.mean()),
+                            ('filter_norms_max',  filter_norms.max()), ])
+
+        if (state is not None) or (state_below is not None):
+            if state is None:
+                state = self.fprop(state_below)
+
+            P = state
+
+            vars_and_prefixes = [(P, '')]
+
+            for var, prefix in vars_and_prefixes:
+                assert var.ndim == 4
+                v_max = var.max(axis=(1, 2, 3))
+                v_min = var.min(axis=(1, 2, 3))
+                v_mean = var.mean(axis=(1, 2, 3))
+                v_range = v_max - v_min
+
+                # max_x.mean_u is "the mean over *u*nits of the max over
+                # e*x*amples" The x and u are included in the name because
+                # otherwise its hard to remember which axis is which when
+                # reading the monitor I use inner.outer rather than
+                # outer_of_inner or something like that because I want
+                # mean_x.* to appear next to each other in the
+                # alphabetical list, as these are commonly plotted
+                # together
+                for key, val in [('max_x.max_u',    v_max.max()),
+                                 ('max_x.mean_u',   v_max.mean()),
+                                 ('max_x.min_u',    v_max.min()),
+                                 ('min_x.max_u',    v_min.max()),
+                                 ('min_x.mean_u',   v_min.mean()),
+                                 ('min_x.min_u',    v_min.min()),
+                                 ('range_x.max_u',  v_range.max()),
+                                 ('range_x.mean_u', v_range.mean()),
+                                 ('range_x.min_u',  v_range.min()),
+                                 ('mean_x.max_u',   v_mean.max()),
+                                 ('mean_x.mean_u',  v_mean.mean()),
+                                 ('mean_x.min_u',   v_mean.min())]:
+                    rval[prefix+key] = val
+
+            return rval

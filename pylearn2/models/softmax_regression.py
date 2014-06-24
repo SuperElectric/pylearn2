@@ -2,15 +2,15 @@
 Softmax regression
 
 Note: softmax regression is implemented as a special case of the MLP.
-     It is an MLP with no hidden layers, and with the output layer
-     always set to be softmax.
+    It is an MLP with no hidden layers, and with the output layer
+    always set to be softmax.
 """
 
 __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2012-2013, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
+__maintainer__ = "LISA Lab"
 
 from pylearn2.models import mlp
 
@@ -42,6 +42,7 @@ class SoftmaxRegression(mlp.MLP):
     nvis : WRITEME
     seed : WRITEME
     """
+
     def __init__(self,
                  n_classes,
                  batch_size=None,

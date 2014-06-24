@@ -8,7 +8,6 @@ class Dataset(object):
     Abstract interface for Datasets.
     """
 
-
     def __iter__(self):
         """
         .. todo::
@@ -23,45 +22,51 @@ class Dataset(object):
         Return an iterator for this dataset with the specified
         behaviour. Unspecified values are filled-in by the default.
 
+        .. todo::
+
+            Parameters : targets
+
+            DWF or LD should fill this in, but IG thinks it is just
+            a bool saying whether to include the targets or not
+
         Parameters
         ----------
         mode : str or object, optional
-            One of 'sequential', 'random_slice', or 'random_uniform', \
-            *or* a class that instantiates an iterator that returns \
+            One of 'sequential', 'random_slice', or 'random_uniform',
+            *or* a class that instantiates an iterator that returns
             slices or index sequences on every call to next().
         batch_size : int, optional
-            The size of an individual batch. Optional if `mode` is \
-            'sequential' and `num_batches` is specified (batch size \
+            The size of an individual batch. Optional if `mode` is
+            'sequential' and `num_batches` is specified (batch size
             will be calculated based on full dataset size).
         num_batches : int, optional
-            The total number of batches. Unnecessary if `mode` is \
-            'sequential' and `batch_size` is specified (number of \
+            The total number of batches. Unnecessary if `mode` is
+            'sequential' and `batch_size` is specified (number of
             batches will be calculated based on full dataset size).
         topo : boolean, optional
-            Whether batches returned by the iterator should present \
-            examples in a topological view or not. Defaults to \
+            Whether batches returned by the iterator should present
+            examples in a topological view or not. Defaults to
             `False`.
         rng : int, object or array_like, optional
-            Either an instance of `numpy.random.RandomState` (or \
-            something with a compatible interface), or a seed value \
-            to be passed to the constructor to create a `RandomState`. \
-            See the docstring for `numpy.random.RandomState` for \
-            details on the accepted seed formats. If unspecified, \
-            defaults to using the dataset's own internal random \
-            number generator, which persists across iterations \
-            through the dataset and may potentially be shared by \
-            multiple iterator objects simultaneously (see "Notes" \
+            Either an instance of `numpy.random.RandomState` (or
+            something with a compatible interface), or a seed value
+            to be passed to the constructor to create a `RandomState`.
+            See the docstring for `numpy.random.RandomState` for
+            details on the accepted seed formats. If unspecified,
+            defaults to using the dataset's own internal random
+            number generator, which persists across iterations
+            through the dataset and may potentially be shared by
+            multiple iterator objects simultaneously (see "Notes"
             below).
-        targets: TODO WRITEME: DWF or LD should fill this in, but
-            IG thinks it is just a bool saying whether to include
-            the targets or not
+        targets: TODO
+            TODO
 
         Returns
         -------
         iter_obj : object
-            An iterator object implementing the standard Python \
-            iterator protocol (i.e. it has an `__iter__` method that \
-            return the object itself, and a `next()` method that \
+            An iterator object implementing the standard Python
+            iterator protocol (i.e. it has an `__iter__` method that
+            return the object itself, and a `next()` method that
             returns results until it raises `StopIteration`).
 
         Notes
@@ -126,6 +131,12 @@ class Dataset(object):
         strongly discouraged. All code that depends on any particular
         example sampling properties should use Dataset.iterator.
 
+        .. todo::
+
+            Refactor to use `include_targets` rather than `include_labels`,
+            to make the terminology more consistent with the rest of the
+            library.
+
         Parameters
         ----------
         batch_size : int
@@ -139,16 +150,9 @@ class Dataset(object):
         batch : member of feature space, or member of (feature, target) space.
             Either numpy value of the features, or a (features, targets) tuple
             of numpy values, depending on the value of `include_labels`.
-
-        ..todo
-
-            Refactor to use `include_targets` rather than `include_labels`,
-            to make the terminology more consistent with the rest of the
-            library.
-
         """
         raise NotImplementedError(str(type(self))+" does not implement "
-                "get_batch_design.")
+                                  "get_batch_design.")
 
     def get_batch_topo(self, batch_size):
         """
@@ -158,5 +162,15 @@ class Dataset(object):
         batch_size. The next indices are the topologically significant
         dimensions of the data, i.e. for images, image rows followed by
         image columns.  The last index is over separate channels.
+        """
+        raise NotImplementedError()
+
+    def get_num_examples(self):
+        """
+        Returns the number of examples in the dataset
+
+        Notes
+        -----
+        Infinite datasets have float('inf') examples.
         """
         raise NotImplementedError()

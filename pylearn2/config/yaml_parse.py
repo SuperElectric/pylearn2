@@ -5,11 +5,16 @@ from pylearn2.utils.call_check import checked_call
 from pylearn2.utils import serial
 from pylearn2.utils.string_utils import preprocess
 from pylearn2.utils.string_utils import match
+import logging
 import warnings
+import collections
 
 
 is_initialized = False
 additional_environ = None
+logger = logging.getLogger(__name__)
+
+
 
 def load(stream, overrides=None, environ=None, **kwargs):
     """
@@ -79,7 +84,7 @@ def load_path(path, overrides=None, environ=None, **kwargs):
     Returns
     -------
     graph : dict or object
-        The dictionary or object (if the top-level element specified an \
+        The dictionary or object (if the top-level element specified a \
         Python object to instantiate).
 
     Notes
@@ -174,13 +179,14 @@ class ObjectProxy(object):
     """
     Class used to delay instantiation of objects so that overrides can be
     applied.
+
+    Parameters
+    ----------
+    cls : WRITEME
+    kwds : WRITEME
+    yaml_src : WRITEME
     """
     def __init__(self, cls, kwds, yaml_src):
-        """
-        .. todo::
-
-            WRITEME
-        """
         self.cls = cls
         self.kwds = kwds
         self.yaml_src = yaml_src
@@ -313,19 +319,12 @@ def initialize():
     yaml.add_multi_constructor('!import:', multi_constructor_import)
 
     yaml.add_constructor('!import', constructor_import)
-    yaml.add_implicit_resolver(
-        '!import', re.compile(r'(?:[a-zA-Z_][\w_]+\.)+[a-zA-Z_][\w_]+')
-    )
-
     yaml.add_constructor("!float", constructor_float)
-    yaml.add_implicit_resolver(
-        '!float', re.compile(r' [-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?')
-    )
 
     is_initialized = True
 
 
-################################################################################3
+###############################################################################
 # Callbacks used by PyYAML
 
 def multi_constructor_obj(loader, tag_suffix, node):
@@ -335,7 +334,18 @@ def multi_constructor_obj(loader, tag_suffix, node):
     See PyYAML documentation for details on the call signature.
     """
     yaml_src = yaml.serialize(node)
+    construct_mapping(node)
     mapping = loader.construct_mapping(node)
+
+    assert hasattr(mapping, 'keys')
+    assert hasattr(mapping, 'values')
+
+    for key in mapping.keys():
+        if not isinstance(key, basestring):
+            message = "Received non string object (%s) as " \
+                      "key in mapping." % str(key)
+            raise TypeError(message)
+
     if '.' not in tag_suffix:
         classname = tag_suffix
         rval = ObjectProxy(classname, mapping, yaml_src)
@@ -345,20 +355,23 @@ def multi_constructor_obj(loader, tag_suffix, node):
 
     return rval
 
+
 def multi_constructor_pkl(loader, tag_suffix, node):
     """
     Callback used by PyYAML when a "!pkl:" tag is encountered.
     """
     global additional_environ
     if tag_suffix != "" and tag_suffix != u"":
-        raise AssertionError('Expected tag_suffix to be "" but it is "' + tag_suffix +
-                    '": Put space between !pkl: and the filename.')
+        raise AssertionError('Expected tag_suffix to be "" but it is "'
+                             + tag_suffix +
+                             '": Put space between !pkl: and the filename.')
 
     mapping = loader.construct_yaml_str(node)
     rval = ObjectProxy(None, {}, yaml.serialize(node))
     rval.instance = serial.load(preprocess(mapping, additional_environ))
 
     return rval
+
 
 def multi_constructor_import(loader, tag_suffix, node):
     """
@@ -367,6 +380,7 @@ def multi_constructor_import(loader, tag_suffix, node):
     if '.' not in tag_suffix:
         raise yaml.YAMLError("!import: tag suffix contains no '.'")
     return try_to_import(tag_suffix)
+
 
 def constructor_import(loader, node):
     """
@@ -378,6 +392,7 @@ def constructor_import(loader, node):
         raise yaml.YAMLError("import tag suffix contains no '.'")
     return try_to_import(value)
 
+
 def constructor_float(loader, node):
     """
     Callback used by PyYAML when a "!float <str>" tag is encountered.
@@ -385,6 +400,37 @@ def constructor_float(loader, node):
     """
     value = loader.construct_scalar(node)
     return float(value)
+
+
+def construct_mapping(node, deep=False):
+    # This is a modified version of yaml.BaseConstructor.construct_mapping
+    # in which a repeated key raises a ConstructorError
+    if not isinstance(node, yaml.nodes.MappingNode):
+        const = yaml.constructor
+        message = "expected a mapping node, but found"
+        raise const.ConstructorError(None, None,
+                                     "%s %s " % (message, node.id),
+                                     node.start_mark)
+    mapping = {}
+    constructor = yaml.constructor.BaseConstructor()
+    for key_node, value_node in node.value:
+        key = constructor.construct_object(key_node, deep=False)
+        try:
+            hash(key)
+        except TypeError, exc:
+            const = yaml.constructor
+            raise const.ConstructorError("while constructing a mapping",
+                                         node.start_mark,
+                                         "found unacceptable key (%s)" % exc,
+                                         key_node.start_mark)
+        if key in mapping:
+            const = yaml.constructor
+            raise const.ConstructorError("while constructing a mapping",
+                                         node.start_mark,
+                                         "found duplicate key (%s)" % key)
+        value = constructor.construct_object(value_node, deep=False)
+        mapping[key] = value
+    return mapping
 
 if __name__ == "__main__":
     initialize()
@@ -394,7 +440,7 @@ if __name__ == "__main__":
         "corruptor" : !obj:pylearn2.corruption.GaussianCorruptor &corr {
             "corruption_level" : 0.9
         },
-        "dae" : !obj:pylearn2.autoencoder.DenoisingAutoencoder {
+        "dae" : !obj:pylearn2.models.autoencoder.DenoisingAutoencoder {
             "nhid" : 20,
             "nvis" : 30,
             "act_enc" : null,
@@ -406,6 +452,6 @@ if __name__ == "__main__":
     }"""
     # yaml.load can take a string or a file object
     loaded = yaml.load(yamlfile)
-    print loaded
+    logger.info(loaded)
     # These two things should be the same object
     assert loaded['corruptor'] is loaded['dae'].corruptor

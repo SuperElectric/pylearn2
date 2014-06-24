@@ -27,7 +27,7 @@ __authors__ = ["Ian Goodfellow", "Vincent Dumoulin"]
 __copyright__ = "Copyright 2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
+__maintainer__ = "LISA Lab"
 
 import numpy as np
 
@@ -85,13 +85,13 @@ class IsingVisible(VisibleLayer):
     nvis : int
         The dimension of the space
     beta : theano shared variable
-        Shared variable representing a multiplicative factor of the \
+        Shared variable representing a multiplicative factor of the
         energy function (the inverse temperature)
     learn_beta : boolean, optional
-        Whether or not the inverse temperature should be considered as a \
+        Whether or not the inverse temperature should be considered as a
         learned parameter
     bias_from_marginals : `pylearn2.datasets.dataset.Dataset`, optional
-        A dataset whose marginals are used to initialize the visible \
+        A dataset whose marginals are used to initialize the visible
         biases
     """
 
@@ -273,6 +273,7 @@ class IsingHidden(HiddenLayer):
     b_lr_scale : WRITEME
     max_col_norm : WRITEME
     """
+
     def __init__(self,
                  dim,
                  layer_name,
@@ -361,7 +362,7 @@ class IsingHidden(HiddenLayer):
         W, = self.transformer.get_params()
         assert W.name is not None
 
-    def censor_updates(self, updates):
+    def _modify_updates(self, updates):
         """
         .. todo::
 
@@ -807,7 +808,11 @@ class BoltzmannIsingVisible(VisibleLayer):
     bias_from_marginals : `pylearn2.datasets.dataset.Dataset`, optional
         A dataset whose marginals are used to initialize the visible
         biases
+    sampling_b_stdev : WRITEME
+    min_ising_b : WRITEME
+    max_ising_b : WRITEME
     """
+
     def __init__(self, nvis, beta, learn_beta=False, bias_from_marginals=None,
                  sampling_b_stdev=None, min_ising_b=None, max_ising_b=None):
 
@@ -846,11 +851,9 @@ class BoltzmannIsingVisible(VisibleLayer):
         updates = OrderedDict()
         updates[self.boltzmann_bias] = self.boltzmann_bias
         updates[self.layer_above.W] = self.layer_above.W
-        self.censor_updates(updates)
-        f = function([], updates=updates)
-        f()
+        self.enforce_constraints()
 
-    def censor_updates(self, updates):
+    def _modify_updates(self, updates):
         """
         .. todo::
 
@@ -1104,22 +1107,37 @@ class BoltzmannIsingVisible(VisibleLayer):
 class BoltzmannIsingHidden(HiddenLayer):
     """
     An IsingHidden whose parameters are defined in Boltzmann machine space.
-    """
-    """
+
     .. todo::
 
         WRITEME properly
 
     Parameters
     ----------
+    dim : WRITEME
+    layer_name : WRITEME
+    layer_below : WRITEME
     beta : theano shared variable
         Shared variable representing a multiplicative factor of the energy
         function (the inverse temperature)
     learn_beta : boolean, optional
         Whether or not the inverse temperature should be considered as a
         learned parameter
-    bias_from_marginals : `pylearn2.datasets.dataset.Dataset`, optional
-        A dataset whose marginals are used to initialize the visible biases
+    irange : WRITEME
+    sparse_init : WRITEME
+    sparse_stdev : WRITEME
+    include_prob : WRITEME
+    init_bias : WRITEME
+    W_lr_scale : WRITEME
+    b_lr_scale : WRITEME
+    beta_lr_scale : WRITEME
+    max_col_norm : WRITEME
+    min_ising_b : WRITEME
+    max_ising_b : WRITEME
+    min_ising_W : WRITEME
+    max_ising_W : WRITEME
+    sampling_W_stdev : WRITEME
+    sampling_b_stdev : WRITEME
     """
     def __init__(self,
                  dim,
@@ -1240,11 +1258,9 @@ class BoltzmannIsingHidden(HiddenLayer):
         updates[self.W] = self.W
         if self.layer_above is not None:
             updates[self.layer_above.W] = self.layer_above.W
-        self.censor_updates(updates)
-        f = function([], updates=updates)
-        f()
+        self.enforce_constraints()
 
-    def censor_updates(self, updates):
+    def _modify_updates(self, updates):
         """
         .. todo::
 

@@ -10,9 +10,10 @@ __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2010-2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
-__email__ = "goodfeli@iro"
+__maintainer__ = "LISA Lab"
+__email__ = "pylearn-dev@googlegroups"
 
+import logging
 import numpy as np
 import warnings
 
@@ -23,32 +24,40 @@ from pylearn2.utils.rng import make_np_rng
 from pylearn2.linear.conv2d import default_seed, default_sparse_seed
 from pylearn2.linear.linear_transform import LinearTransform
 
+
+logger = logging.getLogger(__name__)
+
+
 class Local(LinearTransform, LocalDot):
     """
-    A pylearn2 linear operator based on local receptive fields
-    (convolution without parameter sharing)
-    implemented using Alex Krizhevsky's cuda-convnet library
-    + James Bergstra's TheanoLinear module
+    A pylearn2 linear operator based on local receptive fields (convolution
+    without parameter sharing) implemented using Alex Krizhevsky's cuda-convnet
+    library + James Bergstra's TheanoLinear module
+
+    Parameters
+    ----------
+    filters : WRITEME
+    image_shape : WRITEME
+    input_groups : WRITEME
+    input_axes : WRITEME
+    batch_size : WRITEME
+    output_axes : WRITEME
+    kernel_stride : WRITEME
+    pad : WRITEME
+    message : WRITEME
+    partial_sum : WRITEME
     """
 
-    def __init__(self,
-            filters,
-            image_shape,
-        input_groups,
-            input_axes = ('c', 0, 1, 'b'),
-            batch_size=None,
-            output_axes = ('c', 0, 1, 'b'),
-         kernel_stride=(1, 1), pad=0,
-         message = '', partial_sum=None):
-        """
-        .. todo::
-
-            WRITEME
-        """
-
+    def __init__(self, filters, image_shape, input_groups,
+                 input_axes=('c', 0, 1, 'b'), batch_size=None,
+                 output_axes=('c', 0, 1, 'b'), kernel_stride=(1, 1), pad=0,
+                 message='', partial_sum=None):
         self.input_groups = input_groups
 
-        warnings.warn("Local ignores partial_sum argument, TODO figure out how James' code controls it")
+        """TODO: Local ignores partial_sum argument,
+                 figure out how James' code controls it"""
+
+        logger.warning("partial_sum argument ignored")
 
         LocalDot.__init__(self,
             filters=filters,

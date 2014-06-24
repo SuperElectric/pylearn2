@@ -6,13 +6,17 @@ __authors__ = "Ian Goodfellow"
 __copyright__ = "Copyright 2010-2012, Universite de Montreal"
 __credits__ = ["Ian Goodfellow"]
 __license__ = "3-clause BSD"
-__maintainer__ = "Ian Goodfellow"
-__email__ = "goodfeli@iro"
+__maintainer__ = "LISA Lab"
+__email__ = "pylearn-dev@googlegroups"
+
+import logging
 try:
     from sklearn.linear_model import LogisticRegression
 except ImportError:
     LogisticRegression = None
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class IndependentMulticlassLogistic:
@@ -59,7 +63,7 @@ class IndependentMulticlassLogistic:
 
         for c in xrange(num_classes):
 
-            print 'fitting class ',c
+            logger.info('fitting class {0}'.format(c))
             cur_y = (y == c).astype('int32')
 
             logistics.append(LogisticRegression(C = self.C).fit(X,cur_y))
@@ -97,5 +101,3 @@ class Classifier:
         """
 
         return np.argmax(self.b + np.dot(X,self.W), 1)
-
-
