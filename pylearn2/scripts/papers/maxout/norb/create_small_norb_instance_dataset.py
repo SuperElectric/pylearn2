@@ -62,10 +62,24 @@ def parse_args():
 
 
 def get_output_paths(args):
+    """
+    Returns the output file paths, in the following order:
+
+      testing set .pkl file
+      testing set .npy file
+      training set .pkl file
+      training set .npy file
+      preprocessor .pkl file
+      preprocessor .npz file
+
+    Creates the output directory if necessary. If not, tests to see if it's
+    writeable.
+    """
 
     def make_output_dir():
         """
-        Creates the output directory to save the preprocessed dataset to. Also
+        Creates the output directory to save the preprocessed dataset to. If it
+        already exists, this just tests to make sure it's writeable. Also
         puts a README file in there.
 
         Returns the full path to the output directory.
@@ -73,7 +87,14 @@ def get_output_paths(args):
 
         data_dir = string_utils.preprocess('${PYLEARN2_DATA_PATH}/norb_small/')
         output_dir = os.path.join(data_dir, 'instance_recognition')
-        serial.mkdir(output_dir)
+        if os.path.isdir(output_dir):
+            if not os.access(output_dir, os.W_OK):
+                print("Output directory %s is write-protected." % output_dir)
+                print("Exiting.")
+                sys.exit(1)
+        else:
+            serial.mkdir(output_dir)
+
         with open(os.path.join(output_dir, 'README'), 'w') as readme_file:
             readme_file.write("""
 The files in this directory were created by the "%s" script in
@@ -86,6 +107,7 @@ the following files:
   test_M_N.pkl
   test_M_N.npy
   preprocessor_M_N.pkl
+  preprocessor_M_N.npz
 
 The digits M and N refer to the "--azimuth-ratio" and "--elevation-ratio"
 
@@ -98,25 +120,24 @@ The ZCA whitening preprocessor takes a long time to compute, and therefore is
 stored for later use as preprocessor_M_N.pkl.
 """ % os.path.split(__file__)[1])
 
-        return output_dir
+        return output_dir  # ends make_output_dir()
 
     output_dir = make_output_dir()
 
-    output_filenames = 'small_norb_%s_%02d_%02d' % (args.which_image,
+    filename_prefix = 'small_norb_%s_%02d_%02d_' % (args.which_image,
                                                     args.azimuth_ratio,
                                                     args.elevation_ratio)
-    output_paths = tuple(os.path.join(output_dir, f)
-                         for f in output_filenames)
 
-    if any(os.path.isfile(x) for x in output_paths):
-        for output_path in output_paths:
-            if os.path.isfile(output_path):
-                print("%s already exists." % output_path)
+    path_prefix = os.path.join(output_dir, filename_prefix)
 
-        print("Exiting...")
-        sys.exit(1)
+    result = [path_prefix + suffix + extension
+              for suffix in ('training', 'testing')
+              for extension in ('.pkl', '.npy')]
 
-    return output_paths
+    result.extend([path_prefix + 'preprocessor' + extension
+                   for extension in ('.pkl', '.npz')])
+
+    return tuple(result)
 
 
 def split_into_unpreprocessed_datasets(norb, args):
@@ -190,7 +211,12 @@ def main():
     # Prepares the output directory and checks against the existence of
     # output files. We do this before ZCA'ing, to make sure we trigger any
     # IOErrors now rather than later.
-    output_paths = get_output_paths(args)
+    (training_pkl_path,
+     training_npy_path,
+     testing_pkl_path,
+     testing_npy_path,
+     pp_pkl_path,
+     pp_npz_path) = get_output_paths(args)
 
     zca = preprocessing.ZCA()
 
@@ -204,11 +230,24 @@ def main():
     datasets[1].apply_preprocessor(preprocessor=zca, can_fit=False)
     print("...done (%g seconds)." % (time.time() - start_time))
 
-    for dataset, output_path in safe_zip(datasets, output_paths):
-        serial.save(output_path, dataset)
-        npy_path = os.path.splitext(output_path)[0]
-        print("saved %s, %s" % (os.path.split(output_path)[1],
-                                os.path.split(npy_path)[1]))
+    print("Saving to %s:" % os.path.split(training_pkl_path)[0])
+
+    for dataset, (pkl_path, npy_path) in safe_zip(datasets,
+                                                  ((training_pkl_path,
+                                                    training_npy_path),
+                                                   (testing_pkl_path,
+                                                    testing_npy_path))):
+        dataset.use_design_loc(npy_path)
+        serial.save(pkl_path, dataset)
+        print("saved %s, %s" % (os.path.split(pkl_path)[1],
+                                os.path.split(npy_path)[1])
+
+    zca.set_matrices_save_path(pp_npz_path)
+    serial.save(pp_pkl_path, zca)
+
+    print("saved %s, %s" % (os.path.split(pp_pkl_path)[1],
+                            os.path.split(pp_npy_path)[1])
+
 
 if __name__ == '__main__':
     main()
