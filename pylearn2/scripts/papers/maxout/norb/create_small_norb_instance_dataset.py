@@ -141,6 +141,10 @@ stored for later use as preprocessor_M_N.pkl.
 
 
 def split_into_unpreprocessed_datasets(norb, args):
+    """
+    Returns (training set, testing set) as a tuple of DenseDesignMatrix'es
+    """
+
     # Selects one of the two stereo images.
     images = norb.get_topological_view(single_tensor=True)
     image_shape = images.shape[2:]
@@ -148,37 +152,72 @@ def split_into_unpreprocessed_datasets(norb, args):
     images = images.reshape(images.shape[0], -1)
 
     # Gets rowmasks that select training and testing set rows.
-
     def get_testing_rowmask(norb_dataset,
                             azimuth_ratio,
                             elevation_ratio):
         """
         Returns a row mask that selects the testing set from the merged data.
+        If there are blank images, these are split according to the same ratio
+        as the non-blank images.
         """
 
-        azimuth_index, elevation_index = (norb_dataset.label_name_to_index[n]
-                                          for n in ('azimuth', 'elevation'))
+        (category_index,
+         azimuth_index,
+         elevation_index) = (norb_dataset.label_name_to_index[n]
+                             for n in ('category', 'azimuth', 'elevation'))
 
         assert not None in (azimuth_index, elevation_index)
 
         labels = norb_dataset.y
 
-        result = numpy.ones(labels.shape[0], dtype='bool')
+        blank_rowmask = (norb_dataset.y[:, category_index] == 5)
+        blank_row_indices = numpy.nonzero(blank_rowmask)
+        assert(len(blank_row_indices) == 1)
+        blank_row_indices = blank_row_indices[0]
+        print("num. of blanks: %d" % len(blank_row_indices))
+        # print(blank_row_indices)
 
-        # azimuth labels are spaced by 2
+
+        # Excludes blanks from the azimuth and elevation filters
+        result = numpy.logical_not(blank_rowmask)
+        assert numpy.logical_not(result[blank_row_indices]).all()
+
+        # Azimuth labels are spaced by 2
         azimuth_modulo = azimuth_ratio * 2
 
-        # elevation labels are integers from 0 to 9, so no need to convert
+        # Elevation labels are integers from 0 to 9, so no need to convert
         elevation_modulo = elevation_ratio
 
         if azimuth_modulo > 0:
             azimuths = labels[:, azimuth_index]
-            result = numpy.logical_and(result, azimuths % azimuth_modulo == 0)
+            result = numpy.logical_and(result,
+                                       (azimuths % azimuth_modulo) == 0)
 
         if elevation_modulo > 0:
             elevations = labels[:, elevation_index]
             result = numpy.logical_and(result,
-                                       elevations % elevation_modulo == 0)
+                                       (elevations % elevation_modulo) == 0)
+
+        # testing_fraction: the fraction of the dataset that is testing data.
+        num_nonblank = norb_dataset.y.shape[0] - len(blank_row_indices)
+        num_nonblank_testing = numpy.count_nonzero(result)
+        testing_fraction = num_nonblank_testing / float(num_nonblank)
+        assert testing_fraction >= 0
+        assert testing_fraction <= 1.0
+
+        # Include <testing_fraction> of the blank images for the testing data.
+        rng = numpy.random.RandomState(seed=1234)
+        rng.shuffle(blank_row_indices)  # in-place
+        num_testing_blanks = int(len(blank_row_indices) * testing_fraction)
+        print("Including %d blank images in testing set, %d in training set" %
+              (num_testing_blanks, len(blank_row_indices)))
+        blank_row_indices = blank_row_indices[:num_testing_blanks]
+
+
+        # all blank indices should be False
+        assert numpy.logical_not(result[blank_row_indices]).all()
+        result[blank_row_indices] = True
+
 
         return result
 
@@ -196,11 +235,64 @@ def split_into_unpreprocessed_datasets(norb, args):
                  for r in (training_rowmask, testing_rowmask))
 
 
+def get_zca_training_set(training_set):
+    """
+    Returns a design matrix containing one image per short label in
+    training_set. If there are blank images, then the returned matrix
+    will contain N of them, where N is the average number of images
+    per object.
+    """
+
+    # bin images according to short label
+    labels = training_set.y[:, :5]
+    bins = {}
+    for row_index, (datum, label) in enumerate(safe_zip(training_set.X,
+                                                        labels)):
+        if label not in bins:
+            bins[label] = [row_index]
+        else:
+            bins[label].append(row_index)
+
+    row_indices_of_blanks = None
+    blank_label = None
+    for label, row_indices in bins.iteritems():
+        if blank_label is not None:
+            # Makes sure that all blank labels are the same (i.e. ended up in
+            # the same bin).
+            assert label[0] != 5
+        elif label[0] == 5:
+            row_indices_of_blanks = row_indices
+            blank_label = label
+            break
+
+    row_indices = []
+
+    if blank_label is not None:
+        # Removes bin of blank images, if there is one.
+        del bins[blank_label]
+
+        # Computes avg number of images per object, puts that many blank images
+        # in row_indices.
+        num_objects = len(frozenset(labels[:, :2]))
+        avg_images_per_object = labels.shape[0] / float(num_objects)
+        rng = numpy.random.RandomState(seed=9876)
+        rng.shuffle(row_indices_of_blanks)
+        assert len(row_indices_of_blanks) > avg_images_per_object
+        row_indices.extend(row_indices_of_blanks[:avg_images_per_object])
+
+    # Collects one row index for each distinct short label in training_set
+    for bin_row_indices in bins.itervalues():
+        row_indices.append(bin_row_indices[0])
+
+    return training_set.X[tuple(row_indices), :]
+
+
 def main():
 
     args = parse_args()
     norb = NORB(which_norb='small', which_set='both')
 
+    # (training set, testing set)
     datasets = split_into_unpreprocessed_datasets(norb, args)
 
     # Subtracts each image's mean intensity. Scale of 55.0 taken from
@@ -219,10 +311,17 @@ def main():
      pp_npz_path) = get_output_paths(args)
 
     zca = preprocessing.ZCA()
+    zca_training_set = get_zca_training_set(datasets[0])
+
+    print("Computing ZCA components using %d images out the %d training "
+          "images" % (zca_training_set.shape[0], datasets[0].y.shape[0]))
+    start_time = time.time()
+    zca.fit(zca_training_set)
+    print("...done (%g seconds)." % (time.time() - start_time))
 
     print("ZCA'ing training set...")
     start_time = time.time()
-    datasets[0].apply_preprocessor(preprocessor=zca, can_fit=True)
+    datasets[0].apply_preprocessor(preprocessor=zca, can_fit=False)
     print("...done (%g seconds)." % (time.time() - start_time))
 
     print("ZCA'ing testing set...")
@@ -240,13 +339,13 @@ def main():
         dataset.use_design_loc(npy_path)
         serial.save(pkl_path, dataset)
         print("saved %s, %s" % (os.path.split(pkl_path)[1],
-                                os.path.split(npy_path)[1])
+                                os.path.split(npy_path)[1]))
 
     zca.set_matrices_save_path(pp_npz_path)
     serial.save(pp_pkl_path, zca)
 
     print("saved %s, %s" % (os.path.split(pp_pkl_path)[1],
-                            os.path.split(pp_npy_path)[1])
+                            os.path.split(pp_npz_path)[1]))
 
 
 if __name__ == '__main__':
