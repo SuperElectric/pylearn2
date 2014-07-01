@@ -14,6 +14,7 @@ dataset, by doing the following:
 from __future__ import print_function
 import sys, os, time, argparse
 import numpy
+import theano
 from pylearn2.expr.preprocessing import global_contrast_normalize
 from pylearn2.utils import serial, string_utils, safe_zip
 from pylearn2.datasets import preprocessing
@@ -58,6 +59,12 @@ def parse_args():
                         default="left",
                         help="Which stereo image to use")
 
+    parser.add_argument("-n",
+                        "--which_norb",
+                        choices=('big', 'small'),
+                        required=True,
+                        help="Which NORB dataset to use")
+
     return parser.parse_args()
 
 
@@ -85,7 +92,11 @@ def get_output_paths(args):
         Returns the full path to the output directory.
         """
 
-        data_dir = string_utils.preprocess('${PYLEARN2_DATA_PATH}/norb_small/')
+        dir_template = ('${PYLEARN2_DATA_PATH}/%s/' %
+                        'norb' if args.which_norb == 'big'
+                        else 'norb_small')
+        data_dir = string_utils.preprocess(dir_template)
+
         output_dir = os.path.join(data_dir, 'instance_recognition')
         if os.path.isdir(output_dir):
             if not os.access(output_dir, os.W_OK):
@@ -146,9 +157,15 @@ def split_into_unpreprocessed_datasets(norb, args):
     """
 
     # Selects one of the two stereo images.
-    images = norb.get_topological_view(single_tensor=True)
-    image_shape = images.shape[2:]
-    images = images[:, 0 if args.which_image == 'left' else 1, ...]
+
+    # images = norb.get_topological_view(single_tensor=True)
+    # image_shape = images.shape[2:]
+    # images = images[:, 0 if args.which_image == 'left' else 1, ...]
+    # images = images.reshape(images.shape[0], -1)
+
+    images = norb.get_topological_view(single_tensor=False)
+    images = images[0 if args.which_image == 'left' else 1]
+    image_shape = images.shape[1:]
     images = images.reshape(images.shape[0], -1)
 
     # Gets rowmasks that select training and testing set rows.
@@ -210,14 +227,13 @@ def split_into_unpreprocessed_datasets(norb, args):
         rng.shuffle(blank_row_indices)  # in-place
         num_testing_blanks = int(len(blank_row_indices) * testing_fraction)
         print("Including %d blank images in testing set, %d in training set" %
-              (num_testing_blanks, len(blank_row_indices)))
+              (num_testing_blanks,
+               len(blank_row_indices) - num_testing_blanks))
         blank_row_indices = blank_row_indices[:num_testing_blanks]
-
 
         # all blank indices should be False
         assert numpy.logical_not(result[blank_row_indices]).all()
         result[blank_row_indices] = True
-
 
         return result
 
@@ -246,8 +262,9 @@ def get_zca_training_set(training_set):
     # bin images according to short label
     labels = training_set.y[:, :5]
     bins = {}
-    for row_index, (datum, label) in enumerate(safe_zip(training_set.X,
-                                                        labels)):
+    for row_index, (datum, label_memmap) in enumerate(safe_zip(training_set.X,
+                                                               labels)):
+        label = tuple(label_memmap)
         if label not in bins:
             bins[label] = [row_index]
         else:
@@ -259,26 +276,34 @@ def get_zca_training_set(training_set):
         if blank_label is not None:
             # Makes sure that all blank labels are the same (i.e. ended up in
             # the same bin).
+            # if label[0] == 5: # and any(blank_label != label):
+            #     print("another BL: %s, row_indices: %s" %
+            #           (str(blank_label), str(row_indices)))
             assert label[0] != 5
         elif label[0] == 5:
             row_indices_of_blanks = row_indices
             blank_label = label
-            break
+            # print("BL: %s" % str(blank_label))
 
     row_indices = []
 
     if blank_label is not None:
+        # print("row_indices_of_blanks: %s" % str(row_indices_of_blanks))
         # Removes bin of blank images, if there is one.
         del bins[blank_label]
 
         # Computes avg number of images per object, puts that many blank images
         # in row_indices.
-        num_objects = len(frozenset(labels[:, :2]))
-        avg_images_per_object = labels.shape[0] / float(num_objects)
+        num_objects = len(frozenset(tuple(x) for x in labels[:, :2]))
+        num_object_images = sum(len(b) for b in bins)
+        avg_images_per_object = num_object_images / float(num_objects)
+
         rng = numpy.random.RandomState(seed=9876)
         rng.shuffle(row_indices_of_blanks)
-        assert len(row_indices_of_blanks) > avg_images_per_object
-        row_indices.extend(row_indices_of_blanks[:avg_images_per_object])
+        assert len(row_indices_of_blanks) > avg_images_per_object, \
+            ("len(row_indices_of_blanks): %d, avg_images_per_object: %d" %
+             (len(row_indices_of_blanks), avg_images_per_object))
+        row_indices.extend(row_indices_of_blanks[:int(avg_images_per_object)])
 
     # Collects one row index for each distinct short label in training_set
     for bin_row_indices in bins.itervalues():
@@ -290,7 +315,9 @@ def get_zca_training_set(training_set):
 def main():
 
     args = parse_args()
-    norb = NORB(which_norb='small', which_set='both')
+    norb = NORB(which_norb=args.which_norb,
+                which_set='both',
+                image_dtype=theano.config.floatX)
 
     # (training set, testing set)
     datasets = split_into_unpreprocessed_datasets(norb, args)
