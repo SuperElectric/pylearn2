@@ -15,6 +15,10 @@ warnings.warn("This script is deprecated. Please use ./browse_norb.py "
               "instead. It is kept around as a tester for deprecated class "
               "datasets.norb.SmallNORB", exceptions.DeprecationWarning)
 
+warnings.warn("This script is deprecated. Please use ./browse_norb.py "
+              "instead. It is kept around as a tester for deprecated class "
+              "datasets.norb.SmallNORB", exceptions.DeprecationWarning)
+
 
 def main():
     def parse_args():
