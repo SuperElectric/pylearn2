@@ -1146,10 +1146,16 @@ class ZCA(Preprocessor):
         When self.apply(dataset, can_fit=True) store not just the
         preprocessing matrix, but its inverse. This is necessary when
         using this preprocessor to instantiate a ZCA_Dataset.
+    use_memmap_workspace : bool
+        If True, this will use a temporary memmap file to store large
+        temporary matrices constructed during matrix multiplication.
+        Handy for preventing out-of-memory errors when preprocessing large
+        datasets.
     """
 
     def __init__(self, n_components=None, n_drop_components=None,
-                 filter_bias=0.1, store_inverse=True):
+                 filter_bias=0.1, store_inverse=True,
+                 use_memmap_workspace=False):
         warnings.warn("This ZCA preprocessor class is known to yield very "
                       "different results on different platforms. If you plan "
                       "to conduct experiments with this preprocessing on "
@@ -1171,6 +1177,7 @@ class ZCA(Preprocessor):
         self.store_inverse = store_inverse
         self.P_ = None  # set by fit()
         self.inv_P_ = None  # set by fit(), if self.store_inverse is True
+        self.use_memmap_workspace = use_memmap_workspace
 
         # Analogous to DenseDesignMatrix.design_loc. If not None, the
         # matrices P_ and inv_P_ will be saved together in <save_path>
@@ -1429,8 +1436,25 @@ class ZCA(Preprocessor):
             assert can_fit
             self.fit(X)
 
-        new_X = ZCA._gpu_matrix_dot(X - self.mean_, self.P_)
-        dataset.set_design_matrix(new_X)
+        if self.use_memmap_workspace:
+            tempdir = tempfile.mkdtemp()
+            filepath = os.path.join(tempdir,
+                                    "temp_workspace_for_pylearn_zca.dat")
+
+            with numpy.memmap(filename=filepath,
+                              dtype=X.dtype,
+                              mode='w+',
+                              shape=X.shape) as old_X:
+                old_X[...] = X
+                old_X -= self.mean_
+                ZCA._gpu_matrix_dot(old_X, self.P_, X)
+                dataset.set_design_matrix(X)
+
+            os.remove(filepath)
+            os.rmdir(tempdir)
+        else:
+            new_X = ZCA._gpu_matrix_dot(X - self.mean_, self.P_)
+            dataset.set_design_matrix(new_X)
 
     def inverse(self, X):
         """
