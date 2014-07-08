@@ -167,12 +167,6 @@ def split_into_unpreprocessed_datasets(norb, args):
     """
 
     # Selects one of the two stereo images.
-
-    # images = norb.get_topological_view(single_tensor=True)
-    # image_shape = images.shape[2:]
-    # images = images[:, 0 if args.which_image == 'left' else 1, ...]
-    # images = images.reshape(images.shape[0], -1)
-
     images = norb.get_topological_view(single_tensor=False)
     images = images[0 if args.which_image == 'left' else 1]
     image_shape = images.shape[1:]
@@ -285,12 +279,6 @@ def split_into_unpreprocessed_datasets(norb, args):
           (time.time() - start_time))
 
     return result
-
-    # # Splits images into training and testing sets
-    # return tuple(DenseDesignMatrix(X=images[r, :],
-    #                                y=norb.y[r, :],
-    #                                view_converter=view_converter)
-    #              for r in (training_rowmask, testing_rowmask))
 
 
 def get_zca_training_set(training_set):
