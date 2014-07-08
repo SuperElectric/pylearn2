@@ -239,6 +239,7 @@ class DenseDesignMatrix(Dataset):
 
         self.compress = False
         self.design_loc = None
+        self.memmap_info = None
         self.rng = make_np_rng(rng, which_method="random_integers")
         # Defaults for iterators
         self._iter_mode = resolve_iterator_class('sequential')
@@ -433,6 +434,18 @@ class DenseDesignMatrix(Dataset):
 
             WRITEME
         """
+
+        # DEBUG
+        assert not isinstance(self.X, np.core.memmap)
+
+        if type(self.X) == np.core.memmap:
+            assert hasattr(self, 'design_loc')
+            assert type(self.design_loc) == str
+            assert self.design_loc == self.X.filename
+            self.memmap_info = {'filename': self.design_loc,
+                                'dtype': self.X.dtype,
+                                'shape': self.X.shape}
+
         rval = copy.copy(self.__dict__)
         # TODO: Not sure this should be implemented as something a base dataset
         # does. Perhaps as a mixin that specific datasets (i.e. CIFAR10)
@@ -447,10 +460,12 @@ class DenseDesignMatrix(Dataset):
             rval['X'] *= 255. / rval['compress_max']
             rval['X'] = np.cast['uint8'](rval['X'])
 
+        # TODO: Get rid of this logic, use custom array-aware picklers
+        # (joblib, custom pylearn2 serialization format).
         if self.design_loc is not None:
-            # TODO: Get rid of this logic, use custom array-aware picklers
-            # (joblib, custom pylearn2 serialization format).
-            np.save(self.design_loc, rval['X'])
+            if type(rval['X']) != np.core.memmap:
+                np.save(self.design_loc, rval['X'])
+
             del rval['X']
 
         return rval
@@ -464,7 +479,15 @@ class DenseDesignMatrix(Dataset):
         if d['design_loc'] is not None:
             if control.get_load_data():
                 fname = cache.datasetCache.cache_file(d['design_loc'])
-                d['X'] = np.load(fname)
+
+                # DEBUG
+                assert 'memmap_info' not in d
+
+                if d['memmap_info'] is not None:
+                    memmap_info = d['memmap_info']
+                    d['X'] = np.lib.format.open_memmap(**memmap_info)
+                else:
+                    d['X'] = np.load(fname)
             else:
                 d['X'] = None
 

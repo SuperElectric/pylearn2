@@ -12,7 +12,7 @@ __maintainer__ = "LISA Lab"
 __email__ = "pylearn-dev@googlegroups"
 
 
-import copy, logging, time, warnings, os, numpy, scipy
+import copy, logging, time, warnings, os, numpy, scipy, tempfile
 try:
     from scipy import linalg
 except ImportError:
@@ -1394,6 +1394,9 @@ class ZCA(Preprocessor):
             eigs = eigs[self.n_drop_components:]
             eigv = eigv[:, self.n_drop_components:]
 
+        # DEBUG
+        self.eigs = eigs
+
         t1 = time.time()
 
         sqrt_eigs = numpy.sqrt(eigs)
@@ -1436,23 +1439,27 @@ class ZCA(Preprocessor):
             assert can_fit
             self.fit(X)
 
-        if self.use_memmap_workspace:
+        if hasattr(self, 'use_memmap_workspace') and self.use_memmap_workspace:
             tempdir = tempfile.mkdtemp()
             filepath = os.path.join(tempdir,
                                     "temp_workspace_for_pylearn_zca.dat")
 
-            with numpy.memmap(filename=filepath,
-                              dtype=X.dtype,
-                              mode='w+',
-                              shape=X.shape) as old_X:
-                old_X[...] = X
-                old_X -= self.mean_
-                ZCA._gpu_matrix_dot(old_X, self.P_, X)
-                dataset.set_design_matrix(X)
+            old_X = numpy.memmap(filename=filepath,
+                                 dtype=X.dtype,
+                                 mode='w+',
+                                 shape=X.shape)
+            old_X[...] = X
+            old_X -= self.mean_
+            ZCA._gpu_matrix_dot(old_X, self.P_, X)
+            dataset.set_design_matrix(X)
 
             os.remove(filepath)
             os.rmdir(tempdir)
         else:
+            if not hasattr(self, 'use_memmap_workspace'):
+                self.use_memmap_workspace = False
+
+            print "WOOOOOOOOOOOOOOOOOOOOOOOO"
             new_X = ZCA._gpu_matrix_dot(X - self.mean_, self.P_)
             dataset.set_design_matrix(new_X)
 

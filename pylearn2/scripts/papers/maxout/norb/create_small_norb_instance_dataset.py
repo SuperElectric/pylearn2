@@ -72,10 +72,10 @@ def get_output_paths(args):
     """
     Returns the output file paths, in the following order:
 
-      testing set .pkl file
-      testing set .npy file
       training set .pkl file
       training set .npy file
+      testing set .pkl file
+      testing set .npy file
       preprocessor .pkl file
       preprocessor .npz file
 
@@ -93,8 +93,8 @@ def get_output_paths(args):
         """
 
         dir_template = ('${PYLEARN2_DATA_PATH}/%s/' %
-                        'norb' if args.which_norb == 'big'
-                        else 'norb_small')
+                        ('norb' if args.which_norb == 'big'
+                         else 'norb_small'))
         data_dir = string_utils.preprocess(dir_template)
 
         output_dir = os.path.join(data_dir, 'instance_recognition')
@@ -135,20 +135,23 @@ stored for later use as preprocessor_M_N.pkl.
 
     output_dir = make_output_dir()
 
-    filename_prefix = 'small_norb_%s_%02d_%02d_' % (args.which_image,
-                                                    args.azimuth_ratio,
-                                                    args.elevation_ratio)
+    filename_prefix = 'norb_%s_%02d_%02d_' % (args.which_image,
+                                              args.azimuth_ratio,
+                                              args.elevation_ratio)
+
+    if args.which_norb == 'small':
+        filename_prefix = 'small_' + filename_prefix
 
     path_prefix = os.path.join(output_dir, filename_prefix)
 
     result = [path_prefix + suffix + extension
-              for suffix in ('training', 'testing')
+              for suffix in ('train', 'test')
               for extension in ('.pkl', '.npy')]
 
     result.extend([path_prefix + 'preprocessor' + extension
                    for extension in ('.pkl', '.npz')])
 
-    return tuple(result)
+    return result
 
 
 def split_into_unpreprocessed_datasets(norb, args):
@@ -192,8 +195,6 @@ def split_into_unpreprocessed_datasets(norb, args):
         assert(len(blank_row_indices) == 1)
         blank_row_indices = blank_row_indices[0]
         print("num. of blanks: %d" % len(blank_row_indices))
-        # print(blank_row_indices)
-
 
         # Excludes blanks from the azimuth and elevation filters
         result = numpy.logical_not(blank_rowmask)
@@ -244,11 +245,37 @@ def split_into_unpreprocessed_datasets(norb, args):
 
     view_converter = DefaultViewConverter(shape=image_shape)
 
+    all_output_paths = get_output_paths(args)
+    training_npy, testing_npy = tuple(all_output_paths[i] for i in (1, 3))
+
+    print("testing_npy, training_npy = %s, %s" % (training_npy, testing_npy))
     # Splits images into training and testing sets
-    return tuple(DenseDesignMatrix(X=images[r, :],
-                                   y=norb.y[r, :],
-                                   view_converter=view_converter)
-                 for r in (training_rowmask, testing_rowmask))
+    print("allocating instance datasets' memmaps")
+    start_time = time.time()
+    result = []
+    for rowmask, npy_path in safe_zip((training_rowmask, testing_rowmask),
+                                      (training_npy, testing_npy)):
+        shape = (numpy.count_nonzero(rowmask), numpy.prod(image_shape))
+        mode = 'r+' if os.path.isfile(npy_path) else 'w+'
+        X_memmap = numpy.lib.format.open_memmap(filename=npy_path,
+                                                mode=mode,
+                                                dtype=theano.config.floatX,
+                                                shape=shape)
+        X_memmap[...] = images[rowmask, :]
+        X_memmap /= 255.0
+        result.append(DenseDesignMatrix(X=X_memmap,
+                                        y=norb.y[rowmask, :],
+                                        view_converter=view_converter))
+    print("allocated instance datasets' memmaps in %g seconds" %
+          (time.time() - start_time))
+
+    return result
+
+    # # Splits images into training and testing sets
+    # return tuple(DenseDesignMatrix(X=images[r, :],
+    #                                y=norb.y[r, :],
+    #                                view_converter=view_converter)
+    #              for r in (training_rowmask, testing_rowmask))
 
 
 def get_zca_training_set(training_set):
@@ -309,7 +336,13 @@ def get_zca_training_set(training_set):
     for bin_row_indices in bins.itervalues():
         row_indices.append(bin_row_indices[0])
 
-    return training_set.X[tuple(row_indices), :]
+    # DEBUG
+    assert len(row_indices) == training_set.X.shape[0]
+    assert len(frozenset(tuple(row_indices))) == len(row_indices)
+
+    # DEBUG
+    # return training_set.X[tuple(row_indices), :]
+    return training_set.X.copy()
 
 
 def main():
@@ -322,33 +355,57 @@ def main():
     # (training set, testing set)
     datasets = split_into_unpreprocessed_datasets(norb, args)
 
+    # DEBUG
+    for dataset in datasets:
+        dataset.X = numpy.asarray(dataset.X).copy()
+
     # Subtracts each image's mean intensity. Scale of 55.0 taken from
     # pylearn2/scripts/datasets/make_cifar10_gcn_whitened.py
     for dataset in datasets:
-        dataset.X = global_contrast_normalize(dataset.X, scale=55.0)
+        global_contrast_normalize(dataset.X, scale=55.0, in_place=True)
 
     # Prepares the output directory and checks against the existence of
     # output files. We do this before ZCA'ing, to make sure we trigger any
     # IOErrors now rather than later.
+    output_paths = get_output_paths(args)
+    print("output_paths: %s" % output_paths)
     (training_pkl_path,
      training_npy_path,
      testing_pkl_path,
      testing_npy_path,
      pp_pkl_path,
-     pp_npz_path) = get_output_paths(args)
+     pp_npz_path) = output_paths
 
-    zca = preprocessing.ZCA()
-    zca_training_set = get_zca_training_set(datasets[0])
+    if os.path.isfile(pp_pkl_path) and os.path.isfile(pp_npz_path):
+        zca = serial.load(pp_pkl_path)
+    else:
+        #DEBUG
+        zca = preprocessing.ZCA(use_memmap_workspace=False)
+        #zca = preprocessing.ZCA(use_memmap_workspace=True)
+        zca_training_set = get_zca_training_set(datasets[0])
 
-    print("Computing ZCA components using %d images out the %d training "
-          "images" % (zca_training_set.shape[0], datasets[0].y.shape[0]))
-    start_time = time.time()
-    zca.fit(zca_training_set)
-    print("...done (%g seconds)." % (time.time() - start_time))
+        print("Computing ZCA components using %d images out the %d training "
+              "images" % (zca_training_set.shape[0], datasets[0].y.shape[0]))
+        start_time = time.time()
+        zca.fit(zca_training_set)
+        print("...done (%g seconds)." % (time.time() - start_time))
+        print("zca.eigs.shape: %s" % str(zca.eigs.shape))
+
+        zca.set_matrices_save_path(pp_npz_path)
+        serial.save(pp_pkl_path, zca)
+
+        print("saved %s, %s" % (os.path.split(pp_pkl_path)[1],
+                                os.path.split(pp_npz_path)[1]))
 
     print("ZCA'ing training set...")
     start_time = time.time()
+    pre_X = datasets[0].X.copy()
     datasets[0].apply_preprocessor(preprocessor=zca, can_fit=False)
+    abs_diffs = numpy.abs(pre_X.flatten() - datasets[0].X.flatten())
+    avg_change = (abs_diffs.sum() / numpy.prod(pre_X.shape))
+    print("avg pixel value change = %g" % avg_change)
+    print("min, max change = %g, %g" % (abs_diffs.min(), abs_diffs.max()))
+    assert not (pre_X == datasets[0].X).all()
     print("...done (%g seconds)." % (time.time() - start_time))
 
     print("ZCA'ing testing set...")
@@ -368,11 +425,6 @@ def main():
         print("saved %s, %s" % (os.path.split(pkl_path)[1],
                                 os.path.split(npy_path)[1]))
 
-    zca.set_matrices_save_path(pp_npz_path)
-    serial.save(pp_pkl_path, zca)
-
-    print("saved %s, %s" % (os.path.split(pp_pkl_path)[1],
-                            os.path.split(pp_npz_path)[1]))
 
 
 if __name__ == '__main__':
