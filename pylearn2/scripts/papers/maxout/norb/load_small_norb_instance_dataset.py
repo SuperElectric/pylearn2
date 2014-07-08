@@ -51,9 +51,6 @@ def main():
     def show_next_image():
         zca_image, label = iterator.next()
         zca_image = zca_image[0, :, :, 0]
-        print("zca_image.shape: %s" % str(zca_image.shape))
-        print("elem[1].shape: %s" % str(label.shape))
-
 
         row_image = zca_dataset.X[:1, :].reshape(image_shape)
         all_axes[1].imshow(row_image, cmap='gray', interpolation='nearest')
@@ -72,15 +69,6 @@ def main():
         figure.canvas.draw()
 
     show_next_image()
-    # P_ = zca_dataset.preprocessor.P_
-    # print("P_.shape: %s" % str(P_.shape))
-    # print("P's diagonals are 1.0: %s" % str((numpy.diag(P_) == 1.0).all()))
-    # print("P is diagonal: %s" % str((numpy.abs(numpy.diag(numpy.ones(P_.shape[0])) - P_) < 0.00001).all()))
-    # print("# of nonzeros: %d" % numpy.count_nonzero(numpy.abs(P_) < 0.00001))
-    # all_axes[0].imshow(P_, cmap='gray')
-    # all_axes[1].plot(range(len(zca_dataset.preprocessor.eigs)),
-    #                  zca_dataset.preprocessor.eigs)
-    # all_axes[1].hist(P_.flatten())
 
     def on_key_press(event):
         if event.key == 'q':
@@ -91,24 +79,7 @@ def main():
     figure.canvas.mpl_connect('key_press_event', on_key_press)
 
     pyplot.show()
-    # for elem in zca_dataset.iterator(mode='sequential',
-    #                                  batch_size=1,  # from cifar-10.yaml
-    #                                  data_specs=(space, sources)):
 
-    #     # Show zca'ed image
-
-    #     # Show un-zca'ed image
-
-    #     # Display labels
-
-    #     print("len(elem): %d" % len(elem))
-    #     print("elem[0].shape: %s" % str(elem[0].shape))
-    #     print("elem[1].shape: %s" % str(elem[1].shape))
-    #     # print("in elem loop")
-    #     # for thing in elem:
-    #     #     print(thing.shape)
-    #     # print(elem)
-    #     sys.exit(0)
 
 if __name__ == '__main__':
     main()

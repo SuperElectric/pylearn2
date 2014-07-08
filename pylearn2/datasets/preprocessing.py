@@ -1394,9 +1394,6 @@ class ZCA(Preprocessor):
             eigs = eigs[self.n_drop_components:]
             eigv = eigv[:, self.n_drop_components:]
 
-        # DEBUG
-        self.eigs = eigs
-
         t1 = time.time()
 
         sqrt_eigs = numpy.sqrt(eigs)
@@ -1439,25 +1436,32 @@ class ZCA(Preprocessor):
             assert can_fit
             self.fit(X)
 
-        if hasattr(self, 'use_memmap_workspace') and self.use_memmap_workspace:
-            tempdir = tempfile.mkdtemp()
-            filepath = os.path.join(tempdir,
-                                    "temp_workspace_for_pylearn_zca.dat")
+        if isinstance(X, numpy.memmap):
+            use_memmap_workspace = (hasattr(self, 'use_memmap_workspace') and
+                                    self.use_memmap_workspace)
+            if use_memmap_workspace:
+                tempdir = tempfile.mkdtemp()
+                filepath = os.path.join(tempdir,
+                                        "temp_workspace_for_pylearn_zca.dat")
 
-            old_X = numpy.memmap(filename=filepath,
-                                 dtype=X.dtype,
-                                 mode='w+',
-                                 shape=X.shape)
-            old_X[...] = X
+                old_X = numpy.memmap(filename=filepath,
+                                     dtype=X.dtype,
+                                     mode='w+',
+                                     shape=X.shape)
+                old_X[...] = X
+            else:
+                old_X = numpy.asarray(X)
+                if not hasattr(self, 'use_memmap_workspace'):
+                    self.use_memmap_workspace = False
+
             old_X -= self.mean_
             ZCA._gpu_matrix_dot(old_X, self.P_, X)
             dataset.set_design_matrix(X)
 
-            os.remove(filepath)
-            os.rmdir(tempdir)
+            if use_memmap_workspace:
+                os.remove(filepath)
+                os.rmdir(tempdir)
         else:
-            if not hasattr(self, 'use_memmap_workspace'):
-                self.use_memmap_workspace = False
 
             print "WOOOOOOOOOOOOOOOOOOOOOOOO"
             new_X = ZCA._gpu_matrix_dot(X - self.mean_, self.P_)

@@ -824,11 +824,6 @@ class FiniteDatasetIterator(object):
         # TODO: handle fancy-index copies by allocating a buffer and
         # using np.take()
 
-        # print("len: %d" % len(self._raw_data))
-        # # print("self._raw_data: %s" % str(self._raw_data))
-        # print("self._raw_data[0]: %s" % str(self._raw_data[0]))
-        print("self._raw_data's type: %s" % str(type(self._raw_data[0])))
-        # self._raw_data[0].filename = "bogus_filename"
         rval = tuple(
             fn(data[next_index]) if fn else data[next_index]
             for data, fn in safe_izip(self._raw_data, self._convert))

@@ -435,10 +435,7 @@ class DenseDesignMatrix(Dataset):
             WRITEME
         """
 
-        # DEBUG
-        assert not isinstance(self.X, np.core.memmap)
-
-        if type(self.X) == np.core.memmap:
+        if isinstance(self.X, np.memmap):
             assert hasattr(self, 'design_loc')
             assert type(self.design_loc) == str
             assert self.design_loc == self.X.filename
@@ -463,7 +460,7 @@ class DenseDesignMatrix(Dataset):
         # TODO: Get rid of this logic, use custom array-aware picklers
         # (joblib, custom pylearn2 serialization format).
         if self.design_loc is not None:
-            if type(rval['X']) != np.core.memmap:
+            if not isinstance(rval['X'], np.memmap):
                 np.save(self.design_loc, rval['X'])
 
             del rval['X']
@@ -479,10 +476,6 @@ class DenseDesignMatrix(Dataset):
         if d['design_loc'] is not None:
             if control.get_load_data():
                 fname = cache.datasetCache.cache_file(d['design_loc'])
-
-                # DEBUG
-                assert d.get('memmap_info', None) is None, ("memmap_info: %s" %
-                                                            str(d['memmap_info']))
 
                 if d.get('memmap_info', None) is None:
                     d['X'] = np.load(fname)

@@ -260,7 +260,7 @@ def split_into_unpreprocessed_datasets(norb, args):
     print("allocating instance datasets' memmaps")
     start_time = time.time()
     result = []
-    use_memmaps = False
+    use_memmaps = True
     for rowmask, npy_path in safe_zip((training_rowmask, testing_rowmask),
                                       (training_npy, testing_npy)):
         if use_memmaps:
@@ -270,13 +270,14 @@ def split_into_unpreprocessed_datasets(norb, args):
                                              mode=mode,
                                              dtype=theano.config.floatX,
                                              shape=shape)
+
             X[...] = images[rowmask, :]
             assert isinstance(X, numpy.memmap), "type(X) = %s" % type(X)
         else:
             X = images[rowmask, :]
             assert isinstance(X, numpy.ndarray), "type(X) = %s" % type(X)
 
-        #X /= 255.0
+        X /= 255.0  # at least for zca, this makes no difference.
         result.append(DenseDesignMatrix(X=X,
                                         y=norb.y[rowmask, :],
                                         view_converter=view_converter))
@@ -350,13 +351,7 @@ def get_zca_training_set(training_set):
     for bin_row_indices in bins.itervalues():
         row_indices.append(bin_row_indices[0])
 
-    # DEBUG
-    assert len(row_indices) == training_set.X.shape[0]
-    assert len(frozenset(tuple(row_indices))) == len(row_indices)
-
-    # DEBUG
-    # return training_set.X[tuple(row_indices), :]
-    return training_set.X.copy()
+    return training_set.X[tuple(row_indices), :]
 
 
 def main():
@@ -369,13 +364,8 @@ def main():
     # (training set, testing set)
     datasets = split_into_unpreprocessed_datasets(norb, args)
 
-    # DEBUG
-    for dataset in datasets:
-        dataset.X = numpy.asarray(dataset.X).copy()
-
     # Subtracts each image's mean intensity. Scale of 55.0 taken from
     # pylearn2/scripts/datasets/make_cifar10_gcn_whitened.py
-
     for dataset in datasets:
         global_contrast_normalize(dataset.X, scale=55.0, in_place=True)
 
@@ -394,9 +384,7 @@ def main():
     if os.path.isfile(pp_pkl_path) and os.path.isfile(pp_npz_path):
         zca = serial.load(pp_pkl_path)
     else:
-        #DEBUG
-        zca = preprocessing.ZCA(use_memmap_workspace=False)
-        #zca = preprocessing.ZCA(use_memmap_workspace=True)
+        zca = preprocessing.ZCA(use_memmap_workspace=True)
         zca_training_set = get_zca_training_set(datasets[0])
 
         print("Computing ZCA components using %d images out the %d training "
@@ -439,7 +427,6 @@ def main():
         serial.save(pkl_path, dataset)
         print("saved %s, %s" % (os.path.split(pkl_path)[1],
                                 os.path.split(npy_path)[1]))
-
 
 
 if __name__ == '__main__':
