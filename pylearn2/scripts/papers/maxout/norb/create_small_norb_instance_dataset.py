@@ -65,6 +65,12 @@ def parse_args():
                         required=True,
                         help="Which NORB dataset to use")
 
+    parser.add_argument("-p",
+                        "--preprocessor",
+                        choices=('lcn', 'zca', 'none'),
+                        required=True,
+                        help="Which preprocessor to apply.")
+
     return parser.parse_args()
 
 
@@ -135,9 +141,10 @@ stored for later use as preprocessor_M_N.pkl.
 
     output_dir = make_output_dir()
 
-    filename_prefix = 'norb_%s_%02d_%02d_' % (args.which_image,
-                                              args.azimuth_ratio,
-                                              args.elevation_ratio)
+    filename_prefix = 'norb_%s_%02d_%02d_%s_' % (args.which_image,
+                                                 args.azimuth_ratio,
+                                                 args.elevation_ratio,
+                                                 args.preprocessor)
 
     if args.which_norb == 'small':
         filename_prefix = 'small_' + filename_prefix
@@ -253,17 +260,24 @@ def split_into_unpreprocessed_datasets(norb, args):
     print("allocating instance datasets' memmaps")
     start_time = time.time()
     result = []
+    use_memmaps = False
     for rowmask, npy_path in safe_zip((training_rowmask, testing_rowmask),
                                       (training_npy, testing_npy)):
-        shape = (numpy.count_nonzero(rowmask), numpy.prod(image_shape))
-        mode = 'r+' if os.path.isfile(npy_path) else 'w+'
-        X_memmap = numpy.lib.format.open_memmap(filename=npy_path,
-                                                mode=mode,
-                                                dtype=theano.config.floatX,
-                                                shape=shape)
-        X_memmap[...] = images[rowmask, :]
-        X_memmap /= 255.0
-        result.append(DenseDesignMatrix(X=X_memmap,
+        if use_memmaps:
+            shape = (numpy.count_nonzero(rowmask), numpy.prod(image_shape))
+            mode = 'r+' if os.path.isfile(npy_path) else 'w+'
+            X = numpy.lib.format.open_memmap(filename=npy_path,
+                                             mode=mode,
+                                             dtype=theano.config.floatX,
+                                             shape=shape)
+            X[...] = images[rowmask, :]
+            assert isinstance(X, numpy.memmap), "type(X) = %s" % type(X)
+        else:
+            X = images[rowmask, :]
+            assert isinstance(X, numpy.ndarray), "type(X) = %s" % type(X)
+
+        #X /= 255.0
+        result.append(DenseDesignMatrix(X=X,
                                         y=norb.y[rowmask, :],
                                         view_converter=view_converter))
     print("allocated instance datasets' memmaps in %g seconds" %
@@ -361,6 +375,7 @@ def main():
 
     # Subtracts each image's mean intensity. Scale of 55.0 taken from
     # pylearn2/scripts/datasets/make_cifar10_gcn_whitened.py
+
     for dataset in datasets:
         global_contrast_normalize(dataset.X, scale=55.0, in_place=True)
 

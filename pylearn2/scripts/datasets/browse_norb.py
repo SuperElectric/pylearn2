@@ -32,7 +32,7 @@ def main():
                             type=str,
                             required=True,
                             choices=('train', 'test', 'both'),
-                            help="'train', or 'test'")
+                            help="View training set, testing set, or both")
 
         parser.add_argument('--stereo_viewer',
                             action='store_true',

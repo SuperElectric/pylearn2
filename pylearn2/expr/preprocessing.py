@@ -96,6 +96,7 @@ def global_contrast_normalize(X, scale=1., subtract_mean=True, use_std=False,
         # normalizers = numpy.sqrt(sqrt_bias + numpy.einsum('ik,ik->i', X, X)) / scale
         # normalizers = numpy.sqrt(sqrt_bias + (X ** 2).sum(axis=1)) / scale
 
+    normalizers /= scale
     normalizers += sqrt_bias
     numpy.sqrt(normalizers, out=normalizers)
 

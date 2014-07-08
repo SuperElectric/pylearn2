@@ -5,7 +5,7 @@ with it, and visualizes both the ZCA'ed and un-ZCA'ed images.
 """
 
 from __future__ import print_function
-import sys, numpy, argparse
+import sys, numpy, argparse, matplotlib
 from matplotlib import pyplot
 from pylearn2.space import Conv2DSpace, VectorSpace, CompositeSpace
 from pylearn2.scripts.papers.maxout.norb \
@@ -67,18 +67,19 @@ def main():
         # happens by default.
         all_axes[0].imshow(zca_image,
                            cmap='gray',
-                           # norm=matplotlib.colors.no_norm(),
+                           #norm=matplotlib.colors.no_norm(),
                            interpolation='nearest')
+        figure.canvas.draw()
 
-    # show_next_image()
-    P_ = zca_dataset.preprocessor.P_
-    print("P_.shape: %s" % str(P_.shape))
-    print("P's diagonals are 1.0: %s" % str((numpy.diag(P_) == 1.0).all()))
-    print("P is diagonal: %s" % str((numpy.abs(numpy.diag(numpy.ones(P_.shape[0])) - P_) < 0.00001).all()))
-    print("# of nonzeros: %d" % numpy.count_nonzero(numpy.abs(P_) < 0.00001))
-    all_axes[0].imshow(P_, cmap='gray')
-    all_axes[1].plot(range(len(zca_dataset.preprocessor.eigs)),
-                     zca_dataset.preprocessor.eigs)
+    show_next_image()
+    # P_ = zca_dataset.preprocessor.P_
+    # print("P_.shape: %s" % str(P_.shape))
+    # print("P's diagonals are 1.0: %s" % str((numpy.diag(P_) == 1.0).all()))
+    # print("P is diagonal: %s" % str((numpy.abs(numpy.diag(numpy.ones(P_.shape[0])) - P_) < 0.00001).all()))
+    # print("# of nonzeros: %d" % numpy.count_nonzero(numpy.abs(P_) < 0.00001))
+    # all_axes[0].imshow(P_, cmap='gray')
+    # all_axes[1].plot(range(len(zca_dataset.preprocessor.eigs)),
+    #                  zca_dataset.preprocessor.eigs)
     # all_axes[1].hist(P_.flatten())
 
     def on_key_press(event):

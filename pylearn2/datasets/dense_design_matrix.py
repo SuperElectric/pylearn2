@@ -481,13 +481,14 @@ class DenseDesignMatrix(Dataset):
                 fname = cache.datasetCache.cache_file(d['design_loc'])
 
                 # DEBUG
-                assert 'memmap_info' not in d
+                assert d.get('memmap_info', None) is None, ("memmap_info: %s" %
+                                                            str(d['memmap_info']))
 
-                if d['memmap_info'] is not None:
+                if d.get('memmap_info', None) is None:
+                    d['X'] = np.load(fname)
+                else:
                     memmap_info = d['memmap_info']
                     d['X'] = np.lib.format.open_memmap(**memmap_info)
-                else:
-                    d['X'] = np.load(fname)
             else:
                 d['X'] = None
 
