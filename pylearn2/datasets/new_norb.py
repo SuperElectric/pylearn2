@@ -25,7 +25,7 @@ import warnings
 import functools
 import numpy
 import theano
-from pylearn2.utils import safe_zip
+from pylearn2.utils import safe_zip, string_utils
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 from pylearn2.space import VectorSpace, Conv2DSpace, CompositeSpace
 
@@ -83,6 +83,10 @@ class NORB(DenseDesignMatrix):
         image_dtype : str, or numpy.dtype
             The dtype to store image data as in the memmap cache.
             Default is uint8, which is what the original NORB files use.
+
+        X_memmap_info, y_memmap_info : dict
+            Constructor arguments for the memmaps self.X and self.y, used
+            during pickling/unpickling.
         """
 
         if which_norb not in ('big', 'small'):
@@ -569,10 +573,18 @@ class NORB(DenseDesignMatrix):
             axes = ('b', 's', 0, 1, 'c')
             return StereoViewConverter(datum_shape, axes)
 
-        super(NORB, self).__init__(
-            X=load_images(which_norb, which_set, image_dtype),
-            y=load_labels(which_norb, which_set),
-            view_converter=make_view_converter(which_norb, which_set))
+        images = load_images(which_norb, which_set, image_dtype)
+        labels = load_labels(which_norb, which_set)
+        view_converter = make_view_converter(which_norb, which_set)
+
+        super(NORB, self).__init__(X=images,
+                                   y=labels,
+                                   view_converter=view_converter)
+
+        # Needed for pickling / unpickling.
+        # These are set during pickling, by __getstate__()
+        self.X_memmap_info = None
+        self.y_memmap_info = None
 
     @functools.wraps(DenseDesignMatrix.get_topological_view)
     def get_topological_view(self, mat=None, single_tensor=True):
@@ -600,6 +612,95 @@ class NORB(DenseDesignMatrix):
                           "single_tensor=False.")
 
         return result
+
+    def __getstate__(self):
+        """
+        Support method for pickling. Returns the complete state of this object
+        as a dictionary, which is then pickled.
+
+        This state does not include the memmaps' contents. Rather, it includes
+        enough info to find the memmap and re-load it from disk in the same
+        state.
+        """
+        result = copy.copy(self.__dict__)
+
+        assert isinstance(self.X, numpy.memmap), ("Expected X to be a memmap, "
+                                                  "but it was a %s." %
+                                                  str(type(self.X)))
+        assert isinstance(self.y, numpy.memmap), ("Expected y to be a memmap, "
+                                                  "but it was a %s." %
+                                                  str(type(self.y)))
+
+        # We don't want to pickle the memmaps; they're already on disk.
+        del result['X']
+        del result['y']
+
+        # Replace memmaps with their constructor arguments
+        def get_memmap_info(memmap):
+            assert isinstance(memmap, numpy.memmap)
+
+            if not isinstance(memmap.filename, str):
+                raise ValueError("Expected memmap.filename to be a str; "
+                                 "instead got a %s, %s" %
+                                 (type(memmap.filename), str(memmap.filename)))
+
+            result = {}
+
+            def get_relative_path(full_path):
+                """
+                Returns the relative path to the PYLEARN2_DATA_PATH.
+                """
+                data_dir = string_utils.preprocess('${PYLEARN2_DATA_PATH}')
+
+                if not memmap.filename.startswith(data_dir):
+                    raise ValueError("Expected memmap.filename to start with "
+                                     "the PYLEARN2_DATA_PATH (%s). Instead it "
+                                     "was %s." % (data_dir, memmap.filename))
+
+                return os.path.relpath(full_path, data_dir)
+
+            return {'filename': get_relative_path(memmap.filename),
+                    'dtype': memmap.dtype,
+                    'shape': memmap.shape,
+                    'offset': memmap.offset,
+                    'mode': memmap.mode}
+
+        result['X_info'] = get_memmap_info(self.X)
+        result['y_info'] = get_memmap_info(self.y)
+
+        return result
+
+    def __setstate__(self, state):
+        """
+        Support method for unpickling. Takes a 'state' dictionary and
+        interprets it in order to set this object's fields.
+        """
+
+        X_info = state['X_info']
+        y_info = state['y_info']
+        del state['X_info']
+        del state['y_info']
+
+        self.__dict__.update(state)
+
+        def load_memmap_from_info(info):
+            # Converts filename from relative to absolute path.
+            data_dir = string_utils.preprocess('${PYLEARN2_DATA_PATH}')
+            info['filename'] = os.path.join(data_dir, info['filename'])
+
+            shape = info['shape']
+            offset = info['offset']
+
+            if offset == 0:
+                del info['offset']
+                return numpy.memmap(**info)
+            else:
+                del info['shape']
+                result = numpy.memmap(**info)
+                return result.reshape(shape)
+
+        self.X = load_memmap_from_info(X_info)
+        self.y = load_memmap_from_info(y_info)
 
 
 class StereoViewConverter(object):

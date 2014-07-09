@@ -79,9 +79,11 @@ def get_output_paths(args):
     Returns the output file paths, in the following order:
 
       training set .pkl file
-      training set .npy file
+      training set images .npy file
+      training set labels .npy file
       testing set .pkl file
-      testing set .npy file
+      testing set images .npy file
+      testing set labels .npy file
       preprocessor .pkl file
       preprocessor .npz file
 
@@ -120,9 +122,10 @@ the following files:
 
   README
   train_M_N.pkl
-  train_M_N.npy
-  test_M_N.pkl
-  test_M_N.npy
+  train_M_N_images.npy
+  train_M_N_labels.npy
+  test_M_N_images.pkl
+  test_M_N_labels.npy
   preprocessor_M_N.pkl
   preprocessor_M_N.npz
 
@@ -151,10 +154,16 @@ stored for later use as preprocessor_M_N.pkl.
 
     path_prefix = os.path.join(output_dir, filename_prefix)
 
-    result = [path_prefix + suffix + extension
-              for suffix in ('train', 'test')
-              for extension in ('.pkl', '.npy')]
+    result = []
+    for set_name in ('train', 'test'):
+        # The .pkl file
+        result.append(path_prefix + set_name + '.pkl')
 
+        # The images and labels memmap files (.npz)
+        for memmap_name in ('images', 'labels'):
+            result.append(path_prefix + set_name + "_" + memmap_name + '.npy')
+
+    # The preprocessor's .pkl and .npz files
     result.extend([path_prefix + 'preprocessor' + extension
                    for extension in ('.pkl', '.npz')])
 
@@ -247,31 +256,40 @@ def split_into_unpreprocessed_datasets(norb, args):
     view_converter = DefaultViewConverter(shape=image_shape)
 
     all_output_paths = get_output_paths(args)
-    training_npy, testing_npy = tuple(all_output_paths[i] for i in (1, 3))
+    (training_images_npy,
+     training_labels_npy,
+     testing_images_npy,
+     testing_labels_npy) = tuple(all_output_paths[i] for i in (1, 2, 4, 5))
 
-    print("testing_npy, training_npy = %s, %s" % (training_npy, testing_npy))
     # Splits images into training and testing sets
     print("allocating instance datasets' memmaps")
     start_time = time.time()
     result = []
-    use_memmaps = True
-    for rowmask, npy_path in safe_zip((training_rowmask, testing_rowmask),
-                                      (training_npy, testing_npy)):
-        if use_memmaps:
-            shape = (numpy.count_nonzero(rowmask), numpy.prod(image_shape))
-            mode = 'r+' if os.path.isfile(npy_path) else 'w+'
-            X = numpy.lib.format.open_memmap(filename=npy_path,
-                                             mode=mode,
-                                             dtype=theano.config.floatX,
-                                             shape=shape)
 
-            X[...] = images[rowmask, :]
-            assert isinstance(X, numpy.memmap), "type(X) = %s" % type(X)
-        else:
-            X = images[rowmask, :]
-            assert isinstance(X, numpy.ndarray), "type(X) = %s" % type(X)
+    mono_dataset_template = copy.copy(norb)
+    del mono_dataset_template.X
+    del mono_dataset_template.y
+
+    for (rowmask,
+         images_path,
+         labels_path) in safe_zip((training_rowmask, testing_rowmask),
+                                  (training_images_npy, testing_images_npy),
+                                  (training_labels_npy, testing_labels_npy)):
+        shape = (numpy.count_nonzero(rowmask), numpy.prod(image_shape))
+        mode = 'r+' if os.path.isfile(npy_path) else 'w+'
+        X = numpy.lib.format.open_memmap(filename=npy_path,
+                                         mode=mode,
+                                         dtype=theano.config.floatX,
+                                         shape=shape)
+
+        X[...] = images[rowmask, :]
+        assert isinstance(X, numpy.memmap), "type(X) = %s" % type(X)
 
         X /= 255.0  # at least for zca, this makes no difference.
+
+        dataset = copy.copy(norb)
+        dataset.view_converter = copy.deepcopy(mono_converter)
+
         result.append(DenseDesignMatrix(X=X,
                                         y=norb.y[rowmask, :],
                                         view_converter=view_converter))
@@ -363,9 +381,11 @@ def main():
     output_paths = get_output_paths(args)
     print("output_paths: %s" % output_paths)
     (training_pkl_path,
-     training_npy_path,
+     training_images_path,
+     training_labels_path,
      testing_pkl_path,
-     testing_npy_path,
+     testing_images_path,
+     testing_labels_path,
      pp_pkl_path,
      pp_npz_path) = output_paths
 
@@ -406,15 +426,27 @@ def main():
 
     print("Saving to %s:" % os.path.split(training_pkl_path)[0])
 
-    for dataset, (pkl_path, npy_path) in safe_zip(datasets,
-                                                  ((training_pkl_path,
-                                                    training_npy_path),
-                                                   (testing_pkl_path,
-                                                    testing_npy_path))):
-        dataset.use_design_loc(npy_path)
+    for (dataset,
+         pkl_path,
+         images_path,
+         labels_path) in safe_zip(datasets,
+                                  (training_pkl_path, testing_pkl_path),
+                                  (training_images_path, testing_images_path),
+                                  (training_labels_path, testing_labels_path)):
         serial.save(pkl_path, dataset)
         print("saved %s, %s" % (os.path.split(pkl_path)[1],
-                                os.path.split(npy_path)[1]))
+                                os.path.split(images_path)[1],
+                                os.path.split(labels_path)[1]))
+
+    # for dataset, (pkl_path, npy_path) in safe_zip(datasets,
+    #                                               ((training_pkl_path,
+    #                                                 training_npy_path),
+    #                                                (testing_pkl_path,
+    #                                                 testing_npy_path))):
+    #     dataset.use_design_loc(npy_path)
+    #     serial.save(pkl_path, dataset)
+    #     print("saved %s, %s" % (os.path.split(pkl_path)[1],
+    #                             os.path.split(npy_path)[1]))
 
 
 if __name__ == '__main__':
