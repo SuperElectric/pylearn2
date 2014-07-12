@@ -12,7 +12,7 @@ dataset, by doing the following:
 """
 
 from __future__ import print_function
-import sys, os, time, argparse
+import sys, os, time, argparse, copy
 import numpy
 import theano
 from pylearn2.expr.preprocessing import global_contrast_normalize
@@ -181,6 +181,8 @@ def split_into_unpreprocessed_datasets(norb, args):
     image_shape = images.shape[1:]
     images = images.reshape(images.shape[0], -1)
 
+    labels = norb.y
+
     # Gets rowmasks that select training and testing set rows.
     def get_testing_rowmask(norb_dataset,
                             azimuth_ratio,
@@ -197,8 +199,6 @@ def split_into_unpreprocessed_datasets(norb, args):
                              for n in ('category', 'azimuth', 'elevation'))
 
         assert not None in (azimuth_index, elevation_index)
-
-        labels = norb_dataset.y
 
         blank_rowmask = (norb_dataset.y[:, category_index] == 5)
         blank_row_indices = numpy.nonzero(blank_rowmask)
@@ -253,48 +253,60 @@ def split_into_unpreprocessed_datasets(norb, args):
                                           args.elevation_ratio)
     training_rowmask = numpy.logical_not(testing_rowmask)
 
-    view_converter = DefaultViewConverter(shape=image_shape)
+    mono_view_converter = DefaultViewConverter(shape=image_shape)
 
     all_output_paths = get_output_paths(args)
-    (training_images_npy,
-     training_labels_npy,
-     testing_images_npy,
-     testing_labels_npy) = tuple(all_output_paths[i] for i in (1, 2, 4, 5))
+    (training_images_path,
+     training_labels_path,
+     testing_images_path,
+     testing_labels_path) = tuple(all_output_paths[i] for i in (1, 2, 4, 5))
 
     # Splits images into training and testing sets
     print("allocating instance datasets' memmaps")
     start_time = time.time()
     result = []
 
-    mono_dataset_template = copy.copy(norb)
-    del mono_dataset_template.X
-    del mono_dataset_template.y
+    # mono_dataset_template = copy.copy(norb)  # shallow copy
+    # del mono_dataset_template.X
+    # del mono_dataset_template.y
+
+    def get_memmap(path, shape):
+        mode = 'r+' if os.path.isfile(path) else 'w+'
+        return numpy.lib.format.open_memmap(filename=path,
+                                            mode=mode,
+                                            dtype=theano.config.floatX,
+                                            shape=shape)
 
     for (rowmask,
          images_path,
          labels_path) in safe_zip((training_rowmask, testing_rowmask),
-                                  (training_images_npy, testing_images_npy),
-                                  (training_labels_npy, testing_labels_npy)):
-        shape = (numpy.count_nonzero(rowmask), numpy.prod(image_shape))
-        mode = 'r+' if os.path.isfile(npy_path) else 'w+'
-        X = numpy.lib.format.open_memmap(filename=npy_path,
-                                         mode=mode,
-                                         dtype=theano.config.floatX,
-                                         shape=shape)
+                                  (training_images_path, testing_images_path),
+                                  (training_labels_path, testing_labels_path)):
+        num_rows = numpy.count_nonzero(rowmask)
+        images_shape = (num_rows, numpy.prod(image_shape))
+        labels_shape = (num_rows, labels.shape[1])
+
+        X, y = tuple(get_memmap(path, shape)
+                     for path, shape in safe_zip((images_path, labels_path),
+                                                 (images_shape, labels_shape)))
 
         X[...] = images[rowmask, :]
         assert isinstance(X, numpy.memmap), "type(X) = %s" % type(X)
 
         X /= 255.0  # at least for zca, this makes no difference.
 
-        dataset = copy.copy(norb)
-        dataset.view_converter = copy.deepcopy(mono_converter)
+        y[...] = labels[rowmask, :]
 
-        result.append(DenseDesignMatrix(X=X,
-                                        y=norb.y[rowmask, :],
-                                        view_converter=view_converter))
-    print("allocated instance datasets' memmaps in %g seconds" %
-          (time.time() - start_time))
+        dataset = copy.copy(norb)  # shallow copy
+        dataset.X = X
+        dataset.y = y
+        dataset.view_converter = copy.deepcopy(mono_view_converter)
+        result.append(dataset)
+    #     result.append(DenseDesignMatrix(X=X,
+    #                                     y=norb.y[rowmask, :],
+    #                                     view_converter=view_converter))
+    # print("allocated instance datasets' memmaps in %g seconds" %
+    #       (time.time() - start_time))
 
     return result
 
@@ -400,7 +412,6 @@ def main():
         start_time = time.time()
         zca.fit(zca_training_set)
         print("...done (%g seconds)." % (time.time() - start_time))
-        print("zca.eigs.shape: %s" % str(zca.eigs.shape))
 
         zca.set_matrices_save_path(pp_npz_path)
         serial.save(pp_pkl_path, zca)
@@ -434,9 +445,9 @@ def main():
                                   (training_images_path, testing_images_path),
                                   (training_labels_path, testing_labels_path)):
         serial.save(pkl_path, dataset)
-        print("saved %s, %s" % (os.path.split(pkl_path)[1],
-                                os.path.split(images_path)[1],
-                                os.path.split(labels_path)[1]))
+        print("saved %s, %s, %s" % (os.path.split(pkl_path)[1],
+                                    os.path.split(images_path)[1],
+                                    os.path.split(labels_path)[1]))
 
     # for dataset, (pkl_path, npy_path) in safe_zip(datasets,
     #                                               ((training_pkl_path,
