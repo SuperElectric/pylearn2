@@ -124,7 +124,20 @@ class NORB(DenseDesignMatrix):
         for index, name in enumerate(self.label_index_to_name):
             self.label_name_to_index[name] = index
 
-        self.label_to_value_funcs = _get_label_to_value_funcs(which_norb)
+        # self.label_to_value_funcs = _get_label_to_value_funcs(which_norb)
+        self.label_to_value_funcs = (get_category_value,
+                                     get_instance_value,
+                                     get_elevation_value,
+                                     get_azimuth_value,
+                                     get_lighting_value)
+        if which_norb == 'big':
+            self.label_to_value_funcs = (self.label_to_value_funcs +
+                                         (get_horizontal_shift_value,
+                                          get_vertical_shift_value,
+                                          get_lumination_change_value,
+                                          get_contrast_change_value,
+                                          get_scale_change_value,
+                                          get_rotation_change_value))
 
         # The size of one side of the image
         image_length = 96 if which_norb == 'small' else 108
@@ -756,6 +769,116 @@ class StereoViewConverter(object):
             self.shape = new_shape
 
         self.axes = axes
+
+
+def _check_is_integral(name, label):
+    if not numpy.issubdtype(type(label), numpy.integer):
+        raise TypeError("Expected %s label to be an integral dtype, not %s" %
+                        (name, type(label)))
+
+
+def _check_range(name, label, min_label, max_label):
+    if label < min_label or label > max_label:
+        raise ValueError("Expected %s label to be between %d "
+                         "and %d inclusive, , but got %s" %
+                         (name, min_label, max_label, str(label)))
+
+
+def _get_array_element(name, label, array):
+    _check_is_integral(name, label)
+    _check_range(name, label, 0, len(array) - 1)
+    return array[label]
+
+
+def get_category_value(label):
+    _get_array_element('category', label, ('animal',
+                                           'human',
+                                           'airplane',
+                                           'truck',
+                                           'car',
+                                           'blank'))
+
+    # name = 'category'
+    # _check_is_integral(name, label)
+
+    # if 'label_names' not in get_catgegory_value.__dict__:
+    #     get_category_value.label_names = ('animal',
+    #                                       'human',
+    #                                       'airplane',
+    #                                       'truck',
+    #                                       'car',
+    #                                       'blank')
+
+    # label_names = get_category_value.label_names
+    # _check_range(name, label, 0, len(label_names) - 1, 'category')
+    # return label_names[label]
+
+
+def _check_range_and_return(name,
+                            label,
+                            min_label,
+                            max_label,
+                            none_label=None):
+    _check_is_integral(name, label)
+    _check_range(name, label, min_label, max_label)
+    return None if label == none_label else label
+
+
+def get_instance_value(label):
+    return _check_range_and_return('instance', label, -1, 9, -1)
+
+
+def get_elevation_value(label):
+    name = 'elevation'
+    _check_is_integral(name, label)
+    _check_range(name, label, -1, 8)
+
+    if label == -1:
+        return None
+    else:
+        return label * 5 + 30
+
+
+def get_azimuth_value(label):
+    _check_is_integral('azimuth', label)
+    if label == -1:
+        return None
+    else:
+        if (label / 2) * 2 != label or label < 0 or label > 34:
+            raise ValueError("Expected azimuth to be an even "
+                             "number between 0 and 34 inclusive, "
+                             "or -1, but got %s instead." %
+                             str(label))
+
+        return label * 10
+
+
+def get_lighting_value(label):
+    return _check_range_and_return('lighting', label, -1, 5, -1)
+
+
+def get_horizontal_shift_value(label):
+    return _check_range_and_return('horizontal shift', label, -5, 5)
+
+
+def get_vertical_shift_value(label):
+    return _check_range_and_return('vertical shift', label, -5, 5)
+
+
+def get_lumination_change_value(label):
+    return _check_range_and_return('lumination_change', label, -19, 19)
+
+
+def get_contrast_change_value(label):
+    return _get_array_element('contrast change', label, (0.8, 1.3))
+
+
+def get_scale_change_value(label):
+    return _get_array_element('scale change', label, (0.78, 1.0))
+
+
+def get_rotation_change_value(label):
+    return _check_range_and_return('rotation change', label, -4, 4)
 
 
 def _get_label_to_value_funcs(which_norb):

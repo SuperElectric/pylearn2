@@ -65,12 +65,6 @@ def parse_args():
                         required=True,
                         help="Which NORB dataset to use")
 
-    parser.add_argument("-p",
-                        "--preprocessor",
-                        choices=('lcn', 'zca', 'none'),
-                        required=True,
-                        help="Which preprocessor to apply.")
-
     return parser.parse_args()
 
 
@@ -144,13 +138,11 @@ stored for later use as preprocessor_M_N.pkl.
 
     output_dir = make_output_dir()
 
-    filename_prefix = 'norb_%s_%02d_%02d_%s_' % (args.which_image,
-                                                 args.azimuth_ratio,
-                                                 args.elevation_ratio,
-                                                 args.preprocessor)
-
-    if args.which_norb == 'small':
-        filename_prefix = 'small_' + filename_prefix
+    filename_prefix = ('%snorb_%s_%02d_%02d_gcn_zca_' %
+                       ('small_' if args.which_norb == 'small' else '',
+                        args.which_image,
+                        args.azimuth_ratio,
+                        args.elevation_ratio))
 
     path_prefix = os.path.join(output_dir, filename_prefix)
 
@@ -262,33 +254,49 @@ def split_into_unpreprocessed_datasets(norb, args):
      testing_labels_path) = tuple(all_output_paths[i] for i in (1, 2, 4, 5))
 
     # Splits images into training and testing sets
-    print("allocating instance datasets' memmaps")
-    start_time = time.time()
+    # start_time = time.time()
     result = []
 
-    # mono_dataset_template = copy.copy(norb)  # shallow copy
-    # del mono_dataset_template.X
-    # del mono_dataset_template.y
-
-    def get_memmap(path, shape):
+    def get_memmap(path, shape, dtype):
         mode = 'r+' if os.path.isfile(path) else 'w+'
         return numpy.lib.format.open_memmap(filename=path,
                                             mode=mode,
-                                            dtype=theano.config.floatX,
+                                            dtype=dtype,
                                             shape=shape)
+
+    def human_readable_memory_size(size, precision=2):
+        suffixes = ['B', 'KB', 'MB', 'GB', 'TB']
+        siffix_index = 0
+        while size > 1024:
+            siffix_index += 1  # increment the index of the suffix
+            size = size / 1024.0  # apply the division
+        return "%.*f %s" % (precision, size, suffixes[siffix_index])
 
     for (rowmask,
          images_path,
          labels_path) in safe_zip((training_rowmask, testing_rowmask),
                                   (training_images_path, testing_images_path),
                                   (training_labels_path, testing_labels_path)):
+
         num_rows = numpy.count_nonzero(rowmask)
         images_shape = (num_rows, numpy.prod(image_shape))
+        images_dtype = numpy.dtype(theano.config.floatX)
         labels_shape = (num_rows, labels.shape[1])
+        labels_dtype = norb.y.dtype
 
-        X, y = tuple(get_memmap(path, shape)
-                     for path, shape in safe_zip((images_path, labels_path),
-                                                 (images_shape, labels_shape)))
+        num_bytes = numpy.sum([numpy.prod(s) * numpy.dtype(d).itemsize
+                               for s, d
+                               in safe_zip((images_shape, labels_shape),
+                                           (images_dtype, labels_dtype))])
+
+        print("allocating image and label memmaps (%s total)" %
+              human_readable_memory_size(num_bytes))
+
+        X, y = tuple(get_memmap(path, shape, dtype)
+                     for path, shape, dtype
+                     in safe_zip((images_path, labels_path),
+                                 (images_shape, labels_shape),
+                                 (images_dtype, labels_dtype)))
 
         X[...] = images[rowmask, :]
         assert isinstance(X, numpy.memmap), "type(X) = %s" % type(X)
@@ -302,11 +310,6 @@ def split_into_unpreprocessed_datasets(norb, args):
         dataset.y = y
         dataset.view_converter = copy.deepcopy(mono_view_converter)
         result.append(dataset)
-    #     result.append(DenseDesignMatrix(X=X,
-    #                                     y=norb.y[rowmask, :],
-    #                                     view_converter=view_converter))
-    # print("allocated instance datasets' memmaps in %g seconds" %
-    #       (time.time() - start_time))
 
     return result
 
@@ -336,9 +339,6 @@ def get_zca_training_set(training_set):
         if blank_label is not None:
             # Makes sure that all blank labels are the same (i.e. ended up in
             # the same bin).
-            # if label[0] == 5: # and any(blank_label != label):
-            #     print("another BL: %s, row_indices: %s" %
-            #           (str(blank_label), str(row_indices)))
             assert label[0] != 5
         elif label[0] == 5:
             row_indices_of_blanks = row_indices
@@ -348,7 +348,6 @@ def get_zca_training_set(training_set):
     row_indices = []
 
     if blank_label is not None:
-        # print("row_indices_of_blanks: %s" % str(row_indices_of_blanks))
         # Removes bin of blank images, if there is one.
         del bins[blank_label]
 
@@ -391,7 +390,6 @@ def main():
     # output files. We do this before ZCA'ing, to make sure we trigger any
     # IOErrors now rather than later.
     output_paths = get_output_paths(args)
-    print("output_paths: %s" % output_paths)
     (training_pkl_path,
      training_images_path,
      training_labels_path,
@@ -411,13 +409,14 @@ def main():
               "images" % (zca_training_set.shape[0], datasets[0].y.shape[0]))
         start_time = time.time()
         zca.fit(zca_training_set)
-        print("...done (%g seconds)." % (time.time() - start_time))
+        print("\t...done (%g seconds)." % (time.time() - start_time))
 
         zca.set_matrices_save_path(pp_npz_path)
         serial.save(pp_pkl_path, zca)
 
-        print("saved %s, %s" % (os.path.split(pp_pkl_path)[1],
-                                os.path.split(pp_npz_path)[1]))
+        print("saved preprocessor to:")
+        for pp_path in (pp_pkl_path, pp_npz_path):
+            print "\t%s" % os.path.split(pp_path)
 
     print("ZCA'ing training set...")
     start_time = time.time()
@@ -425,15 +424,15 @@ def main():
     datasets[0].apply_preprocessor(preprocessor=zca, can_fit=False)
     abs_diffs = numpy.abs(pre_X.flatten() - datasets[0].X.flatten())
     avg_change = (abs_diffs.sum() / numpy.prod(pre_X.shape))
-    print("avg pixel value change = %g" % avg_change)
-    print("min, max change = %g, %g" % (abs_diffs.min(), abs_diffs.max()))
+    print("\tavg pixel value change = %g" % avg_change)
+    print("\tmin, max change = %g, %g" % (abs_diffs.min(), abs_diffs.max()))
     assert not (pre_X == datasets[0].X).all()
-    print("...done (%g seconds)." % (time.time() - start_time))
+    print("\t...done (%g seconds)." % (time.time() - start_time))
 
     print("ZCA'ing testing set...")
     start_time = time.time()
     datasets[1].apply_preprocessor(preprocessor=zca, can_fit=False)
-    print("...done (%g seconds)." % (time.time() - start_time))
+    print("\t...done (%g seconds)." % (time.time() - start_time))
 
     print("Saving to %s:" % os.path.split(training_pkl_path)[0])
 
@@ -445,20 +444,8 @@ def main():
                                   (training_images_path, testing_images_path),
                                   (training_labels_path, testing_labels_path)):
         serial.save(pkl_path, dataset)
-        print("saved %s, %s, %s" % (os.path.split(pkl_path)[1],
-                                    os.path.split(images_path)[1],
-                                    os.path.split(labels_path)[1]))
-
-    # for dataset, (pkl_path, npy_path) in safe_zip(datasets,
-    #                                               ((training_pkl_path,
-    #                                                 training_npy_path),
-    #                                                (testing_pkl_path,
-    #                                                 testing_npy_path))):
-    #     dataset.use_design_loc(npy_path)
-    #     serial.save(pkl_path, dataset)
-    #     print("saved %s, %s" % (os.path.split(pkl_path)[1],
-    #                             os.path.split(npy_path)[1]))
-
+        for path in (pkl_path, images_path, labels_path):
+            print "\t%s" % os.path.split(path)
 
 if __name__ == '__main__':
     main()
