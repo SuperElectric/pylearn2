@@ -274,9 +274,11 @@ def split_into_unpreprocessed_datasets(norb, args):
 
     for (rowmask,
          images_path,
-         labels_path) in safe_zip((training_rowmask, testing_rowmask),
-                                  (training_images_path, testing_images_path),
-                                  (training_labels_path, testing_labels_path)):
+         labels_path,
+         set_name) in safe_zip((training_rowmask, testing_rowmask),
+                               (training_images_path, testing_images_path),
+                               (training_labels_path, testing_labels_path),
+                               ('train', 'test')):
 
         num_rows = numpy.count_nonzero(rowmask)
         images_shape = (num_rows, numpy.prod(image_shape))
@@ -289,8 +291,8 @@ def split_into_unpreprocessed_datasets(norb, args):
                                in safe_zip((images_shape, labels_shape),
                                            (images_dtype, labels_dtype))])
 
-        print("allocating image and label memmaps (%s total)" %
-              human_readable_memory_size(num_bytes))
+        print("allocating image and label memmaps for %sing set (%s total)" %
+              (set_name, human_readable_memory_size(num_bytes)))
 
         X, y = tuple(get_memmap(path, shape, dtype)
                      for path, shape, dtype
@@ -416,7 +418,7 @@ def main():
 
         print("saved preprocessor to:")
         for pp_path in (pp_pkl_path, pp_npz_path):
-            print "\t%s" % os.path.split(pp_path)
+            print("\t%s" % os.path.split(pp_path)[1])
 
     print("ZCA'ing training set...")
     start_time = time.time()
@@ -445,7 +447,7 @@ def main():
                                   (training_labels_path, testing_labels_path)):
         serial.save(pkl_path, dataset)
         for path in (pkl_path, images_path, labels_path):
-            print "\t%s" % os.path.split(path)
+            print("\t%s" % os.path.split(path)[1])
 
 if __name__ == '__main__':
     main()
