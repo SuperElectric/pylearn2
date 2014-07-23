@@ -522,6 +522,8 @@ class NORB(DenseDesignMatrix):
         enough info to find the memmap and re-load it from disk in the same
         state.
         """
+        _check_pickling_support()
+
         result = copy.copy(self.__dict__)
 
         assert isinstance(self.X, numpy.memmap), ("Expected X to be a memmap, "
@@ -575,6 +577,7 @@ class NORB(DenseDesignMatrix):
         Support method for unpickling. Takes a 'state' dictionary and
         interprets it in order to set this object's fields.
         """
+        _check_pickling_support()
 
         X_info = state['X_info']
         y_info = state['y_info']
@@ -994,3 +997,16 @@ def _get_label_to_value_funcs(which_norb):
                                               max_label=4))
 
     return result  # ends get_label_to_value_funcs()
+
+
+def _check_pickling_support():
+    # Reads the first two components of the version number as a floating point
+    # number.
+    version = float('.'.join(numpy.version.version.split('.')[:2]))
+
+    if version < 1.7:
+        msg = ("Pickling NORB is disabled for numpy versions less "
+               "than 1.7, due to a bug in 1.6.x that causes memmaps "
+               "to interact poorly with pickling.")
+        raise NotImplementedError(msg)
+
