@@ -13,6 +13,11 @@ from pylearn2.utils import serial, safe_zip
 from pylearn2.space import VectorSpace, CompositeSpace
 from pylearn2.models.mlp import MLP
 from pylearn2.datasets import new_norb
+from pylearn2.datasets.preprocessing import ZCA
+from pylearn2.expr.preprocessing import global_contrast_normalize
+from pylearn2.datasets.dense_design_matrix import (DenseDesignMatrix,
+                                                   DefaultViewConverter)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -24,6 +29,11 @@ def parse_args():
                         default=None,
                         help=".pkl file of the trained model")
 
+    parser.add_argument("-p",
+                        "--preprocessor",
+                        default=None,
+                        help=".pkl file of the data preprocessor.")
+    
     parser.add_argument("--matplotlib",
                         default=False,
                         action='store_true',
@@ -38,12 +48,23 @@ def parse_args():
                         help="Detection window scale.")
     result = parser.parse_args()
 
-    if result.model is not None and not result.model.endswith('.pkl'):
-        print("Expected --model to end with '.pkl', but got %s." %
-              args.machine)
-        print("Exiting.")
+    if (result.model is None) != (result.preprocessor is None):
+        print("Must provide --model and --preprocessor, or neither.")
         sys.exit(1)
+    
+    if result.model is not None and not result.model.endswith('.pkl'):
+            print("Expected --model to end with '.pkl', but got %s." %
+                  args.model)
+            print("Exiting.")
+            sys.exit(1)
 
+    if (result.preprocessor is not None
+        and not result.preprocessor.endswith('.pkl')):
+            print("Expected --preprocessor to end with '.pkl', but got %s." %
+                  args.preprocessor)
+            print("Exiting.")
+            sys.exit(1)
+            
     return result
 
 
@@ -71,7 +92,7 @@ class VideoDisplay(object):
 
 class ClassifierDisplay(object):
 
-    def __init__(self, model_path, object_scale):
+    def __init__(self, model_path, preprocessor_path, object_scale):
 
         def load_model_function(model_path):
             model = serial.load(model_path)
@@ -95,6 +116,8 @@ class ClassifierDisplay(object):
 
         self.model_function = load_model_function(model_path)
 
+        self.preprocessor = serial.load(preprocessor_path)
+        
         def get_example_images():
             small_norb = new_norb.NORB(which_norb='small', which_set='both')
 
@@ -127,6 +150,7 @@ class ClassifierDisplay(object):
                                               else (106, 106))
 
         self.all_pixels = None  # set by _init_pixels
+        self.model_input_dataset = None
         
     def _init_pixels(self, video_frame):
         self.all_pixels = numpy.zeros(shape=(video_frame.shape[0], 
@@ -183,8 +207,36 @@ class ClassifierDisplay(object):
 
         model_input = cv2.resize(gray_object, tuple(self.norb_image_shape))
 
-        # TODO: preprocess model_input!
-        self.model_input_pixels[...] = model_input[..., numpy.newaxis]
+        def preprocess(model_input):
+            image_shape = model_input.shape
+
+            assert str(model_input.dtype) == 'uint8'
+            
+            # flatten into a design matrix
+            model_input = numpy.asarray(model_input.reshape(1, -1),
+                                        dtype=theano.config.floatX)
+            model_input /= 255.0
+
+            # TODO: in create_instance_dataset.py, use the GCN preprocessor
+            # class rather than the GCN funtion as below, and save it along
+            # with the ZCA preprocessor. This will require you to add an
+            # in-place option to the GCN preprocesssor class.
+            global_contrast_normalize(model_input, scale=55.0, in_place=True)
+
+            if self.model_input_dataset is None:
+                view_converter = DefaultViewConverter(image_shape + (1,),
+                                                      axes=('b', 0, 1, 'c'))
+                self.model_input_dataset = \
+                  DenseDesignMatrix(X=model_input,
+                                    view_converter=view_converter)
+            else:
+                self.model_input_dataset.X = model_input
+                
+            #self.preprocessor.apply(self.model_input_dataset, can_fit=False)
+            return self.model_input_dataset.X.reshape(image_shape)
+        
+        model_input = preprocess(model_input)
+        
 
         model_input = model_input[numpy.newaxis, :, :, numpy.newaxis]
         assert model_input.shape == (1, 96, 96, 1), str(model_input)
@@ -203,6 +255,25 @@ class ClassifierDisplay(object):
                                                  probability)
 
         print message
+
+        def get_visible_model_input(model_input):
+            assert str(model_input.dtype) == theano.config.floatX
+            assert len(model_input.shape) == 4
+            assert model_input.shape[0] == 1
+            assert model_input.shape[-1] == 1
+            min_pixel = model_input.min()
+            max_pixel = model_input.max()
+            result = model_input - min_pixel
+            result *= (255 / max_pixel)
+            # result *= (255 * (1.0 / (max_pixel-min_pixel) + min_pixel))
+            result = numpy.asarray(result, dtype='uint8')
+
+            assert result.max() <= 255, "result.max() = %d" % result.max()
+            assert result.min() >= 0, "result.min() = %d" % result.min()
+            return result
+            
+        self.model_input_pixels[...] = get_visible_model_input(model_input)
+
         cv2.imshow('classifier', self.all_pixels)
 
 
@@ -222,7 +293,9 @@ def main():
 
     displays = []
     displays.append(VideoDisplay() if args.model is None
-                    else ClassifierDisplay(args.model, args.scale))
+                    else ClassifierDisplay(args.model,
+                                           args.preprocessor,
+                                           args.scale))
 
     if args.matplotlib:
         displays.append(MatplotlibDisplay())

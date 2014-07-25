@@ -1,2 +1,2 @@
 #! /bin/sh
-THEANO_FLAGS="device=gpu" ./video_demo.py -m /scratch/pylearn2_training/norb_maxout/norb_small_experiments/2014_07_25_0.15_error/norb_small_best.pkl
+THEANO_FLAGS="device=gpu" ./video_demo.py -m $PYLEARN2_TRAIN_DIR/norb_maxout/norb_small_experiments/2014_07_25_0.15_error/norb_small_best.pkl -p $PYLEARN2_DATA_PATH/norb_small/instance_recognition/small_norb_left_02_00_gcn_zca_preprocessor.pkl

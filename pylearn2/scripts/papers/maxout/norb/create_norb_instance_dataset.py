@@ -380,7 +380,8 @@ def main():
                 which_set='both',
                 image_dtype=theano.config.floatX)
 
-    # (training set, testing set)
+    # Returns (training set, testing set).
+    # Also converts from uint8 to floatX, and divides in-place by 255
     datasets = split_into_unpreprocessed_datasets(norb, args)
 
     # Subtracts each image's mean intensity. Scale of 55.0 taken from

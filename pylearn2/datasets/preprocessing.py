@@ -1462,8 +1462,6 @@ class ZCA(Preprocessor):
                 os.remove(filepath)
                 os.rmdir(tempdir)
         else:
-
-            print "WOOOOOOOOOOOOOOOOOOOOOOOO"
             new_X = ZCA._gpu_matrix_dot(X - self.mean_, self.P_)
             dataset.set_design_matrix(new_X)
 
