@@ -794,12 +794,12 @@ def _get_array_element(name, label, array):
 
 
 def get_category_value(label):
-    _get_array_element('category', label, ('animal',
-                                           'human',
-                                           'airplane',
-                                           'truck',
-                                           'car',
-                                           'blank'))
+    return _get_array_element('category', label, ('animal',
+                                                  'human',
+                                                  'airplane',
+                                                  'truck',
+                                                  'car',
+                                                  'blank'))
 
     # name = 'category'
     # _check_is_integral(name, label)
