@@ -14,6 +14,39 @@ from pylearn2.space import VectorSpace, CompositeSpace
 from pylearn2.models.mlp import MLP
 from pylearn2.datasets import new_norb
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description=("Shows video input, and optionally classifies "
+                     "frames using a loaded model"))
+
+    parser.add_argument("-m",
+                        "--model",
+                        default=None,
+                        help=".pkl file of the trained model")
+
+    parser.add_argument("--matplotlib",
+                        default=False,
+                        action='store_true',
+                        help=("Additionally display a color image using "
+                              "matplotlib, to sanity-check the pixel "
+                              "layout"))
+
+    parser.add_argument("-s",
+                        "--scale",
+                        default=2,
+                        type=int,
+                        help="Detection window scale.")
+    result = parser.parse_args()
+
+    if result.model is not None and not result.model.endswith('.pkl'):
+        print("Expected --model to end with '.pkl', but got %s." %
+              args.machine)
+        print("Exiting.")
+        sys.exit(1)
+
+    return result
+
+
 class MatplotlibDisplay(object):
     def __init__(self):
         pyplot.ion()
@@ -38,7 +71,7 @@ class VideoDisplay(object):
 
 class ClassifierDisplay(object):
 
-    def __init__(self, model_path):
+    def __init__(self, model_path, object_scale):
 
         def load_model_function(model_path):
             model = serial.load(model_path)
@@ -86,7 +119,7 @@ class ClassifierDisplay(object):
         self.example_images = get_example_images()
 
         self.margin = 10  # space between images in self.status_pixels
-        self.object_scale = 2 # scale object detection region size by this much
+        self.object_scale = object_scale # scale object detection region size by this much
 
         # TODO: replace this by reading the input space from the model.
         self.norb_image_shape = numpy.asarray((96, 96) 
@@ -178,38 +211,6 @@ def main():
     # turns on interactive mode, which enables the draw() function
     pyplot.ion()
 
-    def parse_args():
-        parser = argparse.ArgumentParser(
-            description=("Shows video input, and optionally classifies "
-                         "frames using a loaded model"))
-
-        parser.add_argument("-m",
-                            "--model",
-                            default=None,
-                            help=".pkl file of the trained model")
-
-        parser.add_argument("--matplotlib",
-                            default=False,
-                            action='store_true',
-                            help=("Additionally display a color image using "
-                                  "matplotlib, to sanity-check the pixel "
-                                  "layout"))
-
-        parser.add_argument("-s",
-                            "--scale",
-                            default=2,
-                            type=int,
-                            help="Detection window scale.")
-        result = parser.parse_args()
-
-        if result.model is not None and not result.model.endswith('.pkl'):
-            print("Expected --model to end with '.pkl', but got %s." %
-                  args.machine)
-            print("Exiting.")
-            sys.exit(1)
-
-        return result
-
     args = parse_args()
 
 
@@ -221,7 +222,7 @@ def main():
 
     displays = []
     displays.append(VideoDisplay() if args.model is None
-                    else ClassifierDisplay(args.model))
+                    else ClassifierDisplay(args.model, args.scale))
 
     if args.matplotlib:
         displays.append(MatplotlibDisplay())
