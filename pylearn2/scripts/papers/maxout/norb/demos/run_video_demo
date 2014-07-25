@@ -1,0 +1,2 @@
+#! /bin/sh
+THEANO_FLAGS="device=gpu" ./video_demo.py -m /scratch/pylearn2_training/norb_maxout/norb_small_experiments/2014_07_25_0.15_error/norb_small_best.pkl
