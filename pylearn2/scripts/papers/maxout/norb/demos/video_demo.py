@@ -6,7 +6,7 @@ Code copied over from OpenCV's tutorial at:
 http://docs.opencv.org/trunk/doc/py_tutorials/py_gui/py_video_display/py_video_display.html#display-video  # nopep8
 """
 
-import sys, argparse
+import sys, argparse, os, shutil, time
 import numpy, matplotlib, cv2, theano
 from matplotlib import pyplot
 from pylearn2.utils import serial, safe_zip
@@ -98,10 +98,19 @@ class ClassifierDisplay(object):
 
     def __init__(self, model_path, preprocessor_path, object_scale):
 
-        # debug stuff
-        pyplot.ion()
-        self.figure = pyplot.figure()
-        self.axes = self.figure.add_subplot(111)
+        # # debug stuff
+        # pyplot.ion()
+        # self.figure = pyplot.figure()
+        # self.axes = self.figure.add_subplot(111)
+
+        self.output_dir = '/tmp/video_demo/'
+
+        if os.path.isdir(self.output_dir):
+            shutil.rmtree(self.output_dir)
+
+        os.mkdir(self.output_dir)
+
+        self.frame_number = 0
 
         def load_model_function(model_path):
             model = serial.load(model_path)
@@ -184,14 +193,40 @@ class ClassifierDisplay(object):
                                                self.object_min_corner,
                                                self.object_max_corner)
 
+        def get_grid_window_pixels(row, column):
+            """
+            Returns a window of self.status_pixels.
+
+            The window is chosen using grid coordinates of a grid layout.
+
+            Assuming that the status_pixels are to be broken up into grid
+            squares, each big enough for a norb image, and separated from
+            each other by self.margin, this returns the image pixels for
+            the grid window corresponding to the given grid coordinates.
+            """
+            image_shape = numpy.asarray(self.norb_image_shape)
+            grid_square_shape = image_shape + self.margin
+            min_corner = (self.margin +
+                          grid_square_shape * numpy.asarray((row, column)))
+            max_corner = min_corner + image_shape
+            return self.status_pixels[min_corner[0]:max_corner[0],
+                                      min_corner[1]:max_corner[1],
+                                      :]
+
         def get_model_input_pixels(status_pixels, shape, margin):
             return status_pixels[margin:(margin + shape[0]),
                                  margin:(margin + shape[1]),
                                  :]
 
-        self.model_input_pixels = get_model_input_pixels(self.status_pixels,
-                                                         self.norb_image_shape,
-                                                         self.margin)
+        self.model_input_pixels = get_grid_window_pixels(0, 0)
+
+        self.candidate_pixels_list = tuple(get_grid_window_pixels(1, c)
+                                           for c in range(4))
+
+        # self.model_input_pixels = get_model_input_pixels(self.status_pixels,
+        #                                                  self.norb_image_shape,
+        #                                                  self.margin)
+
 
     def update(self, video_frame):
         if self.all_pixels is None:
@@ -248,15 +283,20 @@ class ClassifierDisplay(object):
 
         # Print 5 most likely categories, probabilities
         # TODO: display their examples, probabilities
-        sorted_ids = numpy.argsort(softmax_vector)[-1:-5:-1]
+        num_candidates = len(self.candidate_pixels_list)
+        sorted_ids = numpy.argsort(softmax_vector)[-1:-(num_candidates + 1):-1]
         message = "Category/probability: "
-        for sorted_id in sorted_ids:
+        for (sorted_id,
+             candidate_pixels) in safe_zip(sorted_ids,
+                                           self.candidate_pixels_list):
             category = new_norb.get_category_value(sorted_id / 10)
             instance = sorted_id % 10
             probability = softmax_vector[sorted_id]
             message = message + "%s%d/%0.2f " % (category,
                                                  instance,
                                                  probability)
+            example_image = self.example_images[sorted_id]
+            candidate_pixels[...] = example_image[:, :, numpy.newaxis]
 
         print message
 
@@ -283,12 +323,17 @@ class ClassifierDisplay(object):
 
         self.model_input_pixels[...] = get_visible_model_input(model_input)
 
-        self.axes.imshow(model_input[0, :, :, 0],
-                         interpolation='nearest',
-                         cmap='gray')
-        self.figure.canvas.draw()
+        # self.axes.imshow(model_input[0, :, :, 0],
+        #                  interpolation='nearest',
+        #                  cmap='gray')
+        # self.figure.canvas.draw()
 
         cv2.imshow('classifier', self.all_pixels)
+
+        image_path = os.path.join(self.output_dir,
+                                  "frame_%05d.png" % self.frame_number)
+        cv2.imwrite(image_path, self.all_pixels)
+        self.frame_number += 1
 
 
 def main():
@@ -313,6 +358,7 @@ def main():
     if args.matplotlib:
         displays.append(MatplotlibDisplay())
 
+
     while(keep_going):
         # Capture frame-by-frame
         keep_going, video_frame = cap.read()
@@ -324,8 +370,12 @@ def main():
             assert len(video_frame.shape) == 3
             assert video_frame.shape[-1] == 3
 
+            start_time = time.time()
             for display in displays:
                 display.update(video_frame)
+
+            duration = time.time() - start_time
+            print "%g fps" % (1.0 / duration)
 
             # Checks whether user quit
             if cv2.waitKey(1) & 0xFF == ord('q'):
