@@ -8,8 +8,7 @@ import sys, argparse
 import numpy, matplotlib
 from matplotlib import pyplot
 from pylearn2.utils import safe_zip, serial
-from pylearn2.scripts.papers.maxout.norb import \
-    SmallNORB_labels_to_object_ids, load_small_norb_instance_dataset
+from pylearn2.scripts.papers.maxout.norb import load_norb_instance_dataset
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 from pylearn2.datasets.norb import SmallNORB
 from pylearn2.datasets.zca_dataset import ZCA_Dataset
@@ -143,7 +142,8 @@ def main():
 
     def plot_heatmap(heatmap, axes, row_ids=None, col_ids=None, labels=None):
         axes.imshow(heatmap,
-                    norm=matplotlib.colors.no_norm(),
+                    norm=matplotlib.colors.NoNorm(),
+                    #norm=matplotlib.colors.no_norm(),
                     interpolation='nearest')
 
         if row_ids is None:
@@ -252,7 +252,7 @@ def main():
     assert softmax_labels.shape[0] == norb_labels.shape[0]
 
     dataset_path = str(input_dict['dataset_path'])
-    dataset = load_small_norb_instance_dataset(dataset_path)#, True)
+    dataset = load_norb_instance_dataset(dataset_path)#, True)
 
     # performs a mapback just to induce that function to compile.
     print "compiling un-ZCA'ing function (used for visualization)..."
@@ -277,6 +277,11 @@ def main():
         return single_image_batch[0, :, :, 0]
 
     training_set = TrainingSet(args.training_set)
+
+    def SmallNORB_labels_to_object_ids(norb_labels):
+        assert norb_labels.shape[1] == 5
+        result = norb_labels[:, 0] * 10 + norb_labels[:, 1]
+        return result
 
     ground_truth = SmallNORB_labels_to_object_ids(norb_labels)
     hard_labels = numpy.argmax(softmax_labels, axis=1)

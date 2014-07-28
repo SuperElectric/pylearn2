@@ -9,8 +9,7 @@ import numpy, theano
 from pylearn2.models.mlp import MLP
 from pylearn2.space import VectorSpace, CompositeSpace
 from pylearn2.utils import serial
-from pylearn2.scripts.papers.maxout.norb import \
-    SmallNORB_labels_to_object_ids, load_small_norb_instance_dataset
+from pylearn2.scripts.papers.maxout.norb import load_norb_instance_dataset
 
 
 def main():
@@ -107,7 +106,8 @@ def main():
         return theano.function([input_symbol, ], output_symbol)
 
     args = parse_args()
-    test_set = load_small_norb_instance_dataset(args.dataset)
+    # test_set = load_norb_instance_dataset(args.dataset)
+    test_set = serial.load(args.dataset)
 
     model = serial.load(args.model)
 
@@ -116,7 +116,7 @@ def main():
     assert isinstance(model, MLP)
 
     batch_size = args.batch_size
-
+    print "test_set.y.shape: ", test_set.y.shape
     data_specs = (CompositeSpace((model.input_space,
                                   VectorSpace(dim=test_set.y.shape[1]))),
                   ('features', 'targets'))
@@ -127,7 +127,7 @@ def main():
     num_data = 0
 
     start_time = time.time()
-    for batch_number, (image, norb_label) in \
+    for batch_number, (image, object_id) in \
         enumerate(test_set.iterator(mode='sequential',
                                     batch_size=batch_size,
                                     data_specs=data_specs,
@@ -146,7 +146,6 @@ def main():
         fps = float(num_data) / time_elapsed
         print "Processed %.01f %% of %d images, fps = %g" % \
               (percent, test_set.y.shape[0], fps)
-
 
     numpy.savez(args.output,
                 softmaxes=all_computed_ids,

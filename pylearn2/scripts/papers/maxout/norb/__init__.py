@@ -9,17 +9,18 @@ from pylearn2.datasets.zca_dataset import ZCA_Dataset
 from pylearn2.datasets.norb import SmallNORB
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 
-
 def load_norb_instance_dataset(dataset_path,
                                # use_norb_labels=False,
                                convert_to_one_hot=False):
     """
-    Loads a NORB (big or small) instance dataset and its preprocessor.
+    Loads a NORB (big or small) instance dataset and its preprocessor,
+    returns both as a ZCA_Dataset (contains its own preprocessor).
 
-    returns: dataset, original_labels
-    dataset_path: ZCA_Dataset
-        The labels are the original NORB label vectors.
-        Use SmallNORB_labels_to_object_ids() to convert to object IDs.
+    The dataset's y (labels) will be converted to object_id integers.
+
+    returns: dataset
+    dataset_path: string
+      path to instance dataset's .pkl file
     """
 
     def load_instance_dataset(dataset_path):

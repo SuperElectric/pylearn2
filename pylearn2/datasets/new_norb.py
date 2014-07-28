@@ -490,7 +490,9 @@ class NORB(DenseDesignMatrix):
     def get_topological_view(self, mat=None, single_tensor=True):
         result = super(NORB, self).get_topological_view(mat)
 
-        if single_tensor:
+        if 's' not in self.view_converter.axes:
+            return result
+        elif single_tensor:
             warnings.warn("The single_tensor argument is True by default to "
                           "maintain backwards compatibility. This argument "
                           "will be removed, and the behavior will become that "
