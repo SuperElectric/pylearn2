@@ -220,13 +220,13 @@ class ClassifierDisplay(object):
 
         self.model_input_pixels = get_grid_window_pixels(0, 0)
 
+        num_candidates = 4
+
         self.candidate_pixels_list = tuple(get_grid_window_pixels(1, c)
-                                           for c in range(4))
+                                           for c in range(num_candidates))
 
-        # self.model_input_pixels = get_model_input_pixels(self.status_pixels,
-        #                                                  self.norb_image_shape,
-        #                                                  self.margin)
-
+        self.probability_pixels_list = tuple(get_grid_window_pixels(2, c)
+                                             for c in range(num_candidates))
 
     def update(self, video_frame):
         if self.all_pixels is None:
@@ -287,8 +287,10 @@ class ClassifierDisplay(object):
         sorted_ids = numpy.argsort(softmax_vector)[-1:-(num_candidates + 1):-1]
         message = "Category/probability: "
         for (sorted_id,
-             candidate_pixels) in safe_zip(sorted_ids,
-                                           self.candidate_pixels_list):
+             candidate_pixels,
+             probability_pixels) in safe_zip(sorted_ids,
+                                             self.candidate_pixels_list,
+                                             self.probability_pixels_list):
             category = new_norb.get_category_value(sorted_id / 10)
             instance = sorted_id % 10
             probability = softmax_vector[sorted_id]
@@ -297,6 +299,15 @@ class ClassifierDisplay(object):
                                                  probability)
             example_image = self.example_images[sorted_id]
             candidate_pixels[...] = example_image[:, :, numpy.newaxis]
+            probability_pixels.fill(0)
+            cv2.putText(probability_pixels,
+                        "%.02f" % probability,
+                        (15, 40),  # position x, y (+x = right, +y = down)
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1,  # font scale
+                        (255, 255, 255), # color
+                        2,  # thickness
+                        cv2.CV_AA)  # line type
 
         print message
 
