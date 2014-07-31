@@ -11,7 +11,7 @@ def parse_args():
                         "--frame_template",
                         required=True,
                         help=("A C-style string template (e.g. "
-                              "'frame_%05d.png') that fits the "
+                              "'frame_%%05d.png') that fits the "
                               "filenames of the input frame images."))
 
     parser.add_argument("-o",

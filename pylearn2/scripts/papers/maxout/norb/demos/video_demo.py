@@ -294,11 +294,12 @@ class ClassifierDisplay(object):
             category = new_norb.get_category_value(sorted_id / 10)
             instance = sorted_id % 10
             probability = softmax_vector[sorted_id]
-            message = message + "%s%d/%0.2f " % (category,
-                                                 instance,
-                                                 probability)
+
             example_image = self.example_images[sorted_id]
             candidate_pixels[...] = example_image[:, :, numpy.newaxis]
+
+            # Draws probabilities
+            # Reference: http://docs.opencv.org/trunk/doc/py_tutorials/py_gui/py_drawing_functions/py_drawing_functions.html
             probability_pixels.fill(0)
             cv2.putText(probability_pixels,
                         "%.02f" % probability,
@@ -308,8 +309,6 @@ class ClassifierDisplay(object):
                         (255, 255, 255), # color
                         2,  # thickness
                         cv2.CV_AA)  # line type
-
-        print message
 
         def get_visible_model_input(model_input):
             assert str(model_input.dtype) == theano.config.floatX
