@@ -14,13 +14,14 @@
                      tied_b: 1,
                      W_lr_scale: .05,
                      b_lr_scale: .05,
-                     num_channels: 96, #192, #96,
+                     num_channels: 96, #192, #96,  # must be a multiple of 16
                      num_pieces: 2,
-                     kernel_shape: [8, 8], #[6, 6], # [8, 8],
-                     pool_shape: [4, 4], #[18, 18], #[24, 24],  # [12, 12]. was [4, 4] for cifar 10, but NORB images are >= 3x as tall and wide.
+                     kernel_shape: [8, 8], #[6, 6], # [8, 8],  # must be square
+                     pool_shape: [4, 4], #[18, 18], #[24, 24],  # [12, 12]. was [4, 4] for cifar 10, but NORB images are >= 3x as tall and wide.  # must be <= kernel_shape
                      pool_stride: [2, 2], # [6, 6],  # was [2, 2] for cifar10, but NORB images are >= 3x as tall and wide.
                      irange: .005,
                      max_kernel_norm: .9,
+                     fix_pool_shape: True
                      # partial_sum: 109, #97,  # was 33 for cifar10. Seems to be (image_height or image_width) + 1.
                  },
                  # Input: 16x16x96
@@ -37,6 +38,7 @@
                      pool_stride: [2, 2],
                      irange: .005,
                      max_kernel_norm: 1.9365,
+                     fix_pool_shape: True
                      # partial_sum: 17, # 15, #17, # 15
                  },
                  # Input: 5x5x192 
@@ -53,6 +55,7 @@
                      pool_stride: [2, 2],
                      irange: .005,
                      max_kernel_norm: 1.9365,
+                     fix_pool_shape: True
                  },
                  # Input: 4x4x192 (=3072)
                  !obj:pylearn2.models.maxout.Maxout {
