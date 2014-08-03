@@ -12,6 +12,7 @@ from os import environ, close
 from decimal import Decimal
 from tempfile import mkstemp
 from pylearn2.utils import serial
+from pylearn2.utils.exc import reraise_as
 import yaml
 
 
@@ -117,7 +118,7 @@ def test_multi_constructor_obj():
         pass
     except Exception, e:
         error_msg = "Got the unexpected error: %s" % (e)
-        raise ValueError(error_msg)
+        reraise_as(ValueError(error_msg))
 
 
 def test_duplicate_keywords():
@@ -225,6 +226,17 @@ def test_pkl_yaml_src_field():
         assert loaded.yaml_src == yaml
     finally:
         os.remove(fn)
+
+
+def test_instantiate_regression():
+    """
+    Test a case where instantiated objects were not getting correctly
+    reused across references.
+    """
+    yaml = ("{'a': &test !obj:pylearn2.config.tests.test_yaml_parse.DumDum {},"
+            " 'b': *test}")
+    obj = load(yaml)
+    assert obj['a'] is obj['b']
 
 
 if __name__ == "__main__":
