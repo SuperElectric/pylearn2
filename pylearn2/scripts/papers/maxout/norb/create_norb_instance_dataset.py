@@ -218,6 +218,9 @@ def split_into_unpreprocessed_datasets(norb, args):
             result = numpy.logical_and(result,
                                        (elevations % elevation_modulo) == 0)
 
+        print ("testing rowmask has %d/%d nonzeros" %
+               (numpy.count_nonzero(result), len(result)))
+
         # testing_fraction: the fraction of the dataset that is testing data.
         num_nonblank = norb_dataset.y.shape[0] - len(blank_row_indices)
         num_nonblank_testing = numpy.count_nonzero(result)
@@ -291,8 +294,8 @@ def split_into_unpreprocessed_datasets(norb, args):
                                in safe_zip((images_shape, labels_shape),
                                            (images_dtype, labels_dtype))])
 
-        print("allocating image and label memmaps for %sing set (%s total)" %
-              (set_name, human_readable_memory_size(num_bytes)))
+        print("allocating image and label memmaps for %sing set (%d rows, %s total)" %
+              (set_name, num_rows, human_readable_memory_size(num_bytes)))
 
         X, y = tuple(get_memmap(path, shape, dtype)
                      for path, shape, dtype

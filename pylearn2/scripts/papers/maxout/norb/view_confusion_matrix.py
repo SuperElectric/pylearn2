@@ -252,7 +252,7 @@ def main():
     assert softmax_labels.shape[0] == norb_labels.shape[0]
 
     dataset_path = str(input_dict['dataset_path'])
-    dataset = load_norb_instance_dataset(dataset_path)#, True)
+    dataset = load_norb_instance_dataset(dataset_path) #, True)
 
     # performs a mapback just to induce that function to compile.
     print "compiling un-ZCA'ing function (used for visualization)..."
@@ -261,7 +261,9 @@ def main():
 
     label_to_index = {}
     for index, label in enumerate(dataset.y):
-        label_to_index[tuple(label)] = index
+        key = tuple(label)
+        assert key not in label_to_index
+        label_to_index[key] = index
 
     def get_image_with_label(norb_label):
         if len(norb_label) != dataset.y.shape[1]:
