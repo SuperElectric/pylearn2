@@ -39,18 +39,19 @@ def parse_args():
                         required=False,
                         default=2,
                         metavar='A',
-                        help=("Use every A'th azimuth as a testing "
-                              "instance. To use all azimuths for "
-                              "training, enter 0."))
+                        help=("Use every A'th azimuth as a testing instance. "
+                              "To use all azimuths, enter 1. To use none, "
+                              "enter 0."))
+
     parser.add_argument("-e",
                         "--elevation_ratio",
                         type=int,
                         required=False,
-                        default=0,
+                        default=1,
                         metavar='E',
                         help=("Use every E'th elevation as a testing "
-                              "instance. To use all azimuths for "
-                              "training, enter 0."))
+                              "instance. To use all azimuths, enter 1. To use "
+                              "none, enter 0."))
 
     parser.add_argument("-i",
                         "--which_image",
@@ -65,7 +66,14 @@ def parse_args():
                         required=True,
                         help="Which NORB dataset to use")
 
-    return parser.parse_args()
+    result = parser.parse_args()
+
+    if (result.azimuth_ratio == 0) != (result.elevation_ratio == 0):
+        print ("--azimuth-ratio and --elevation-ratio must either both be "
+               "positive, or both be zero. Exiting...")
+        sys.exit(1)
+
+    return result
 
 
 def get_output_paths(args):
@@ -192,54 +200,74 @@ def split_into_unpreprocessed_datasets(norb, args):
 
         assert not None in (azimuth_index, elevation_index)
 
-        blank_rowmask = (norb_dataset.y[:, category_index] == 5)
-        blank_row_indices = numpy.nonzero(blank_rowmask)
-        assert(len(blank_row_indices) == 1)
-        blank_row_indices = blank_row_indices[0]
-        print("num. of blanks: %d" % len(blank_row_indices))
+        all_blanks_rowmask = (norb_dataset.y[:, category_index] == 5)
 
-        # Excludes blanks from the azimuth and elevation filters
-        result = numpy.logical_not(blank_rowmask)
-        assert numpy.logical_not(result[blank_row_indices]).all()
+        def get_angle_rowmask():
+            """
+            Returns the row indices corresponding to camera views that
+            satisfy both azimuth_ratio and elevation_ratio.
 
-        # Azimuth labels are spaced by 2
-        azimuth_modulo = azimuth_ratio * 2
+            Blank images are excluded, since their camera angles are undefined.
+            """
 
-        # Elevation labels are integers from 0 to 9, so no need to convert
-        elevation_modulo = elevation_ratio
+            # special case when user chooses to use all data for training
+            if azimuth_ratio == 0 and elevation_ratio == 0:
+                return numpy.zeros(norb_dataset.y.shape[0], dtype=bool)
+            else:
+                assert azimuth_ratio > 0 and elevation_ratio > 0, \
+                    ("Illegal arguments. This should've been caught in "
+                     "parse_args.")
 
-        if azimuth_modulo > 0:
+            # azimuth labels are spaced by 2, hence the "* 2"
             azimuths = labels[:, azimuth_index]
-            result = numpy.logical_and(result,
-                                       (azimuths % azimuth_modulo) == 0)
+            azimuth_rowmask = ((azimuths % azimuth_ratio * 2) == 0)
 
-        if elevation_modulo > 0:
             elevations = labels[:, elevation_index]
-            result = numpy.logical_and(result,
-                                       (elevations % elevation_modulo) == 0)
+            elevation_rowmask = ((elevations % elevation_ratio) == 0)
 
-        print ("testing rowmask has %d/%d nonzeros" %
-               (numpy.count_nonzero(result), len(result)))
+            return logical_and(logical_not(all_blanks_rowmask),
+                               logical_and(azimuth_rowmask, elevation_rowmask))
 
-        # testing_fraction: the fraction of the dataset that is testing data.
-        num_nonblank = norb_dataset.y.shape[0] - len(blank_row_indices)
-        num_nonblank_testing = numpy.count_nonzero(result)
-        testing_fraction = num_nonblank_testing / float(num_nonblank)
-        assert testing_fraction >= 0
-        assert testing_fraction <= 1.0
+        result = get_angle_rowmask()
 
-        # Include <testing_fraction> of the blank images for the testing data.
-        rng = numpy.random.RandomState(seed=1234)
-        rng.shuffle(blank_row_indices)  # in-place
-        num_testing_blanks = int(len(blank_row_indices) * testing_fraction)
-        print("Including %d blank images in testing set, %d in training set" %
-              (num_testing_blanks,
-               len(blank_row_indices) - num_testing_blanks))
-        blank_row_indices = blank_row_indices[:num_testing_blanks]
+        def add_testing_blanks(result):
+            """
+            Divides up the blank images in the same ratio as the nonblank
+            images, and add some random selection of blank images into result.
+            """
 
-        # all blank indices should be False
-        assert numpy.logical_not(result[blank_row_indices]).all()
-        result[blank_row_indices] = True
+            # testing_fraction: the fraction of the dataset that is testing
+            # data.
+            blank_row_indices = numpy.nonzero(all_blanks_rowmask)[0]
+            num_nonblank = norb_dataset.y.shape[0] - len(blank_row_indices)
+            num_nonblank_testing = numpy.count_nonzero(result)
+            testing_fraction = num_nonblank_testing / float(num_nonblank)
+            assert testing_fraction >= 0
+            assert testing_fraction <= 1.0
+
+            # Include <testing_fraction> of the blank images for the testing
+            # data.
+            rng = numpy.random.RandomState(seed=1234)
+            rng.shuffle(blank_row_indices)  # in-place
+            num_testing_blanks = int(len(blank_row_indices) * testing_fraction)
+            testing_blank_row_indices = blank_row_indices[:num_testing_blanks]
+
+            # Add in the testing blanks
+            result[testing_blank_row_indices] = True
+
+        add_testing_blanks(result)
+
+        # Print the # of training vs testing
+        num_total = norb_dataset.y.shape[0]
+        num_testing = numpy.count_nonzero(result)
+        num_training = num_total - num_testing
+        testing_fraction = (num_testing / float(num_total))
+        training_fraction = 1.0 - testing_fraction
+        print ("%d (%d%%) training images, %d (%d%%) testing images." %
+               (num_training,
+                int(training_fraction * 100),
+                num_testing,
+                int(testing_fraction * 100)))
 
         return result
 
@@ -262,10 +290,16 @@ def split_into_unpreprocessed_datasets(norb, args):
 
     def get_memmap(path, shape, dtype):
         mode = 'r+' if os.path.isfile(path) else 'w+'
-        return numpy.lib.format.open_memmap(filename=path,
-                                            mode=mode,
-                                            dtype=dtype,
-                                            shape=shape)
+        result = numpy.memmap(filename=path,
+                              mode=mode,
+                              dtype=dtype,
+                              shape=shape)
+
+        if result.shape != shape:
+            raise IOError("Asked numpy for a %s memmap, but got a %s "
+                          "memmap." % (str(shape), str(result.shape)))
+
+        return result
 
     def human_readable_memory_size(size, precision=2):
         suffixes = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -283,38 +317,50 @@ def split_into_unpreprocessed_datasets(norb, args):
                                (training_labels_path, testing_labels_path),
                                ('train', 'test')):
 
+        print("Set: %s" % set_name)
+
         num_rows = numpy.count_nonzero(rowmask)
-        images_shape = (num_rows, numpy.prod(image_shape))
-        images_dtype = numpy.dtype(theano.config.floatX)
-        labels_shape = (num_rows, labels.shape[1])
-        labels_dtype = norb.y.dtype
 
-        num_bytes = numpy.sum([numpy.prod(s) * numpy.dtype(d).itemsize
-                               for s, d
-                               in safe_zip((images_shape, labels_shape),
-                                           (images_dtype, labels_dtype))])
+        if num_rows == 0:
+            print("  Skipping allocation of empty %sing set" % set_name)
+            result.append(None)
+        else:
+            images_shape = (num_rows, numpy.prod(image_shape))
+            images_dtype = numpy.dtype(theano.config.floatX)
+            labels_shape = (num_rows, labels.shape[1])
+            labels_dtype = norb.y.dtype
 
-        print("allocating image and label memmaps for %sing set (%d rows, %s total)" %
-              (set_name, num_rows, human_readable_memory_size(num_bytes)))
+            print("  images_shape: %s" % str(images_shape))
 
-        X, y = tuple(get_memmap(path, shape, dtype)
-                     for path, shape, dtype
-                     in safe_zip((images_path, labels_path),
-                                 (images_shape, labels_shape),
-                                 (images_dtype, labels_dtype)))
+            num_bytes = numpy.sum([numpy.prod(s) * numpy.dtype(d).itemsize
+                                   for s, d
+                                   in safe_zip((images_shape, labels_shape),
+                                               (images_dtype, labels_dtype))])
 
-        X[...] = images[rowmask, :]
-        assert isinstance(X, numpy.memmap), "type(X) = %s" % type(X)
+            print("  allocating image and label memmaps for %sing set "
+                  "(%d rows, %s total)" %
+                  (set_name, num_rows, human_readable_memory_size(num_bytes)))
 
-        X /= 255.0  # at least for zca, this makes no difference.
+            X, y = tuple(get_memmap(path, shape, dtype)
+                         for path, shape, dtype
+                         in safe_zip((images_path, labels_path),
+                                     (images_shape, labels_shape),
+                                     (images_dtype, labels_dtype)))
 
-        y[...] = labels[rowmask, :]
+            # print("%s: X.shape: %s images[rowmask, :].shape: %s" %
+            #       (set_name, str(X.shape), str(images[rowmask, :].shape)))
+            X[...] = images[rowmask, :]
+            assert isinstance(X, numpy.memmap), "type(X) = %s" % type(X)
 
-        dataset = copy.copy(norb)  # shallow copy
-        dataset.X = X
-        dataset.y = y
-        dataset.view_converter = copy.deepcopy(mono_view_converter)
-        result.append(dataset)
+            X /= 255.0  # at least for zca, this makes no difference.
+
+            y[...] = labels[rowmask, :]
+
+            dataset = copy.copy(norb)  # shallow copy
+            dataset.X = X
+            dataset.y = y
+            dataset.view_converter = copy.deepcopy(mono_view_converter)
+            result.append(dataset)
 
     return result
 
@@ -390,7 +436,8 @@ def main():
     # Subtracts each image's mean intensity. Scale of 55.0 taken from
     # pylearn2/scripts/datasets/make_cifar10_gcn_whitened.py
     for dataset in datasets:
-        global_contrast_normalize(dataset.X, scale=55.0, in_place=True)
+        if dataset is not None:
+            global_contrast_normalize(dataset.X, scale=55.0, in_place=True)
 
     # Prepares the output directory and checks against the existence of
     # output files. We do this before ZCA'ing, to make sure we trigger any
@@ -405,40 +452,42 @@ def main():
      pp_pkl_path,
      pp_npz_path) = output_paths
 
-    if os.path.isfile(pp_pkl_path) and os.path.isfile(pp_npz_path):
-        zca = serial.load(pp_pkl_path)
-    else:
-        zca = preprocessing.ZCA(use_memmap_workspace=True)
-        zca_training_set = get_zca_training_set(datasets[0])
+    # Create / load a ZCA preprocessor if the training set is nonzero.
+    if datasets[0] is not None:
 
-        print("Computing ZCA components using %d images out the %d training "
-              "images" % (zca_training_set.shape[0], datasets[0].y.shape[0]))
+        # Load or create a ZCA preprocessor.
+        if os.path.isfile(pp_pkl_path) and os.path.isfile(pp_npz_path):
+            zca = serial.load(pp_pkl_path)
+        elif datasets[0] is not None:
+            zca = preprocessing.ZCA(use_memmap_workspace=True)
+            zca_training_set = get_zca_training_set(datasets[0])
+
+            print("Computing ZCA components using %d images out the %d "
+                  "training images" %
+                  (zca_training_set.shape[0], datasets[0].y.shape[0]))
+            start_time = time.time()
+            zca.fit(zca_training_set)
+            print("\t...done (%g seconds)." % (time.time() - start_time))
+
+            zca.set_matrices_save_path(pp_npz_path)
+            serial.save(pp_pkl_path, zca)
+
+            print("saved preprocessor to:")
+            for pp_path in (pp_pkl_path, pp_npz_path):
+                print("\t%s" % os.path.split(pp_path)[1])
+
+        # ZCA the training set
+        print("ZCA'ing training set...")
         start_time = time.time()
-        zca.fit(zca_training_set)
+        datasets[0].apply_preprocessor(preprocessor=zca, can_fit=False)
         print("\t...done (%g seconds)." % (time.time() - start_time))
 
-        zca.set_matrices_save_path(pp_npz_path)
-        serial.save(pp_pkl_path, zca)
-
-        print("saved preprocessor to:")
-        for pp_path in (pp_pkl_path, pp_npz_path):
-            print("\t%s" % os.path.split(pp_path)[1])
-
-    print("ZCA'ing training set...")
-    start_time = time.time()
-    # pre_X = datasets[0].X.copy()
-    datasets[0].apply_preprocessor(preprocessor=zca, can_fit=False)
-    # abs_diffs = numpy.abs(pre_X.flatten() - datasets[0].X.flatten())
-    # avg_change = (abs_diffs.sum() / numpy.prod(pre_X.shape))
-    # print("\tavg pixel value change = %g" % avg_change)
-    # print("\tmin, max change = %g, %g" % (abs_diffs.min(), abs_diffs.max()))
-    # assert not (pre_X == datasets[0].X).all()
-    print("\t...done (%g seconds)." % (time.time() - start_time))
-
-    print("ZCA'ing testing set...")
-    start_time = time.time()
-    datasets[1].apply_preprocessor(preprocessor=zca, can_fit=False)
-    print("\t...done (%g seconds)." % (time.time() - start_time))
+        # ZCA the testing set
+        if datasets[1] is not None:
+            print("ZCA'ing testing set...")
+            start_time = time.time()
+            datasets[1].apply_preprocessor(preprocessor=zca, can_fit=False)
+            print("\t...done (%g seconds)." % (time.time() - start_time))
 
     print("Saving to %s:" % os.path.split(training_pkl_path)[0])
 
@@ -449,9 +498,10 @@ def main():
                                   (training_pkl_path, testing_pkl_path),
                                   (training_images_path, testing_images_path),
                                   (training_labels_path, testing_labels_path)):
-        serial.save(pkl_path, dataset)
-        for path in (pkl_path, images_path, labels_path):
-            print("\t%s" % os.path.split(path)[1])
+        if dataset is not None:
+            serial.save(pkl_path, dataset)
+            for path in (pkl_path, images_path, labels_path):
+                print("\t%s" % os.path.split(path)[1])
 
 if __name__ == '__main__':
     main()

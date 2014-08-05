@@ -1438,8 +1438,9 @@ class ZCA(Preprocessor):
             self.fit(X)
 
         if isinstance(X, numpy.memmap):
-            use_memmap_workspace = (hasattr(self, 'use_memmap_workspace') and
-                                    self.use_memmap_workspace)
+            use_memmap_workspace = (self.__dict__.get('use_memmap_workspace',
+                                                      False) and
+                                    numpy.prod(X.shape) > 0)
             if use_memmap_workspace:
                 tempdir = tempfile.mkdtemp()
                 filepath = os.path.join(tempdir,

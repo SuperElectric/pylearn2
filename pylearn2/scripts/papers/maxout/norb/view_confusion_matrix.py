@@ -4,7 +4,7 @@ A script for viewing the confusion matrix of softmax labels computed with
 ./compute_softmax_instance_labels.py
 """
 
-import sys, argparse
+import sys, argparse, os.path
 import numpy, matplotlib
 from matplotlib import pyplot
 from pylearn2.utils import safe_zip, serial
@@ -249,9 +249,15 @@ def main():
     input_dict = numpy.load(args.input)
     softmax_labels, norb_labels = tuple(input_dict[key] for key
                                         in ('softmaxes', 'norb_labels'))
-    assert softmax_labels.shape[0] == norb_labels.shape[0]
+    assert softmax_labels.shape[0] == norb_labels.shape[0], \
+        ("softmax_labels.shape: %s, norb_labels.shape: %s" %
+         (str(softmax_labels.shape), str(norb_labels.shape)))
 
     dataset_path = str(input_dict['dataset_path'])
+    data_dir = os.environ['PYLEARN2_DATA_PATH']
+    if not dataset_path.startswith(data_dir):
+        dataset_path = os.path.join(data_dir, dataset_path)
+
     dataset = load_norb_instance_dataset(dataset_path) #, True)
 
     # performs a mapback just to induce that function to compile.
