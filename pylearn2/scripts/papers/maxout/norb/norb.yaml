@@ -1,3 +1,5 @@
+# Useful tips for setting these params:
+# http://benanne.github.io/2014/04/03/faster-convolutions-in-theano.html
 !obj:pylearn2.train.Train {
     dataset: &train !obj:pylearn2.scripts.papers.maxout.norb.load_norb_instance_dataset {
       dataset_path: "${PYLEARN2_DATA_PATH}/norb/instance_recognition/norb_left_02_01_gcn_zca_train.pkl",
@@ -10,7 +12,7 @@
         layers: [
                  !obj:pylearn2.models.maxout.MaxoutConvC01B {
                      layer_name: 'h0',
-                     pad: 3, #4, # this should be half of the kernel size
+                     pad: 0,  # to preserve layer size, use kernel size - 1
                      tied_b: 1,
                      W_lr_scale: .05,
                      b_lr_scale: .05,
@@ -25,7 +27,7 @@
                  # input: 34, 34, 48
                  !obj:pylearn2.models.maxout.MaxoutConvC01B {
                      layer_name: 'h1',
-                     pad: 3,  # weird that this is 3, not kernel_shape/2
+                     pad: 0, 
                      tied_b: 1,
                      W_lr_scale: .05,
                      b_lr_scale: .05,
@@ -39,7 +41,7 @@
                  },
                  # input: 10, 10, 96
                  !obj:pylearn2.models.maxout.MaxoutConvC01B {
-                     pad: 3,
+                     pad: 0,
                      layer_name: 'h2',
                      tied_b: 1,
                      W_lr_scale: .05,
