@@ -596,8 +596,6 @@ class NORB(DenseDesignMatrix):
             shape = info['shape']
             offset = info['offset']
 
-            print "info: %s" % str(info)
-
             if offset == 0:
                 del info['offset']
                 return numpy.memmap(**info)
