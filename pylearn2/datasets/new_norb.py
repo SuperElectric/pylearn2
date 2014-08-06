@@ -596,6 +596,8 @@ class NORB(DenseDesignMatrix):
             shape = info['shape']
             offset = info['offset']
 
+            print "info: %s" % str(info)
+
             if offset == 0:
                 del info['offset']
                 return numpy.memmap(**info)
@@ -1011,4 +1013,3 @@ def _check_pickling_support():
                "than 1.7, due to a bug in 1.6.x that causes memmaps "
                "to interact poorly with pickling.")
         raise NotImplementedError(msg)
-

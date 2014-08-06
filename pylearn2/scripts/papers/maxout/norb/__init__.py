@@ -9,14 +9,59 @@ from pylearn2.datasets.zca_dataset import ZCA_Dataset
 from pylearn2.datasets.norb import SmallNORB
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 
-def load_norb_instance_dataset(dataset_path,
-                               # use_norb_labels=False,
-                               convert_to_one_hot=False):
+
+def norb_labels_to_object_ids(norb_labels, label_name_to_index):
+    """
+    Converts norb labels to unique object IDs.
+
+    Parameters:
+    -----------
+
+    norb_labels : numpy.ndarray
+      See pylearn2.datasets.NORB.y.
+      A NxM matrix of ints, where each row is a NORB label vector.
+      M == 5 for small norb, M == 11 for big NORB.
+
+    label_name_to_index : dict
+      See pylearn2.datasets.NORB.label_name_to_index.
+      Maps label name strings to their column indices in norb_labels.
+
+    returns : numpy.ndarray
+      A Nx1 matrix of ints, where each row contains a single int, identifying
+      the object identity. Ranges from 0 to 49 for small NORB, 0 to 50 for
+      big NORB (50 is for "blank" images).
+    """
+    assert norb_labels.shape[1] in (5, 11)
+
+    categories = norb_labels[:, label_name_to_index['category']]
+    instances = norb_labels[:, label_name_to_index['instance']]
+
+    # This gives wrong object_ids for 'blank'k images, which have negative
+    # instance labels.
+    object_ids = categories * 10 + instances
+
+    # Correct the 'blank' images' object_ids to be 50.
+    object_ids[categories == 5] = 50
+
+    unique_ids = frozenset(object_ids)
+    expected_num_ids = 50 if norb_labels.shape[1] == 5 else 51
+    assert len(unique_ids) == expected_num_ids, \
+        ("Only found %d unique objects in "
+         "dataset; expected all %d objects."
+         % (len(unique_ids), expected_num_ids))
+
+    return object_ids[:, numpy.newaxis]
+
+
+def load_norb_instance_dataset(dataset_path, convert_to_one_hot=False):
     """
     Loads a NORB (big or small) instance dataset and its preprocessor,
     returns both as a ZCA_Dataset (contains its own preprocessor).
 
     The dataset's y (labels) will be converted to object_id integers.
+
+    Small NORB maps to 50 classes (1 per object).
+    Big NORB maps to 51 classes (50 objects + "blank" images).
 
     returns: dataset
     dataset_path: string
@@ -26,29 +71,11 @@ def load_norb_instance_dataset(dataset_path,
     def load_instance_dataset(dataset_path):
 
         result = serial.load(dataset_path)
-        object_ids = result.y[:, 0] * 10 + result.y[:, 1]
-        unique_ids = frozenset(object_ids)
-        assert len(unique_ids) == 50, ("Only found %d unique objects in "
-                                       "dataset; expected all 50 objects."
-                                       % len(unique_ids))
-        result.y = object_ids[:, numpy.newaxis]
+        result.y = norb_labels_to_object_ids(result.y,
+                                             result.label_name_to_index)
 
-
-        # if not use_norb_labels:
-        #     norb_labels = result.y
-        #     assert norb_labels.shape[1] >= 5
-
-        #     unique_instances = frozenset(norb_labels[:, 1])
-        #     assert len(unique_instances) == 10, ("Expected 10 instance "
-        #                                          "labels, found %d" %
-        #                                          len(unique_instances))
-
-        #     object_ids = result.y[:, 0] * 10 + result.y[:, 1]
-        #     unique_ids = frozenset(object_ids)
-        #     assert len(unique_ids) == 50, ("Only found %d unique objects in "
-        #                                    "dataset; expected all 50 objects."
-        #                                    % len(unique_ids))
-        #     result.y = object_ids[:, numpy.newaxis]
+        # No need to update result.view_converter; it only deals with images,
+        # not labels.
 
         return result
 

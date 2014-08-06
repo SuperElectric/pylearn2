@@ -125,9 +125,9 @@
         # entire dataset in memory, so can't use it with big NORB.
         !obj:pylearn2.train_extensions.best_params.MonitorBasedSaveBest {
             channel_name: 'valid_y_misclass',
-            save_path: 'norb_small_experiments/${PYLEARN2_TRAIN_FILE_FULL_STEM}_best.pkl'
+            save_path: 'norb_maxout_experiments/${PYLEARN2_TRAIN_FILE_FULL_STEM}_best.pkl'
         }
     ],
-    save_path: "norb_small_experiments/${PYLEARN2_TRAIN_FILE_FULL_STEM}.pkl",
+    save_path: "norb_maxout_experiments/${PYLEARN2_TRAIN_FILE_FULL_STEM}.pkl",
     save_freq: 1
 }

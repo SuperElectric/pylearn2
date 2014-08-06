@@ -5,7 +5,7 @@
       #use_norb_labels: True
     },
     model: !obj:pylearn2.monitor.push_monitor {
-      model: !pkl: "norb_small_experiments/2014_07_25_0.15_error/norb_small.pkl",
+      model: !pkl: "norb_maxout_experiments/2014_07_25_0.15_error/norb_small.pkl",
       name: "monitor_validation"
     },
     # !obj:pylearn2.models.mlp.MLP {
@@ -145,7 +145,7 @@
         },
         !obj:pylearn2.train_extensions.best_params.MonitorBasedSaveBest {
             channel_name: 'valid_y_misclass',
-            save_path: 'norb_small_experiments/norb_small_restart_best.pkl',
+            save_path: 'norb_maxout_experiments/norb_small_restart_best.pkl',
             tag_key: 'restarted'
         }
         # ,
@@ -155,6 +155,6 @@
         #   save_images : True
         # }
     ],
-    save_path: "norb_small_experiments/${PYLEARN2_TRAIN_FILE_FULL_STEM}.pkl",
+    save_path: "norb_maxout_experiments/${PYLEARN2_TRAIN_FILE_FULL_STEM}.pkl",
     save_freq: 1
 }
