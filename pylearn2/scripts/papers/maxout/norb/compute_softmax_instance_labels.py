@@ -109,7 +109,9 @@ def main():
     # test_set = load_norb_instance_dataset(args.dataset)
     test_set = serial.load(args.dataset)
 
+    print "loading model..."
     model = serial.load(args.model)
+    print "...done loading model."
 
     # This is just a sanity check. It's not necessarily true; it's just
     # expected to be true in the current use case.
@@ -121,9 +123,11 @@ def main():
                                   VectorSpace(dim=test_set.y.shape[1]))),
                   ('features', 'targets'))
 
+    print "compiling model function..."
     model_function = get_model_function(model, batch_size)
+    print "... done compiling model function"
+
     all_computed_ids = numpy.zeros((test_set.y.shape[0], 50), dtype=floatX)
-    # all_expected_ids = numpy.zeros([test_set.y.shape[0]], dtype=int)
     num_data = 0
 
     start_time = time.time()

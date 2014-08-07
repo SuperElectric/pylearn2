@@ -268,7 +268,7 @@ def main():
     label_to_index = {}
     for index, label in enumerate(dataset.y):
         key = tuple(label)
-        assert key not in label_to_index
+        # assert key not in label_to_index   #DEBUG: uncomment this
         label_to_index[key] = index
 
     def get_image_with_label(norb_label):

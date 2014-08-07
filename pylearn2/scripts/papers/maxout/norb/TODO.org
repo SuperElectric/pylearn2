@@ -1,6 +1,11 @@
-* Write (maybe it exists?) a tool for plotting the sparsity of the top-level feature vectors, 1 row per input, as Marc'Aurelio suggests.
-** Randomize rows, look for unwanted structure.
-** Sort rows by class, then instance. See if you see any structure.
+* Visualizing high-level features
+** Visualize sparsity
+*** Change sparsity-viewing script to output codes to a file.
+*** SVD codes down to <# classes> dimensions, view.
+*** Try btSNE'ing the codes instead of SVD, view.
+**** If we're viewing the second-to-last layer's output, is this meaningful? The next layer can only do a linear projection, like SVD, not whatever t-SNE does.
+**** May be useful to t-SNE each layer's output to see if separability is increasing. Use as a cue to see if additional layers are needed.
+*** Sort rows by class, then instance. See if you see any structure.
 
 * Consider making a new .yaml from "scratch", featuring kernel sizes and strides suggested in pylearn2 tutorial docs (certainly not 24x24 pooling).
 
