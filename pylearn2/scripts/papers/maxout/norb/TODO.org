@@ -1,3 +1,11 @@
+* Fix norb_maxout branch!
+** Merge in norb branch so that browse_norb works
+** See what was missing the NORB labels, fix whatever script generated it
+** Confirm that view_confusion_matrix and browse_norb both work
+** Put a no-arg script in demos/
+** Commit and tag.
+* Push norb branch
+** Write a few unit tests, commit, push
 * Visualizing high-level features
 ** Visualize sparsity
 *** Change sparsity-viewing script to output codes to a file.

@@ -24,7 +24,7 @@
                      irange: &common_irange .005,  # .05, .005, .01
                      max_kernel_norm: .9
                  },
-                 # input: 34, 34, 48
+                 # input: 32, 32
                  !obj:pylearn2.models.maxout.MaxoutConvC01B {
                      layer_name: 'h1',
                      pad: 0, 
@@ -39,9 +39,9 @@
                      irange: *common_irange,
                      max_kernel_norm: 1.9365
                  },
-                 # input: 10, 10, 96
+                 # input: 8, 8
                  !obj:pylearn2.models.maxout.MaxoutConvC01B {
-                     pad: 0,
+                     pad: 1,
                      layer_name: 'h2',
                      tied_b: 1,
                      W_lr_scale: .05,
@@ -50,11 +50,11 @@
                      num_pieces: 2,
                      kernel_shape: [5, 5],
                      pool_shape: [4, 4],#[2, 2],
-                     pool_stride: [3, 3],  # [2, 2]
+                     pool_stride: [2, 2],  # [2, 2]
                      irange: *common_irange,
                      max_kernel_norm: 1.9365,
                  },
-                 # input: 4, 4, 192 = 3072
+                 # input: 4, 4
                  !obj:pylearn2.models.maxout.Maxout {
                     layer_name: 'h3',
                     irange: *common_irange,
@@ -76,7 +76,7 @@
         },
     },
     algorithm: !obj:pylearn2.training_algorithms.sgd.SGD {
-        learning_rate: .08,  # .17
+        learning_rate: .01, #.08,  # .17
         init_momentum: .5,
         train_iteration_mode: 'even_sequential',
         monitor_iteration_mode: 'even_sequential',
