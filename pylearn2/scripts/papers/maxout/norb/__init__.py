@@ -53,7 +53,9 @@ def norb_labels_to_object_ids(norb_labels, label_name_to_index):
     return object_ids[:, numpy.newaxis]
 
 
-def load_norb_instance_dataset(dataset_path, convert_to_one_hot=False):
+def load_norb_instance_dataset(dataset_path,
+                               convert_to_one_hot=False,
+                               crop_shape=None):
     """
     Loads a NORB (big or small) instance dataset and its preprocessor,
     returns both as a ZCA_Dataset (contains its own preprocessor).
@@ -64,8 +66,15 @@ def load_norb_instance_dataset(dataset_path, convert_to_one_hot=False):
     Big NORB maps to 51 classes (50 objects + "blank" images).
 
     returns: dataset
+
     dataset_path: string
       path to instance dataset's .pkl file
+
+    convert_to_one_hot: bool
+      If True, convert instance label to one-hot representation.
+
+
+
     """
 
     def load_instance_dataset(dataset_path):
@@ -98,6 +107,9 @@ def load_norb_instance_dataset(dataset_path, convert_to_one_hot=False):
 
     preprocessor = serial.load(get_preprocessor_path(dataset_path))
 
+    if crop_shape is not None:
+        cropper = CentralWindow(crop_shape)
+        preprocessor = Pipeline(items=(preprocessor, cropper))
     # def num_possible_objects():
     #     category_index = SmallNORB.label_type_to_index['category']
     #     instance_index = SmallNORB.label_type_to_index['instance']
