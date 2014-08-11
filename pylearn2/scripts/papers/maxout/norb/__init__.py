@@ -2,9 +2,10 @@
 Defines the pylearn2.scripts.papers.maxout.norb module.
 """
 
-import os, pickle, sys
+import os, pickle, sys, time
 import numpy
 from pylearn2.utils import serial
+from pylearn2.datasets.preprocessing import CentralWindow, Pipeline
 from pylearn2.datasets.zca_dataset import ZCA_Dataset
 from pylearn2.datasets.norb import SmallNORB
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
@@ -55,6 +56,7 @@ def norb_labels_to_object_ids(norb_labels, label_name_to_index):
 
 def load_norb_instance_dataset(dataset_path,
                                convert_to_one_hot=False,
+                               return_zca_dataset=True,
                                crop_shape=None):
     """
     Loads a NORB (big or small) instance dataset and its preprocessor,
@@ -76,6 +78,8 @@ def load_norb_instance_dataset(dataset_path,
 
 
     """
+
+    assert not (return_zca_dataset and (crop_shape is not None))
 
     def load_instance_dataset(dataset_path):
 
@@ -106,27 +110,35 @@ def load_norb_instance_dataset(dataset_path,
         return base_path + 'preprocessor.pkl'
 
     preprocessor = serial.load(get_preprocessor_path(dataset_path))
+    c01b_axes = ['c', 0, 1, 'b']
 
     if crop_shape is not None:
+        assert not return_zca_dataset
+
         cropper = CentralWindow(crop_shape)
-        preprocessor = Pipeline(items=(preprocessor, cropper))
-    # def num_possible_objects():
-    #     category_index = SmallNORB.label_type_to_index['category']
-    #     instance_index = SmallNORB.label_type_to_index['instance']
-    #     return (SmallNORB.num_labels_by_type[category_index] *
-    #             SmallNORB.num_labels_by_type[instance_index])
+        print "cropping to %s" % str(crop_shape)
+        crop_time = time.time()
+        dataset.apply_preprocessor(cropper, can_fit=False)
+        crop_time = time.time() - crop_time
+        print "...finished cropping in %g secs" % crop_time
+        dataset.set_view_converter_axes(c01b_axes)
+        assert tuple(dataset.view_converter.shape[:2]) == tuple(crop_shape)
+        if convert_to_one_hot:
+            assert dataset.y.shape[1] == 1
+            # Flatten y; otherwise convert_to_one_hot throws an exception. 
+            # That may be a bug?
+            dataset.y = dataset.y.flatten()
+            dataset.convert_to_one_hot()
 
-    # object_ids = SmallNORB_labels_to_object_ids(dataset.y)
+        return dataset
 
-    # dataset = DenseDesignMatrix(X=dataset.X,
-    #                             y=object_ids,
-    #                             view_converter=dataset.view_converter,
-    #                             max_labels=num_possible_objects())
-
-    return ZCA_Dataset(preprocessed_dataset=dataset,
-                       preprocessor=preprocessor,
-                       convert_to_one_hot=convert_to_one_hot,
-                       axes=['c', 0, 1, 'b'])
+        # preprocessor = Pipeline(items=(preprocessor, cropper))
+    else:
+        assert return_zca_dataset
+        return ZCA_Dataset(preprocessed_dataset=dataset,
+                           preprocessor=preprocessor,
+                           convert_to_one_hot=convert_to_one_hot,
+                           axes=c01b_axes)
 
 
 # def object_id_to_SmallNORB_label_pair(object_ids):
