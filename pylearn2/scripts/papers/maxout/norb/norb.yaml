@@ -81,7 +81,7 @@
                  !obj:pylearn2.models.maxout.Maxout {
                     layer_name: 'h4',
                     irange: *common_irange,
-                    num_units: 1000, #500, #2500, #500,
+                    num_units: 500, #2500, #500,
                     num_pieces: 1, #5,
                     min_zero: True,
                     max_col_norm: 1.9

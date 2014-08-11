@@ -8,7 +8,8 @@ import sys, argparse, os.path
 import numpy, matplotlib
 from matplotlib import pyplot
 from pylearn2.utils import safe_zip, serial
-from pylearn2.scripts.papers.maxout.norb import load_norb_instance_dataset
+from pylearn2.scripts.papers.maxout.norb import (load_norb_instance_dataset,
+                                                 norb_labels_to_object_ids)
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 from pylearn2.datasets.norb import SmallNORB
 from pylearn2.datasets.zca_dataset import ZCA_Dataset
@@ -286,15 +287,17 @@ def main():
 
     training_set = TrainingSet(args.training_set)
 
-    def SmallNORB_labels_to_object_ids(norb_labels):
-        assert norb_labels.shape[1] == 5
-        result = norb_labels[:, 0] * 10 + norb_labels[:, 1]
-        return result
+    # def SmallNORB_labels_to_object_ids(norb_labels):
+    #     assert norb_labels.shape[1] == 5
+    #     result = norb_labels[:, 0] * 10 + norb_labels[:, 1]
+    #     return result
 
-    ground_truth = SmallNORB_labels_to_object_ids(norb_labels)
+    # ground_truth = SmallNORB_labels_to_object_ids(norb_labels)
+    ground_truth = norb_labels_to_object_ids(norb_labels,
+                                             training_set.training_set.label_name_to_index)
     hard_labels = numpy.argmax(softmax_labels, axis=1)
 
-    num_instances = 50
+    num_instances = 50 if training_set.training_set.y.shape[1] == 5 else 51
     hard_confusion_matrix = numpy.zeros([num_instances, num_instances],
                                         dtype=float)
     soft_confusion_matrix = hard_confusion_matrix.copy()
@@ -457,8 +460,12 @@ def main():
     for axes, object_id in zip(all_axes[1, :], most_confused_objects):
         # rows of images showing object <object_id>
         row_mask = ground_truth == object_id
+        assert row_mask.shape[1] == 1
+        row_mask = row_mask[:, 0]
 
         # Find the current object's NORB labels, object ids, and softmaxes
+        print "row_mask.shape: %s, norb_labels.shape: %s" % (str(row_mask.shape),
+                                                             str(norb_labels.shape))
         actual_norb_labels = norb_labels[row_mask, :]
         actual_ids = ground_truth[row_mask]
         assert (actual_ids == object_id).all()

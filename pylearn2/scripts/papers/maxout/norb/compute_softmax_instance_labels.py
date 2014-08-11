@@ -108,6 +108,9 @@ def main():
     args = parse_args()
     # test_set = load_norb_instance_dataset(args.dataset)
     test_set = serial.load(args.dataset)
+    assert test_set.y.shape[1] in (5, 11), \
+        "test_set.y.shape = %s" % str(test_set.y.shape)
+    num_instances = 50 if test_set.y.shape[1] == 5 else 51
 
     print "loading model..."
     model = serial.load(args.model)
@@ -118,7 +121,6 @@ def main():
     assert isinstance(model, MLP)
 
     batch_size = args.batch_size
-    print "test_set.y.shape: ", test_set.y.shape
     data_specs = (CompositeSpace((model.input_space,
                                   VectorSpace(dim=test_set.y.shape[1]))),
                   ('features', 'targets'))
@@ -127,7 +129,8 @@ def main():
     model_function = get_model_function(model, batch_size)
     print "... done compiling model function"
 
-    all_computed_ids = numpy.zeros((test_set.y.shape[0], 50), dtype=floatX)
+    all_computed_ids = numpy.zeros((test_set.y.shape[0], num_instances),
+                                   dtype=floatX)
     num_data = 0
 
     start_time = time.time()
