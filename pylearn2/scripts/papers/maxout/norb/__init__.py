@@ -11,6 +11,18 @@ from pylearn2.datasets.norb import SmallNORB
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 
 
+def human_readable_memory_size(size, precision=2):
+    if size < 0:
+        raise ValueError("Size must be non-negative (was %g)." % size)
+
+    suffixes = ['B', 'KB', 'MB', 'GB', 'TB']
+    suffix_index = 0
+    while size > 1024:
+        suffix_index += 1  # increment the index of the suffix
+        size = size / 1024.0  # apply the division
+    return "%.*f %s" % (precision, size, suffixes[suffix_index])
+
+
 def norb_labels_to_object_ids(norb_labels, label_name_to_index):
     """
     Converts norb labels to unique object IDs.
@@ -84,6 +96,7 @@ def load_norb_instance_dataset(dataset_path,
     def load_instance_dataset(dataset_path):
 
         result = serial.load(dataset_path)
+        print "in load_instance_dataset, axes: %s" % str(result.view_converter.axes)
         result.y = norb_labels_to_object_ids(result.y,
                                              result.label_name_to_index)
 
@@ -110,7 +123,7 @@ def load_norb_instance_dataset(dataset_path,
         return base_path + 'preprocessor.pkl'
 
     preprocessor = serial.load(get_preprocessor_path(dataset_path))
-    c01b_axes = ['c', 0, 1, 'b']
+    # c01b_axes = ['c', 0, 1, 'b']
 
     if crop_shape is not None:
         assert not return_zca_dataset
@@ -121,11 +134,11 @@ def load_norb_instance_dataset(dataset_path,
         dataset.apply_preprocessor(cropper, can_fit=False)
         crop_time = time.time() - crop_time
         print "...finished cropping in %g secs" % crop_time
-        dataset.set_view_converter_axes(c01b_axes)
+        # dataset.set_view_converter_axes(c01b_axes)
         assert tuple(dataset.view_converter.shape[:2]) == tuple(crop_shape)
         if convert_to_one_hot:
             assert dataset.y.shape[1] == 1
-            # Flatten y; otherwise convert_to_one_hot throws an exception. 
+            # Flatten y; otherwise convert_to_one_hot throws an exception.
             # That may be a bug?
             dataset.y = dataset.y.flatten()
             dataset.convert_to_one_hot()
@@ -137,8 +150,11 @@ def load_norb_instance_dataset(dataset_path,
         assert return_zca_dataset
         return ZCA_Dataset(preprocessed_dataset=dataset,
                            preprocessor=preprocessor,
-                           convert_to_one_hot=convert_to_one_hot,
-                           axes=c01b_axes)
+                           convert_to_one_hot=convert_to_one_hot)
+        # return ZCA_Dataset(preprocessed_dataset=dataset,
+        #                    preprocessor=preprocessor,
+        #                    convert_to_one_hot=convert_to_one_hot,
+        #                    axes=c01b_axes)
 
 
 # def object_id_to_SmallNORB_label_pair(object_ids):

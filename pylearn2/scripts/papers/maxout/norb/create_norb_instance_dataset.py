@@ -21,7 +21,7 @@ from pylearn2.datasets import preprocessing
 from pylearn2.datasets.new_norb import NORB
 from pylearn2.datasets.dense_design_matrix import (DenseDesignMatrix,
                                                    DefaultViewConverter)
-
+from pylearn2.scripts.papers.maxout.norb import human_readable_memory_size
 
 def parse_args():
     """
@@ -301,13 +301,6 @@ def split_into_unpreprocessed_datasets(norb, args):
 
         return result
 
-    def human_readable_memory_size(size, precision=2):
-        suffixes = ['B', 'KB', 'MB', 'GB', 'TB']
-        siffix_index = 0
-        while size > 1024:
-            siffix_index += 1  # increment the index of the suffix
-            size = size / 1024.0  # apply the division
-        return "%.*f %s" % (precision, size, suffixes[siffix_index])
 
     for (rowmask,
          images_path,
