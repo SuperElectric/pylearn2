@@ -15,6 +15,7 @@ from __future__ import print_function
 import sys, os, time, argparse, copy
 import numpy
 import theano
+#from numpy import logical_and, logical_not
 from pylearn2.expr.preprocessing import global_contrast_normalize
 from pylearn2.utils import serial, string_utils, safe_zip
 from pylearn2.datasets import preprocessing
@@ -224,7 +225,7 @@ def split_into_unpreprocessed_datasets(norb, args):
 
             elevations = labels[:, elevation_index]
             elevation_rowmask = ((elevations % elevation_ratio) == 0)
-
+            logical_and, logical_not = (numpy.logical_and, numpy.logical_not)
             return logical_and(logical_not(all_blanks_rowmask),
                                logical_and(azimuth_rowmask, elevation_rowmask))
 
