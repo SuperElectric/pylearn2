@@ -29,6 +29,7 @@ import theano
 from pylearn2.utils import safe_zip, string_utils
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 from pylearn2.space import VectorSpace, Conv2DSpace, CompositeSpace
+from pylearn2.datasets.filetensor import read_header
 
 
 class NORB(DenseDesignMatrix):
@@ -60,6 +61,10 @@ class NORB(DenseDesignMatrix):
     label_to_value_funcs : tuple
     A tuple of functions that map label values to the physical values they
     represent (for example, elevation angle in degrees).
+
+    X_memmap_info, y_memmap_info : dict
+        Constructor arguments for the memmaps self.X and self.y, used
+        during pickling/unpickling.
     """
 
     def __init__(self, which_norb, which_set, image_dtype='uint8'):
@@ -84,10 +89,6 @@ class NORB(DenseDesignMatrix):
         image_dtype : str, or numpy.dtype
             The dtype to store image data as in the memmap cache.
             Default is uint8, which is what the original NORB files use.
-
-        X_memmap_info, y_memmap_info : dict
-            Constructor arguments for the memmaps self.X and self.y, used
-            during pickling/unpickling.
         """
 
         if which_norb not in ('big', 'small'):
@@ -124,7 +125,6 @@ class NORB(DenseDesignMatrix):
         for index, name in enumerate(self.label_index_to_name):
             self.label_name_to_index[name] = index
 
-        # self.label_to_value_funcs = _get_label_to_value_funcs(which_norb)
         self.label_to_value_funcs = (get_category_value,
                                      get_instance_value,
                                      get_elevation_value,
@@ -141,17 +141,6 @@ class NORB(DenseDesignMatrix):
 
         # The size of one side of the image
         image_length = 96 if which_norb == 'small' else 108
-
-        def get_num_rows(which_norb, which_set):
-            if which_norb == 'small':
-                return 24300
-            else:
-                num_rows_per_file = 29160
-                num_files = 2 if which_set == 'test' else 10
-                return num_rows_per_file * num_files
-
-        # Number of data rows
-        num_rows = get_num_rows(which_norb, which_set)
 
         def read_norb_files(norb_files, output):
             """
@@ -191,73 +180,33 @@ class NORB(DenseDesignMatrix):
 
                 def readNums(file_handle, num_type, count):
                     """
-                    Reads 4 bytes from file, returns it as a 32-bit integer.
+                    Reads some numbers from a file and returns them as a
+                    numpy.ndarray.
+
+                    Parameters
+                    ----------
+
+                    file_handle : file handle
+                      The file handle from which to read the numbers.
+
+                    num_type : str, numpy.dtype
+                      The dtype of the numbers.
+
+                    count : int
+                      Reads off this many numbers.
                     """
                     num_bytes = count * numpy.dtype(num_type).itemsize
                     string = file_handle.read(num_bytes)
                     return numpy.fromstring(string, dtype=num_type)
 
-                def readHeader(file_handle, debug=False, from_gzip=None):
-                    """
-                    parameters
-                    ----------
+                (elem_type,
+                 elem_size,
+                 _num_dims,
+                 shape,
+                 num_elems) = read_header(file_handle, debug)
+                del _num_dims
 
-                    file_handle : file or gzip.GzipFile
-                    An open file handle.
-
-
-                    from_gzip : bool or None
-                    If None determine the type of file handle.
-
-                    returns : tuple
-                    (data type, element size, shape)
-                    """
-
-                    if from_gzip is None:
-                        from_gzip = isinstance(file_handle,
-                                               (gzip.GzipFile, bz2.BZ2File))
-
-                    key_to_type = {0x1E3D4C51: ('float32', 4),
-                                   # what is a packed matrix?
-                                   # 0x1E3D4C52: ('packed matrix', 0),
-                                   0x1E3D4C53: ('float64', 8),
-                                   0x1E3D4C54: ('int32', 4),
-                                   0x1E3D4C55: ('uint8', 1),
-                                   0x1E3D4C56: ('int16', 2)}
-
-                    type_key = readNums(file_handle, 'int32', 1)[0]
-                    elem_type, elem_size = key_to_type[type_key]
-                    if debug:
-                        print "header's type key, type, type size: ", \
-                            type_key, elem_type, elem_size
-                    if elem_type == 'packed matrix':
-                        raise NotImplementedError("'packed matrix' dtype "
-                                                  "not supported")
-
-                    num_dims = readNums(file_handle, 'int32', 1)[0]
-                    if debug:
-                        print ('# of dimensions, according to header: %d' %
-                               num_dims)
-
-                    read_count = max(num_dims, 3)
-
-                    if from_gzip:
-                        shape = readNums(file_handle, 'int32', read_count)
-                    else:
-                        shape = numpy.fromfile(file_handle,
-                                               dtype='int32',
-                                               count=read_count)
-                    shape = shape[:num_dims]
-
-                    if debug:
-                        print 'Tensor shape, as listed in header:', shape
-
-                    return elem_type, elem_size, shape
-
-                elem_type, elem_size, shape = readHeader(file_handle, debug)
                 beginning = file_handle.tell()
-
-                num_elems = numpy.prod(shape)
 
                 result = None
                 if isinstance(file_handle, (gzip.GzipFile, bz2.BZ2File)):
@@ -287,8 +236,9 @@ class NORB(DenseDesignMatrix):
             testing_set_size = 24300
         else:
             assert which_norb == 'big'
-            training_set_size = 291600
-            testing_set_size = 58320
+            num_rows_per_file = 29160
+            training_set_size = num_rows_per_file * 10
+            testing_set_size = num_rows_per_file * 2
 
         def load_images(which_norb, which_set, dtype):
             """
@@ -487,16 +437,41 @@ class NORB(DenseDesignMatrix):
         self.y_memmap_info = None
 
     @functools.wraps(DenseDesignMatrix.get_topological_view)
-    def get_topological_view(self, mat=None, single_tensor=True):
+    def get_topological_view(self, mat=None, single_tensor=False):
+        """
+        Return a topological view.
+
+        Parameters:
+        -----------
+        mat : ndarray
+          A design matrix of images, one per row.
+
+        single_tensor : bool
+          If True, returns a single tensor. If False, returns separate
+          tensors for the left and right stereo images.
+
+        returns : ndarray, tuple
+          If single_tensor is True, returns ndarray.
+          Else, returns the tuple (left_images, right_images).
+        """
+
+        # Get topo view from view converter.
         result = super(NORB, self).get_topological_view(mat)
 
-        if 's' not in self.view_converter.axes:
-            return result
-        elif single_tensor:
-            warnings.warn("The single_tensor argument is True by default to "
-                          "maintain backwards compatibility. This argument "
-                          "will be removed, and the behavior will become that "
-                          "of single_tensor=False, as of August 2014.")
+        # If single_tensor is True, merge the left and right image tensors
+        # into a single stereo tensor.
+        if single_tensor:
+            # Check that the view_converter has a stereo axis, and that it
+            # returned a tuple (left_images, right_images)
+            if 's' not in self.view_converter.axes:
+                raise ValueError('self.view_converter.axes must contain "s" '
+                                 '(stereo image index) in order to split the '
+                                 'images into left and right images. Instead, '
+                                 'the axes were %s.'
+                                 % str(self.view_converter.axes))
+            assert isinstance(result, tuple)
+            assert len(result) == 2
+
             axes = list(self.view_converter.axes)
             s_index = axes.index('s')
             assert axes.index('b') == 0
@@ -508,10 +483,6 @@ class NORB(DenseDesignMatrix):
 
             result = tuple(t.reshape(mono_shape) for t in result)
             result = numpy.concatenate(result, axis=s_index)
-        else:
-            warnings.warn("The single_tensor argument will be removed on "
-                          "August 2014. The behavior will be the same as "
-                          "single_tensor=False.")
 
         return result
 
@@ -633,8 +604,8 @@ class StereoViewConverter(object):
 
         axes : tuple
           A tuple of the following elements in any order:
-            'b'  batch axis)
-            's'  stereo axis)
+            'b'  batch axis
+            's'  stereo axis
              0   image axis 0 (row)
              1   image axis 1 (column)
             'c'  channel axis
@@ -803,21 +774,6 @@ def get_category_value(label):
                                                   'car',
                                                   'blank'))
 
-    # name = 'category'
-    # _check_is_integral(name, label)
-
-    # if 'label_names' not in get_catgegory_value.__dict__:
-    #     get_category_value.label_names = ('animal',
-    #                                       'human',
-    #                                       'airplane',
-    #                                       'truck',
-    #                                       'car',
-    #                                       'blank')
-
-    # label_names = get_category_value.label_names
-    # _check_range(name, label, 0, len(label_names) - 1, 'category')
-    # return label_names[label]
-
 
 def _check_range_and_return(name,
                             label,
@@ -849,7 +805,7 @@ def get_azimuth_value(label):
     if label == -1:
         return None
     else:
-        if (label / 2) * 2 != label or label < 0 or label > 34:
+        if (label % 2) != 0 or label < 0 or label > 34:
             raise ValueError("Expected azimuth to be an even "
                              "number between 0 and 34 inclusive, "
                              "or -1, but got %s instead." %
@@ -884,121 +840,6 @@ def get_scale_change_value(label):
 
 def get_rotation_change_value(label):
     return _check_range_and_return('rotation change', label, -4, 4)
-
-
-def _get_label_to_value_funcs(which_norb):
-    """
-    Returns a tuple of functions that map label values (int32's) to the
-    actual physical values they represent (e.g. angles in
-    degrees). Labels with no such physical interpretation
-    (e.g. instance label) are returned unchanged.
-
-    These are useful when presenting labels to a human reader.
-
-    Often these ufuncs will just return the int unchanged.
-    In the big NORB dataset, images can contain no object. Many
-    label types will then have a 'physical value' of None.
-    """
-
-    def check_is_integral(label):
-        if not numpy.issubdtype(type(label), numpy.integer):
-            raise TypeError("Expected an integral dtype, not %s" %
-                            type(label))
-
-    def check_range(label, min_label, max_label, name):
-        if label < min_label or label > max_label:
-            raise ValueError("Expected %s label to be between %d "
-                             "and %d inclusive, , but got %s" %
-                             (name, min_label, max_label, str(label)))
-
-    def make_array_func(label_name, array):
-        def result(label):
-            check_is_integral(label)
-            check_range(label,
-                        min_label=0,
-                        max_label=len(array) - 1,
-                        name=label_name)
-            return array[label]
-
-        return result
-
-    def get_category(label):
-        check_is_integral(label)
-        check_range(label, 0, 5, 'category')
-
-        return category_names[label]
-
-    def make_identity_func(name,
-                           min_label,
-                           max_label,
-                           none_label=None):
-        def result(label):
-            check_is_integral(label)
-            check_range(label, min_label, max_label, name)
-            if label == none_label:
-                return None
-            else:
-                return label
-
-        return result
-
-    def get_elevation(label):
-        check_is_integral(label)
-        check_range(label, -1, 8, 'elevation')
-
-        if label == -1:
-            return None
-        else:
-            return label * 5 + 30
-
-    def get_azimuth(label):
-        check_is_integral(label)
-        if label == -1:
-            return None
-        else:
-            if (label / 2) * 2 != label or label < 0 or label > 34:
-                raise ValueError("Expected azimuth to be an even "
-                                 "number between 0 and 34 inclusive, "
-                                 "or -1, but got %s instead." %
-                                 str(label))
-
-            return label * 10
-
-    category_names = ['animal', 'human', 'airplane', 'truck', 'car']
-    if which_norb == 'big':
-        category_names.append('blank')
-
-    result = (make_array_func('category', category_names),
-              make_identity_func('instance',
-                                 min_label=-1,
-                                 max_label=9,
-                                 none_label=-1),
-              get_elevation,
-              get_azimuth,
-              make_identity_func('lighting',
-                                 min_label=-1,
-                                 max_label=5,
-                                 none_label=-1))
-
-    if which_norb == 'big':
-        result = result + (make_identity_func('horizontal shift',
-                                              min_label=-5,
-                                              max_label=5),
-                           make_identity_func('vertical shift',
-                                              min_label=-5,
-                                              max_label=5),
-                           make_identity_func('lumination change',
-                                              min_label=-19,
-                                              max_label=19),
-                           make_array_func('contrast change',
-                                           (0.8, 1.3)),
-                           make_array_func('scale change',
-                                           (0.78, 1.0)),
-                           make_identity_func('rotation change',
-                                              min_label=-4,
-                                              max_label=4))
-
-    return result  # ends get_label_to_value_funcs()
 
 
 def _check_pickling_support():

@@ -32,6 +32,9 @@ from pylearn2.utils import py_integer_types, py_float_types
 from pylearn2.utils import safe_zip
 from pylearn2.utils import serial
 from pylearn2.utils import sharedX
+from pylearn2.utils import contains_nan
+from pylearn2.utils import contains_inf
+from pylearn2.utils import isfinite
 from pylearn2.utils.data_specs import DataSpecsMapping
 from pylearn2.utils.exc import reraise_as
 from pylearn2.utils.timing import log_timing
@@ -146,8 +149,9 @@ class SGD(TrainingAlgorithm):
         things like check for NaNs at every step, or record md5 digests
         of all computations performed by the update function to help
         isolate problems with nondeterminism.
-    monitoring_costs : list, optional
-        a list of Cost instances. The Monitor will also include all
+    monitoring_costs : OrderedDict, optional
+        A dictionary of Cost instances. Keys should be string containing
+        the name of the cost. The Monitor will also include all
         channels defined by these Costs, even though we don't train
         using them.
     seed : valid argument to np.random.RandomState, optional
@@ -218,13 +222,13 @@ class SGD(TrainingAlgorithm):
             self.cost = model.get_default_cost()
 
         inf_params = [param for param in model.get_params()
-                      if np.any(np.isinf(param.get_value()))]
+                      if contains_inf(param.get_value())]
         if len(inf_params) > 0:
             raise ValueError("These params are Inf: "+str(inf_params))
-        if any([np.any(np.isnan(param.get_value()))
+        if any([contains_nan(param.get_value())
                 for param in model.get_params()]):
             nan_params = [param for param in model.get_params()
-                          if np.any(np.isnan(param.get_value()))]
+                          if contains_nan(param.get_value())]
             raise ValueError("These params are NaN: "+str(nan_params))
         self.model = model
 
@@ -385,10 +389,10 @@ class SGD(TrainingAlgorithm):
             if update.name is None:
                 update.name = 'censor(sgd_update(' + param.name + '))'
             for update_val in get_debug_values(update):
-                if np.any(np.isinf(update_val)):
+                if contains_inf(update_val):
                     raise ValueError("debug value of %s contains infs" %
                             update.name)
-                if np.any(np.isnan(update_val)):
+                if contains_nan(update_val):
                     raise ValueError("debug value of %s contains nans" %
                             update.name)
 
@@ -415,7 +419,7 @@ class SGD(TrainingAlgorithm):
         # Make sure none of the parameters have bad values
         for param in self.params:
             value = param.get_value(borrow=True)
-            if np.any(np.isnan(value)) or np.any(np.isinf(value)):
+            if not isfinite(value):
                 raise Exception("NaN in " + param.name)
 
         self.first = False
@@ -462,7 +466,7 @@ class SGD(TrainingAlgorithm):
         # Make sure none of the parameters have bad values
         for param in self.params:
             value = param.get_value(borrow=True)
-            if np.any(np.isnan(value)) or np.any(np.isinf(value)):
+            if not isfinite(value):
                 raise Exception("NaN in " + param.name)
 
     def continue_learning(self, model):
