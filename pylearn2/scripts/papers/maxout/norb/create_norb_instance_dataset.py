@@ -211,6 +211,8 @@ def split_into_unpreprocessed_datasets(norb, args):
             Blank images are excluded, since their camera angles are undefined.
             """
 
+            assert (azimuth_ratio == 0) == (elevation_ratio == 0)
+
             # special case when user chooses to use all data for training
             if azimuth_ratio == 0 and elevation_ratio == 0:
                 return numpy.zeros(norb_dataset.y.shape[0], dtype=bool)
@@ -221,7 +223,7 @@ def split_into_unpreprocessed_datasets(norb, args):
 
             # azimuth labels are spaced by 2, hence the "* 2"
             azimuths = labels[:, azimuth_index]
-            azimuth_rowmask = ((azimuths % azimuth_ratio * 2) == 0)
+            azimuth_rowmask = ((azimuths % (azimuth_ratio * 2) == 0))
 
             elevations = labels[:, elevation_index]
             elevation_rowmask = ((elevations % elevation_ratio) == 0)

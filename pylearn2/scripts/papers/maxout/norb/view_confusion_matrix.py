@@ -9,7 +9,8 @@ import numpy, matplotlib
 from matplotlib import pyplot
 from pylearn2.utils import safe_zip, serial
 from pylearn2.scripts.papers.maxout.norb import (load_norb_instance_dataset,
-                                                 norb_labels_to_object_ids)
+                                                 norb_labels_to_object_ids,
+                                                 object_ids_to_category_instance)
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 from pylearn2.datasets.norb import SmallNORB
 from pylearn2.datasets.zca_dataset import ZCA_Dataset
@@ -23,14 +24,31 @@ class TrainingSet(object):
 
     def __init__(self, pkl_path):
         self.training_set = serial.load(pkl_path)
-        self.num_categories = 5
-        self.instances_per_category = 10
-        self.object_indices = []
-        for c in xrange(self.num_categories):
-            for i in xrange(self.instances_per_category):
-                rowmask = numpy.all(self.training_set.y[:, :2] == [c, i],
-                                    axis=1)
-                self.object_indices.append(numpy.nonzero(rowmask)[0])
+
+        assert len(self.training_set.y.shape) == 2
+        assert self.training_set.y.shape[1] in (5, 11)
+        # self.num_categories = 5
+        # self.instances_per_category = 10
+
+        def get_object_indices():
+            object_ids = norb_labels_to_object_ids(self.training_set.y,
+                                                   self.training_set.label_name_to_index)
+            unique_ids = frozenset(object_ids)
+            result = [(), ] * (max(unique_ids) + 1)
+
+            for unique_id in unique_ids:
+                result[unique_id] = numpy.nonzero(object_ids == unique_id)[0]
+
+            return result
+
+        self.object_indices = get_object_indices()
+
+        # self.object_indices = []
+        # for c in xrange(self.num_categories):
+        #     for i in xrange(self.instances_per_category):
+        #         rowmask = numpy.all(self.training_set.y[:, :2] == [c, i],
+        #                             axis=1)
+        #         self.object_indices.append(numpy.nonzero(rowmask)[0])
 
     def get_object_example(self, object_id, reference_label=None):
         """
@@ -38,28 +56,35 @@ class TrainingSet(object):
         find an example whose label is closest to the reference_label's
         azimuth, elevation, and lighting.
         """
-        label = [0, ] * self.training_set.y.shape[1]
+        label = numpy.zeros(self.training_set.y.shape[1], dtype=int)
 
         if reference_label is not None:
             label[2:] = reference_label[2:]
 
-        label[0] = object_id / self.instances_per_category
-        label[1] = object_id % self.instances_per_category
+        category, instance = object_ids_to_category_instance(numpy.asarray(object_id))
+
+        label[0] = category
+        label[1] = instance
         return self.get_closest(label)
 
     def get_closest(self, label):
         label = numpy.array(label, dtype='int')
-        object_id = label[0] * self.instances_per_category + label[1]
+        object_id = norb_labels_to_object_ids(label,
+                                              self.training_set.label_name_to_index)
+        # object_id = label[0] * self.instances_per_category + label[1]
         labels = self.training_set.y[self.object_indices[object_id], :]
         images = self.training_set.X[self.object_indices[object_id], :]
 
         # Measures the angle difference (SSD of pitch & yaw) from <label>
+        print "labels.shape: %s, label.shape: %s" % (str(labels.shape), str(label.shape))
         angle_differences = (labels[:, 2:4] - label[2:4])
         angle_differences *= numpy.array([5.0, 10.0])  # convert to degrees
         angle_differences = numpy.sum(angle_differences ** 2.0, axis=1)
-
+        print "angle_differences.shape: %s" % str(angle_differences.shape)
+        print "numpy.min(angle_differences).shape: %s" % str(numpy.min(angle_differences).shape)
         # Discards all but the closest viewing angles.
-        closest_indices = numpy.nonzero(angle_differences == numpy.min(angle_differences))[0]
+        closest_indices = numpy.nonzero(angle_differences ==
+                                        numpy.min(angle_differences))[0]
         labels = labels[closest_indices, :]
         images = images[closest_indices, :]
 
@@ -259,7 +284,8 @@ def main():
     if not dataset_path.startswith(data_dir):
         dataset_path = os.path.join(data_dir, dataset_path)
 
-    dataset = load_norb_instance_dataset(dataset_path) #, True)
+    dataset = load_norb_instance_dataset(dataset_path,
+                                         label_format="norb")
 
     # performs a mapback just to induce that function to compile.
     print "compiling un-ZCA'ing function (used for visualization)..."
@@ -460,8 +486,9 @@ def main():
     for axes, object_id in zip(all_axes[1, :], most_confused_objects):
         # rows of images showing object <object_id>
         row_mask = ground_truth == object_id
-        assert row_mask.shape[1] == 1
-        row_mask = row_mask[:, 0]
+        assert len(row_mask.shape) == 1
+        # assert row_mask.shape[1] == 1
+        # row_mask = row_mask[:, 0]
 
         # Find the current object's NORB labels, object ids, and softmaxes
         print "row_mask.shape: %s, norb_labels.shape: %s" % (str(row_mask.shape),

@@ -23,6 +23,30 @@ def human_readable_memory_size(size, precision=2):
     return "%.*f %s" % (precision, size, suffixes[suffix_index])
 
 
+def human_readable_time_duration(seconds):
+    hours = seconds // 60
+    seconds = seconds % 60
+    days = hours // 24
+    hours = hours % 24
+
+    result = "%g s"
+    if hours > 0:
+        result = "%d h " + result
+    if days > 0:
+        result = "%d d " + result
+
+    return result
+
+
+def object_ids_to_category_instance(object_ids):
+    
+    assert len(object_ids.shape) in (0, 1)
+
+    categories = object_ids // 10
+    instances = object_ids % 10  # TODO: is instance for blank really 0?
+
+    return categories, instances
+
 def norb_labels_to_object_ids(norb_labels, label_name_to_index):
     """
     Converts norb labels to unique object IDs.
@@ -40,10 +64,13 @@ def norb_labels_to_object_ids(norb_labels, label_name_to_index):
       Maps label name strings to their column indices in norb_labels.
 
     returns : numpy.ndarray
-      A Nx1 matrix of ints, where each row contains a single int, identifying
+      A vector of ints, where each row contains a single int, identifying
       the object identity. Ranges from 0 to 49 for small NORB, 0 to 50 for
       big NORB (50 is for "blank" images).
     """
+    if len(norb_labels.shape) == 1:
+        norb_labels = norb_labels[numpy.newaxis, :]
+
     assert norb_labels.shape[1] in (5, 11)
 
     categories = norb_labels[:, label_name_to_index['category']]
@@ -56,18 +83,20 @@ def norb_labels_to_object_ids(norb_labels, label_name_to_index):
     # Correct the 'blank' images' object_ids to be 50.
     object_ids[categories == 5] = 50
 
-    unique_ids = frozenset(object_ids)
-    expected_num_ids = 50 if norb_labels.shape[1] == 5 else 51
-    assert len(unique_ids) == expected_num_ids, \
-        ("Only found %d unique objects in "
-         "dataset; expected all %d objects."
-         % (len(unique_ids), expected_num_ids))
+    # unique_ids = frozenset(object_ids)
+    # expected_num_ids = 50 if norb_labels.shape[1] == 5 else 51
+    # assert len(unique_ids) == expected_num_ids, \
+    #     ("Only found %d unique objects in "
+    #      "dataset; expected all %d objects."
+    #      % (len(unique_ids), expected_num_ids))
 
-    return object_ids[:, numpy.newaxis]
+    return object_ids
+    # return object_ids[:, numpy.newaxis]
 
 
 def load_norb_instance_dataset(dataset_path,
-                               convert_to_one_hot=False,
+                               label_format="obj_id",
+                               # convert_to_one_hot=False,
                                return_zca_dataset=True,
                                crop_shape=None):
     """
@@ -84,21 +113,41 @@ def load_norb_instance_dataset(dataset_path,
     dataset_path: string
       path to instance dataset's .pkl file
 
-    convert_to_one_hot: bool
-      If True, convert instance label to one-hot representation.
+    label_format: str
+      choices: "norb", "obj_id", "obj_onehot"
+      "norb": leave the label vectors untouched, as NORB label vectors
+      "obj_id": convert the label vectors to object ID scalars.
+      "obj_onehot": convert the label vectors to object ID one-hot vectors.
 
+    # convert_labels_to_object_ids: bool
+    #   If True, convert NORB label vectors to unique object ID scalars.
 
+    # convert_to_one_hot: bool
+    #   If True, convert instance label to one-hot representation.
 
+    crop_shape: tuple
+      A tuple of two ints. Specifies the shape of a central window to crop
+      the images to.
     """
 
     assert not (return_zca_dataset and (crop_shape is not None))
+    if label_format not in ("norb", "obj_id", "obj_onehot"):
+        raise ValueError('Expected label_format to be "norb", "obj_id", or '
+                         '"obj_onehot", but got "%s" instead.' %
+                         str(label_format))
 
     def load_instance_dataset(dataset_path):
 
         result = serial.load(dataset_path)
-        print "in load_instance_dataset, axes: %s" % str(result.view_converter.axes)
-        result.y = norb_labels_to_object_ids(result.y,
-                                             result.label_name_to_index)
+        assert len(result.y.shape) == 2
+        assert result.y.shape[1] in (5, 11), ("Expected 5 or 11 columns, "
+                                              "got %d" % result.y.shape[1])
+
+        if label_format in ('obj_id', 'obj_onehot'):
+            result.y = norb_labels_to_object_ids(result.y,
+                                                 result.label_name_to_index)
+            if label_format == 'obj_onehot':
+                result.convert_to_one_hot()
 
         # No need to update result.view_converter; it only deals with images,
         # not labels.
@@ -106,9 +155,9 @@ def load_norb_instance_dataset(dataset_path,
         return result
 
     dataset = load_instance_dataset(dataset_path)
-    assert dataset.y.shape[1] == 1, ("Dataset labels must have size 1, "
-                                     "but dataset.y.shape = %s" %
-                                     str(dataset.y.shape))
+    # assert dataset.y.shape[1] == 1, ("Dataset labels must have size 1, "
+    #                                  "but dataset.y.shape = %s" %
+    #                                  str(dataset.y.shape))
 
     def get_preprocessor_path(dataset_path):
         base_path, extension = os.path.splitext(dataset_path)
@@ -136,12 +185,9 @@ def load_norb_instance_dataset(dataset_path,
         print "...finished cropping in %g secs" % crop_time
         # dataset.set_view_converter_axes(c01b_axes)
         assert tuple(dataset.view_converter.shape[:2]) == tuple(crop_shape)
-        if convert_to_one_hot:
-            assert dataset.y.shape[1] == 1
-            # Flatten y; otherwise convert_to_one_hot throws an exception.
-            # That may be a bug?
-            dataset.y = dataset.y.flatten()
-            dataset.convert_to_one_hot()
+        # if label_format == "obj_onehot":
+        #     assert len(dataset.y.shape) == 1
+        #     dataset.convert_to_one_hot()
 
         return dataset
 
@@ -150,7 +196,10 @@ def load_norb_instance_dataset(dataset_path,
         assert return_zca_dataset
         return ZCA_Dataset(preprocessed_dataset=dataset,
                            preprocessor=preprocessor,
-                           convert_to_one_hot=convert_to_one_hot)
+                           convert_to_one_hot=False)
+        # return ZCA_Dataset(preprocessed_dataset=dataset,
+        #                    preprocessor=preprocessor,
+        #                    convert_to_one_hot=convert_to_one_hot)
         # return ZCA_Dataset(preprocessed_dataset=dataset,
         #                    preprocessor=preprocessor,
         #                    convert_to_one_hot=convert_to_one_hot,

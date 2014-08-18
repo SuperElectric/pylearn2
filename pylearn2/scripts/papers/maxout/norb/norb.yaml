@@ -3,7 +3,7 @@
 !obj:pylearn2.train.Train {
     dataset: &train !obj:pylearn2.scripts.papers.maxout.norb.load_norb_instance_dataset {
       dataset_path: "${PYLEARN2_DATA_PATH}/norb/instance_recognition/norb_left_02_01_gcn_zca_train.pkl",
-      convert_to_one_hot: True,
+      label_format: "obj_onehot",
       return_zca_dataset: False,
       crop_shape: &crop_shape [77, 77] # [64, 64]   # chop off 24, or 2/9, from each side, then add ack 4 (h0 kernel size / 2) as padding.
     },
@@ -110,13 +110,13 @@
         # this feels cheaty: using the test set as validation. maxout's cifar10.yaml does it, but the real thing to do is probably split the test set into two, and use one for validation and the other for testing?
           'valid' : !obj:pylearn2.scripts.papers.maxout.norb.load_norb_instance_dataset {
             dataset_path: "${PYLEARN2_DATA_PATH}/norb/instance_recognition/norb_left_02_01_gcn_zca_test.pkl",
-            convert_to_one_hot: True,
+            label_format: "obj_onehot",
             return_zca_dataset: False,
             crop_shape: *crop_shape
             },
           'test' : &valid !obj:pylearn2.scripts.papers.maxout.norb.load_norb_instance_dataset {
             dataset_path: "${PYLEARN2_DATA_PATH}/norb/instance_recognition/norb_left_02_01_gcn_zca_test.pkl",
-            convert_to_one_hot: True,
+            label_format: "obj_onehot",
             return_zca_dataset: False,
             crop_shape: *crop_shape
             },
