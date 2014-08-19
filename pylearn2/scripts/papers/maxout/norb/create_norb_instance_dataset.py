@@ -281,11 +281,18 @@ def split_into_unpreprocessed_datasets(norb, args):
 
     mono_view_converter = DefaultViewConverter(shape=image_shape)
 
-    all_output_paths = get_output_paths(args)
-    (training_images_path,
+    # all_output_paths = get_output_paths(args)
+    # (training_images_path,
+    #  training_labels_path,
+    #  testing_images_path,
+    #  testing_labels_path) = tuple(all_output_paths[i] for i in (1, 2, 4, 5))
+
+    (_,
+     training_images_path,
      training_labels_path,
+     _,
      testing_images_path,
-     testing_labels_path) = tuple(all_output_paths[i] for i in (1, 2, 4, 5))
+     testing_labels_path) = get_output_paths(args)
 
     # Splits images into training and testing sets
     # start_time = time.time()

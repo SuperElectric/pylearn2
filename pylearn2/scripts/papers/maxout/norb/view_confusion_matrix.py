@@ -33,7 +33,15 @@ class TrainingSet(object):
         def get_object_indices():
             object_ids = norb_labels_to_object_ids(self.training_set.y,
                                                    self.training_set.label_name_to_index)
+            print "len(object_ids): %d" % len(object_ids)
+
             unique_ids = frozenset(object_ids)
+            # print "len(unique_ids): %d" % len(unique_ids)
+            # unique_labels = frozenset(tuple(x) for x in self.training_set.y)
+            # print "len (unique_labels): %d" % len(unique_labels)
+            # print "self.training_set.y[0, :] : %s" % str(self.training_set.y[0,:])
+            # assert not numpy.all(self.training_set.y[0,:] == self.training_set.
+                                 y[1:,:])
             result = [(), ] * (max(unique_ids) + 1)
 
             for unique_id in unique_ids:
@@ -71,6 +79,10 @@ class TrainingSet(object):
         label = numpy.array(label, dtype='int')
         object_id = norb_labels_to_object_ids(label,
                                               self.training_set.label_name_to_index)
+        print "label: %s" % str(label)
+        print "object_id: %d" % object_id
+        print "len(object_indices): %d" % len(self.object_indices)
+        print "self.training_set.y.shape: %s" % str(self.training_set.y.shape)
         # object_id = label[0] * self.instances_per_category + label[1]
         labels = self.training_set.y[self.object_indices[object_id], :]
         images = self.training_set.X[self.object_indices[object_id], :]
