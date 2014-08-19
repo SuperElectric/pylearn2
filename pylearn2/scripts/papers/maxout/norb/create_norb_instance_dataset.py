@@ -8,7 +8,35 @@ dataset, by doing the following:
 2) Splits dataset into new train and test subsets with disjoint views of the
    same objects.
 
-3) Contrast-normalizes and approximately whitens these datasets.
+3) Saves the split datasets individually
+
+4) Optionally preprocesses them, and saves the preprocessed versions, along with the preprocessor, if applicable.
+
+For example, if you call:
+  ./create_norb_instance_dataset -a 2 -e 1 -i left -n small -p gcn-zca
+
+You'd create the following files, in
+{PYLEARN2_DATA_PATH}/norb_small/instance_recognition/small_norb_left_02_01/:
+
+  raw_train.pkl
+  raw_train_images.npy
+  raw_train_labels.npy
+
+  raw_test.pkl
+  raw_test_images.npy
+  raw_test_labels.npy
+
+  gcn-zca_preprocessor.pkl
+
+  gcn-zca_train.pkl
+  gcn-zca_train_images.npy
+  gcn-zca_train_labels.npy
+
+  gcn-zca_test.pkl
+  gcn-zca_test_images.npy
+  gcn-zca_test_labels.npy
+
+
 """
 
 from __future__ import print_function
@@ -23,6 +51,7 @@ from pylearn2.datasets.new_norb import NORB
 from pylearn2.datasets.dense_design_matrix import (DenseDesignMatrix,
                                                    DefaultViewConverter)
 from pylearn2.scripts.papers.maxout.norb import human_readable_memory_size
+
 
 def parse_args():
     """
@@ -67,6 +96,12 @@ def parse_args():
                         required=True,
                         help="Which NORB dataset to use")
 
+    parser.add_argument("-p",
+                        "--preprocessor",
+                        choices=('gcn-zca', 'lcn', 'none'),
+                        required=True,
+                        help="Which preprocessor to use, if any")
+
     result = parser.parse_args()
 
     if (result.azimuth_ratio == 0) != (result.elevation_ratio == 0):
@@ -74,111 +109,174 @@ def parse_args():
                "positive, or both be zero. Exiting...")
         sys.exit(1)
 
-    return result
-
-
-def get_output_paths(args):
-    """
-    Returns the output file paths, in the following order:
-
-      training set .pkl file
-      training set images .npy file
-      training set labels .npy file
-      testing set .pkl file
-      testing set images .npy file
-      testing set labels .npy file
-      preprocessor .pkl file
-      preprocessor .npz file
-
-    Creates the output directory if necessary. If not, tests to see if it's
-    writeable.
-    """
-
-    def make_output_dir():
-        """
-        Creates the output directory to save the preprocessed dataset to. If it
-        already exists, this just tests to make sure it's writeable. Also
-        puts a README file in there.
-
-        Returns the full path to the output directory.
-        """
-
-        dir_template = ('${PYLEARN2_DATA_PATH}/%s/' %
-                        ('norb' if args.which_norb == 'big'
-                         else 'norb_small'))
-        data_dir = string_utils.preprocess(dir_template)
-
-        output_dir = os.path.join(data_dir, 'instance_recognition')
-        if os.path.isdir(output_dir):
-            if not os.access(output_dir, os.W_OK):
-                print("Output directory %s is write-protected." % output_dir)
-                print("Exiting.")
-                sys.exit(1)
-        else:
-            serial.mkdir(output_dir)
-
-        with open(os.path.join(output_dir, 'README'), 'w') as readme_file:
-            readme_file.write("""
-The files in this directory were created by the "%s" script in
-pylearn2/scripts/papers/maxout/. Each run of this script generates
-the following files:
-
-  README
-  train_M_N.pkl
-  train_M_N_images.npy
-  train_M_N_labels.npy
-  test_M_N_images.pkl
-  test_M_N_labels.npy
-  preprocessor_M_N.pkl
-  preprocessor_M_N.npz
-
-The digits M and N refer to the "--azimuth-ratio" and "--elevation-ratio"
-
-As you can see, each dataset is stored in a pair of files. The .pkl file
-stores the object data, but the image data is stored separately in a .npy file.
-This is because pickle is less efficient than numpy when serializing /
-deserializing large numpy arrays.
-
-The ZCA whitening preprocessor takes a long time to compute, and therefore is
-stored for later use as preprocessor_M_N.pkl.
-""" % os.path.split(__file__)[1])
-
-        return output_dir  # ends make_output_dir()
-
-    output_dir = make_output_dir()
-
-    filename_prefix = ('%snorb_%s_%02d_%02d_gcn_zca_' %
-                       ('small_' if args.which_norb == 'small' else '',
-                        args.which_image,
-                        args.azimuth_ratio,
-                        args.elevation_ratio))
-
-    path_prefix = os.path.join(output_dir, filename_prefix)
-
-    result = []
-    for set_name in ('train', 'test'):
-        # The .pkl file
-        result.append(path_prefix + set_name + '.pkl')
-
-        # The images and labels memmap files (.npz)
-        for memmap_name in ('images', 'labels'):
-            result.append(path_prefix + set_name + "_" + memmap_name + '.npy')
-
-    # The preprocessor's .pkl and .npz files
-    result.extend([path_prefix + 'preprocessor' + extension
-                   for extension in ('.pkl', '.npz')])
+    if result.azimuth_ratio == 1 and \
+       result.elevation_ratio == 1 and \
+       result.preprocessor == 'gcn-zca':
+        print ("Both --azimuth-ratio and --elevation-ratio are 1, making the "
+               "training set empty. The gcn-zca --preprocessor requires a "
+               "non-empty training set. Exiting...")
+        sys.exit(1)
 
     return result
 
 
-def split_into_unpreprocessed_datasets(norb, args):
+def get_output_dir(args):
     """
-    Returns (training set, testing set) as a tuple of DenseDesignMatrix'es
+    Returns the path to the output directory. Creates any missing directories
+    in the path, as needed.
     """
+    data_dir = string_utils.preprocess('${PYLEARN2_DATA_PATH}')
+    assert os.path.isdir(data_dir)
+
+    dirs = [data_dir,
+            'norb' if args.which_norb == 'big' else 'norb_small',
+            'instance_recognition',
+            '%s_%02d_%02d' % (args.which_image,
+                              args.azimuth_ratio,
+                              args.elevation_ratio)]
+    return os.path.join(dirs)
+
+
+# def get_output_paths(args):
+#     """
+#     Returns the output file paths, in the following order:
+
+#       training set .pkl file
+#       training set images .npy file
+#       training set labels .npy file
+#       testing set .pkl file
+#       testing set images .npy file
+#       testing set labels .npy file
+#       preprocessor .pkl file
+#       preprocessor .npz file
+
+#     Creates the output directory if necessary. If not, tests to see if it's
+#     writeable.
+#     """
+
+#     def make_output_dir():
+#         """
+#         Creates the output directory to save the preprocessed dataset to. If it
+#         already exists, this just tests to make sure it's writeable. Also
+#         puts a README file in there.
+
+#         Returns the full path to the output directory.
+#         """
+
+#         dir_template = ('${PYLEARN2_DATA_PATH}/%s/' %
+#                         ('norb' if args.which_norb == 'big'
+#                          else 'norb_small'))
+#         data_dir = string_utils.preprocess(dir_template)
+
+#         output_dir = os.path.join(data_dir, 'instance_recognition')
+#         if os.path.isdir(output_dir):
+#             if not os.access(output_dir, os.W_OK):
+#                 print("Output directory %s is write-protected." % output_dir)
+#                 print("Exiting.")
+#                 sys.exit(1)
+#         else:
+#             serial.mkdir(output_dir)
+
+#         with open(os.path.join(output_dir, 'README'), 'w') as readme_file:
+#             readme_file.write("""
+# The files in this directory were created by the "%s" script in
+# pylearn2/scripts/papers/maxout/. Each run of this script generates
+# the following files:
+
+#   README
+#   train_M_N.pkl
+#   train_M_N_images.npy
+#   train_M_N_labels.npy
+#   test_M_N_images.pkl
+#   test_M_N_labels.npy
+#   preprocessor_M_N.pkl
+#   preprocessor_M_N.npz
+
+# The digits M and N refer to the "--azimuth-ratio" and "--elevation-ratio"
+
+# As you can see, each dataset is stored in a pair of files. The .pkl file
+# stores the object data, but the image data is stored separately in a .npy file.
+# This is because pickle is less efficient than numpy when serializing /
+# deserializing large numpy arrays.
+
+# The ZCA whitening preprocessor takes a long time to compute, and therefore is
+# stored for later use as preprocessor_M_N.pkl.
+# """ % os.path.split(__file__)[1])
+
+#         return output_dir  # ends make_output_dir()
+
+#     output_dir = make_output_dir()
+
+#     filename_prefix = ('%snorb_%s_%02d_%02d_gcn_zca_' %
+#                        ('small_' if args.which_norb == 'small' else '',
+#                         args.which_image,
+#                         args.azimuth_ratio,
+#                         args.elevation_ratio))
+
+#     path_prefix = os.path.join(output_dir, filename_prefix)
+
+#     result = []
+#     for set_name in ('train', 'test'):
+#         # The .pkl file
+#         result.append(path_prefix + set_name + '.pkl')
+
+#         # The images and labels memmap files (.npz)
+#         for memmap_name in ('images', 'labels'):
+#             result.append(path_prefix + set_name + "_" + memmap_name + '.npy')
+
+#     # The preprocessor's .pkl and .npz files
+#     result.extend([path_prefix + 'preprocessor' + extension
+#                    for extension in ('.pkl', '.npz')])
+
+#     return result
+
+
+def get_raw_datasets(norb,
+                     azimuth_ratio,
+                     elevation_ratio,
+                     which_image,
+                     output_dir):
+    """
+    Splits norb into two DenseDesignMatrices, saves them to output_dir,
+    and returns them.
+
+    If they already exist in output_dir, this just loads and returns them.
+
+    Parameters:
+    -----------
+    norb : pylearn2.datasets.new_norb.NORB
+      A NORB dataset, instantiated with which_set='both'.
+
+    azimuth_ratio : int
+      See --azimuth_ratio argument.
+
+    elevation_ratio : int
+      See --elevation_ratio argument.
+
+    which_image : str
+      See --which_image argument.
+
+    output_dir : str
+      The path to the output directory to save these datasets to.
+
+    Returns : training_set, testing_set
+    """
+
+    assert azimuth_ratio >= 0
+    assert elevation_ratio >= 0
+    assert which_image in ('left', 'right')
+
+    set_names = ['train', 'test']
+    output_paths = [os.path.join(output_dir, 'raw_%s.pkl' % s)
+                    for s in set_names]
+
+    # If the files already exist, no need to create them again.
+    if all(os.path.isfile(output_path) for output_path in output_paths):
+        return [serial.load(output_path) for output_path in output_paths]
 
     # Selects one of the two stereo images.
     images = norb.get_topological_view(single_tensor=False)
-    images = images[0 if args.which_image == 'left' else 1]
+    images = images[0 if which_image == 'left' else 1]
     image_shape = images.shape[1:]
     images = images.reshape(images.shape[0], -1)
 
@@ -275,27 +373,18 @@ def split_into_unpreprocessed_datasets(norb, args):
         return result
 
     testing_rowmask = get_testing_rowmask(norb,
-                                          args.azimuth_ratio,
-                                          args.elevation_ratio)
+                                          azimuth_ratio,
+                                          elevation_ratio)
     training_rowmask = numpy.logical_not(testing_rowmask)
 
-    mono_view_converter = DefaultViewConverter(shape=image_shape)
+    rowmasks = [training_rowmask, testing_rowmask]
 
-    # all_output_paths = get_output_paths(args)
-    # (training_images_path,
-    #  training_labels_path,
-    #  testing_images_path,
-    #  testing_labels_path) = tuple(all_output_paths[i] for i in (1, 2, 4, 5))
+    image_paths = [os.path.join(output_dir, 'raw_%s_images.npy' % s)
+                   for s in set_names]
 
-    (_,
-     training_images_path,
-     training_labels_path,
-     _,
-     testing_images_path,
-     testing_labels_path) = get_output_paths(args)
+    label_paths = [os.path.join(output_dir, 'raw_%s_labels.npy' % s)
+                   for s in set_names]
 
-    # Splits images into training and testing sets
-    # start_time = time.time()
     result = []
 
     def get_memmap(path, shape, dtype):
@@ -311,14 +400,15 @@ def split_into_unpreprocessed_datasets(norb, args):
 
         return result
 
+    mono_view_converter = DefaultViewConverter(shape=image_shape)
 
     for (rowmask,
          images_path,
          labels_path,
-         set_name) in safe_zip((training_rowmask, testing_rowmask),
-                               (training_images_path, testing_images_path),
-                               (training_labels_path, testing_labels_path),
-                               ('train', 'test')):
+         set_name) in safe_zip(rowmasks,
+                               image_paths,
+                               label_paths,
+                               set_names):
 
         print("Set: %s" % set_name)
 
@@ -355,7 +445,9 @@ def split_into_unpreprocessed_datasets(norb, args):
             X[...] = images[rowmask, :]
             assert isinstance(X, numpy.memmap), "type(X) = %s" % type(X)
 
-            X /= 255.0  # at least for zca, this makes no difference.
+            # The expected convention for floating-point pixels is that
+            # they are in the range [0.0, 1.0]
+            X /= 255.0
 
             y[...] = labels[rowmask, :]
 
@@ -365,64 +457,236 @@ def split_into_unpreprocessed_datasets(norb, args):
             dataset.view_converter = copy.deepcopy(mono_view_converter)
             result.append(dataset)
 
+    for output_dataset, output_path in safe_zip(result, output_path):
+        if output_dataset is not None:
+            serial.save(output_dataset, output_path)
+
     return result
 
 
-def get_zca_training_set(training_set):
-    """
-    Returns a design matrix containing one image per short label in
-    training_set. If there are blank images, then the returned matrix
-    will contain N of them, where N is the average number of images
-    per object.
-    """
+def preprocess_lcn(datasets):
+    raise NotImplementedError()
 
-    # bin images according to short label
-    labels = training_set.y[:, :5]
-    bins = {}
-    for row_index, (datum, label_memmap) in enumerate(safe_zip(training_set.X,
-                                                               labels)):
-        label = tuple(label_memmap)
-        if label not in bins:
-            bins[label] = [row_index]
-        else:
-            bins[label].append(row_index)
 
-    row_indices_of_blanks = None
-    blank_label = None
-    for label, row_indices in bins.iteritems():
+def preprocess_gcn_zca(datasets, preprocessor_path):
+    assert datasets[0] is not None
+    assert len(datasets) == 2
+
+    # GCN: Subtracts each image's mean intensity. Scale of 55.0 taken from
+    # pylearn2/scripts/datasets/make_cifar10_gcn_whitened.py
+    for dataset in datasets:
+        if dataset is not None:
+            global_contrast_normalize(dataset.X, scale=55.0, in_place=True)
+
+    def get_zca_training_set(training_set):
+        """
+        Returns a design matrix containing one image per short label in
+        training_set. If there are blank images, then the returned matrix
+        will contain N of them, where N is the average number of images
+        per object.
+        """
+
+        # bin images according to short label
+        labels = training_set.y[:, :5]
+        bins = {}
+        for (row_index,
+             (datum, label_memmap)) in enumerate(safe_zip(training_set.X,
+                                                          labels)):
+            label = tuple(label_memmap)
+            if label not in bins:
+                bins[label] = [row_index]
+            else:
+                bins[label].append(row_index)
+
+        row_indices_of_blanks = None
+        blank_label = None
+        for label, row_indices in bins.iteritems():
+            if blank_label is not None:
+                # Makes sure that all blank labels are the same (i.e. ended up
+                # in the same bin).
+                assert label[0] != 5
+            elif label[0] == 5:
+                row_indices_of_blanks = row_indices
+                blank_label = label
+                # print("BL: %s" % str(blank_label))
+
+        row_indices = []
+
         if blank_label is not None:
-            # Makes sure that all blank labels are the same (i.e. ended up in
-            # the same bin).
-            assert label[0] != 5
-        elif label[0] == 5:
-            row_indices_of_blanks = row_indices
-            blank_label = label
-            # print("BL: %s" % str(blank_label))
+            # Removes bin of blank images, if there is one.
+            del bins[blank_label]
 
-    row_indices = []
+            # Computes avg number of images per object, puts that many blank
+            # images in row_indices.
+            num_objects = len(frozenset(tuple(x) for x in labels[:, :2]))
+            num_object_images = sum(len(b) for b in bins)
+            avg_images_per_object = num_object_images / float(num_objects)
 
-    if blank_label is not None:
-        # Removes bin of blank images, if there is one.
-        del bins[blank_label]
+            rng = numpy.random.RandomState(seed=9876)
+            rng.shuffle(row_indices_of_blanks)  # in-place
 
-        # Computes avg number of images per object, puts that many blank images
-        # in row_indices.
-        num_objects = len(frozenset(tuple(x) for x in labels[:, :2]))
-        num_object_images = sum(len(b) for b in bins)
-        avg_images_per_object = num_object_images / float(num_objects)
+            assert len(row_indices_of_blanks) > avg_images_per_object, \
+                ("len(row_indices_of_blanks): %d, avg_images_per_object: %d" %
+                 (len(row_indices_of_blanks), avg_images_per_object))
 
-        rng = numpy.random.RandomState(seed=9876)
-        rng.shuffle(row_indices_of_blanks)
-        assert len(row_indices_of_blanks) > avg_images_per_object, \
-            ("len(row_indices_of_blanks): %d, avg_images_per_object: %d" %
-             (len(row_indices_of_blanks), avg_images_per_object))
-        row_indices.extend(row_indices_of_blanks[:int(avg_images_per_object)])
+            avg_images_per_object = int(avg_images_per_object)
+            row_indices.extend(row_indices_of_blanks[:avg_images_per_object])
 
-    # Collects one row index for each distinct short label in training_set
-    for bin_row_indices in bins.itervalues():
-        row_indices.append(bin_row_indices[0])
+        # Collects one row index for each distinct short label in training_set
+        for bin_row_indices in bins.itervalues():
+            row_indices.append(bin_row_indices[0])
 
-    return training_set.X[tuple(row_indices), :]
+        return training_set.X[tuple(row_indices), :]
+
+    preprocessor_npz_path = os.path.splitext(preprocessor_path)[0] + '.npz'
+
+    # Load an existing ZCA preprocessor, or create one if none exists.
+    if os.path.isfile(preprocessor_path) and \
+       os.path.isfile(preprocessor_npz_path):
+        zca = serial.load(preprocessor_path)
+        print("Loaded existing preprocessor %s" % preprocessor_path)
+    elif datasets[0] is not None:
+        zca = preprocessing.ZCA(use_memmap_workspace=True)
+        zca_training_set = get_zca_training_set(datasets[0])
+
+        print("Computing ZCA components using %d images out the %d "
+              "training images" %
+              (zca_training_set.shape[0], datasets[0].y.shape[0]))
+        start_time = time.time()
+        zca.fit(zca_training_set)
+        print("\t...done (%g seconds)." % (time.time() - start_time))
+
+        zca.set_matrices_save_path(preprocessor_npz_path)
+        serial.save(preprocessor_path, zca)
+
+        print("saved preprocessor to:")
+        for pp_path in (preprocessor_path, preprocessor_npz_path):
+            print("\t%s" % os.path.split(pp_path)[1])
+
+    # ZCA the training set
+    print("ZCA'ing training set...")
+    start_time = time.time()
+    datasets[0].apply_preprocessor(preprocessor=zca,
+                                   can_fit=False)  # sic; fit() called above.
+    print("\t...done (%g seconds)." % (time.time() - start_time))
+
+    # ZCA the testing set
+    if datasets[1] is not None:
+        print("ZCA'ing testing set...")
+        start_time = time.time()
+        datasets[1].apply_preprocessor(preprocessor=zca, can_fit=False)
+        print("\t...done (%g seconds)." % (time.time() - start_time))
+
+
+def preprocess_and_save_datasets(raw_datasets, preprocessor_name, output_dir):
+    """
+    Takes a pair of raw datasets, makes deep copies of them, and preprocesses
+    the copies in-place. The datasets are saved in canonically-named paths.
+    If the preprocessor is data-dependent, it too is saved.
+
+    Parameters:
+    -----------
+    raw_datasets: list or tuple
+      A list/tuple of two datasets. Either can be None (though not both).
+
+    preprocessor_name: str
+      The --preprocessor argument.
+    """
+    assert preprocessor_name != 'none'
+    assert len(raw_datasets) == 2
+    for raw_dataset in raw_datasets:
+        assert raw_dataset is None or isinstance(raw_dataset, NORB)
+
+    # The prefix shared by all output files' full paths.
+    base_path = os.path.join(output_dir, preprocessor_name)
+
+    preprocessed_dataset_paths = [base_path + '_%s.pkl' % set_name
+                                  for set_name in ('train', 'test')]
+
+    if all(os.path.isfile(p) for p in preprocessed_dataset_paths):
+        print("Both preprocessed datasets already exist. Exiting without "
+              "touching them.")
+        return
+
+    def make_dataset_to_preprocess(raw_dataset, output_path):
+        """
+        Returns a deep copy of raw_dataset.
+
+        Parameters:
+        -----------
+
+        raw_dataset: NORB
+          The set to be deep-copied. Can be None, in which case this function
+          does nothing, returning None.
+
+        output_path:
+          The path that the set will be saved under. This will be used
+          to name the copy's memmap files. For example, if path is foo/bar.pkl,
+          the memmaps will be foo/bar_images.npy and foo/bar_labels.npy.
+        """
+        assert set_name in ('train', 'test')
+
+        if raw_dataset is None:
+            return None
+
+        assert isinstance(raw_dataset, NORB)
+
+        def deep_copy(raw_dataset, memmap_paths):
+            """
+            Returns a deep copy of raw_dataset. Saves the new X and y
+            memmaps to memmap_paths.
+            """
+
+            def copy_memmap(memmap_to_copy, memmap_path):
+                """
+                Makes a copy of a memmap to memmap_path.
+
+                If the memmap file already exists, opens it in read-only mode,
+                and asserts that its contents are already identical to
+                memmap_to_copy.
+                """
+                mode = 'r' if os.path.isfile(memmap_path) else 'w+'
+                result = numpy.memmap(filename=memmap_path,
+                                      mode=mode,
+                                      shape=memmap_to_copy.shape,
+                                      dtype=memmap_to_copy.dtype)
+
+                if mode == 'r':
+                    assert numpy.all(result == memmap_to_copy)
+                else:
+                    result[...] = memmap_to_copy
+
+                return result
+
+            shallow_copy = copy.copy(raw_dataset)
+            shallow_copy.X = None
+            shallow_copy.y = None
+            result = copy.deepcopy(shallow_copy)
+            result.X = copy_memmap(raw_dataset.X, memmap_paths[0])
+            result.y = copy_memmap(raw_dataset.y, memmap_paths[1])
+
+            return result
+
+        basepath = os.path.splitext(output_path)[0]
+        memmap_paths = [basepath + "_%s.npy" % tensor_name
+                        for tensor_name in ('images', 'labels')]
+
+        result_dataset = deep_copy(raw_dataset, memmap_paths)
+        result_path = basepath + ".pkl"
+        return result_dataset, result_path
+
+    preprocessed_datasets = [make_dataset_to_preprocess(r, d)
+                             for r, d in safe_zip(raw_datasets,
+                                                  preprocessed_dataset_paths)]
+
+    if preprocessor_name == 'gcn-zca':
+        preprocessor_path = base_path + ".pkl"
+        preprocess_gcn_zca(preprocessed_datasets, preprocessor_path)
+    elif preprocessor_name == 'lcn':
+        preprocess_lcn(preprocessed_datasets)
+
+    for d, p in safe_zip(preprocessed_datasets, preprocessed_dataset_paths):
+        serial.save(d, p)
 
 
 def main():
@@ -432,79 +696,98 @@ def main():
                 which_set='both',
                 image_dtype=theano.config.floatX)
 
-    # Returns (training set, testing set).
-    # Also converts from uint8 to floatX, and divides in-place by 255
-    datasets = split_into_unpreprocessed_datasets(norb, args)
+    output_dir = get_output_dir(args)
+    os.makedirs(output_dir)  # also creates any missing parent dirs.
 
-    # Subtracts each image's mean intensity. Scale of 55.0 taken from
-    # pylearn2/scripts/datasets/make_cifar10_gcn_whitened.py
-    for dataset in datasets:
-        if dataset is not None:
-            global_contrast_normalize(dataset.X, scale=55.0, in_place=True)
+    # Splits norb into training and testing sets.
+    # If the sets already exist on disk, this just loads them.
+    raw_datasets = get_raw_datasets(norb,
+                                    args.azimuth_ratio,
+                                    args.elevation_ratio,
+                                    args.which_image,
+                                    output_dir)
 
-    # Prepares the output directory and checks against the existence of
-    # output files. We do this before ZCA'ing, to make sure we trigger any
-    # IOErrors now rather than later.
-    output_paths = get_output_paths(args)
-    (training_pkl_path,
-     training_images_path,
-     training_labels_path,
-     testing_pkl_path,
-     testing_images_path,
-     testing_labels_path,
-     pp_pkl_path,
-     pp_npz_path) = output_paths
+    if raw_datasets[0] is None and args.preprocessor == 'gcn_zca':
+        raise ValueError("Training set was empty, but preprocessor was "
+                         "gcn_zca. This should've been caught in parse_args.")
 
-    # Create / load a ZCA preprocessor if the training set is nonzero.
-    if datasets[0] is not None:
+    # Preprocesses, saves datasets, unless they already exist.
+    # Also saves preprocessor, if it's fittable.
+    if args.preprocessor != 'none':
+        preprocess_and_save_datasets(raw_datasets,
+                                     args.preprocessor,
+                                     output_dir)
 
-        # Load or create a ZCA preprocessor.
-        if os.path.isfile(pp_pkl_path) and os.path.isfile(pp_npz_path):
-            zca = serial.load(pp_pkl_path)
-        elif datasets[0] is not None:
-            zca = preprocessing.ZCA(use_memmap_workspace=True)
-            zca_training_set = get_zca_training_set(datasets[0])
 
-            print("Computing ZCA components using %d images out the %d "
-                  "training images" %
-                  (zca_training_set.shape[0], datasets[0].y.shape[0]))
-            start_time = time.time()
-            zca.fit(zca_training_set)
-            print("\t...done (%g seconds)." % (time.time() - start_time))
+    # # Subtracts each image's mean intensity. Scale of 55.0 taken from
+    # # pylearn2/scripts/datasets/make_cifar10_gcn_whitened.py
+    # for dataset in datasets:
+    #     if dataset is not None:
+    #         global_contrast_normalize(dataset.X, scale=55.0, in_place=True)
 
-            zca.set_matrices_save_path(pp_npz_path)
-            serial.save(pp_pkl_path, zca)
+    # # Prepares the output directory and checks against the existence of
+    # # output files. We do this before ZCA'ing, to make sure we trigger any
+    # # IOErrors now rather than later.
+    # output_paths = get_output_paths(args)
+    # (training_pkl_path,
+    #  training_images_path,
+    #  training_labels_path,
+    #  testing_pkl_path,
+    #  testing_images_path,
+    #  testing_labels_path,
+    #  pp_pkl_path,
+    #  pp_npz_path) = output_paths
 
-            print("saved preprocessor to:")
-            for pp_path in (pp_pkl_path, pp_npz_path):
-                print("\t%s" % os.path.split(pp_path)[1])
+    # # Create / load a ZCA preprocessor if the training set is nonzero.
+    # if datasets[0] is not None:
 
-        # ZCA the training set
-        print("ZCA'ing training set...")
-        start_time = time.time()
-        datasets[0].apply_preprocessor(preprocessor=zca, can_fit=False)
-        print("\t...done (%g seconds)." % (time.time() - start_time))
+    #     # Load or create a ZCA preprocessor.
+    #     if os.path.isfile(pp_pkl_path) and os.path.isfile(pp_npz_path):
+    #         zca = serial.load(pp_pkl_path)
+    #     elif datasets[0] is not None:
+    #         zca = preprocessing.ZCA(use_memmap_workspace=True)
+    #         zca_training_set = get_zca_training_set(datasets[0])
 
-        # ZCA the testing set
-        if datasets[1] is not None:
-            print("ZCA'ing testing set...")
-            start_time = time.time()
-            datasets[1].apply_preprocessor(preprocessor=zca, can_fit=False)
-            print("\t...done (%g seconds)." % (time.time() - start_time))
+    #         print("Computing ZCA components using %d images out the %d "
+    #               "training images" %
+    #               (zca_training_set.shape[0], datasets[0].y.shape[0]))
+    #         start_time = time.time()
+    #         zca.fit(zca_training_set)
+    #         print("\t...done (%g seconds)." % (time.time() - start_time))
 
-    print("Saving to %s:" % os.path.split(training_pkl_path)[0])
+    #         zca.set_matrices_save_path(pp_npz_path)
+    #         serial.save(pp_pkl_path, zca)
 
-    for (dataset,
-         pkl_path,
-         images_path,
-         labels_path) in safe_zip(datasets,
-                                  (training_pkl_path, testing_pkl_path),
-                                  (training_images_path, testing_images_path),
-                                  (training_labels_path, testing_labels_path)):
-        if dataset is not None:
-            serial.save(pkl_path, dataset)
-            for path in (pkl_path, images_path, labels_path):
-                print("\t%s" % os.path.split(path)[1])
+    #         print("saved preprocessor to:")
+    #         for pp_path in (pp_pkl_path, pp_npz_path):
+    #             print("\t%s" % os.path.split(pp_path)[1])
+
+    #     # ZCA the training set
+    #     print("ZCA'ing training set...")
+    #     start_time = time.time()
+    #     datasets[0].apply_preprocessor(preprocessor=zca, can_fit=False)
+    #     print("\t...done (%g seconds)." % (time.time() - start_time))
+
+    #     # ZCA the testing set
+    #     if datasets[1] is not None:
+    #         print("ZCA'ing testing set...")
+    #         start_time = time.time()
+    #         datasets[1].apply_preprocessor(preprocessor=zca, can_fit=False)
+    #         print("\t...done (%g seconds)." % (time.time() - start_time))
+
+    # print("Saving to %s:" % os.path.split(training_pkl_path)[0])
+
+    # for (dataset,
+    #      pkl_path,
+    #      images_path,
+    #      labels_path) in safe_zip(datasets,
+    #                               (training_pkl_path, testing_pkl_path),
+    #                               (training_images_path, testing_images_path),
+    #                               (training_labels_path, testing_labels_path)):
+    #     if dataset is not None:
+    #         serial.save(pkl_path, dataset)
+    #         for path in (pkl_path, images_path, labels_path):
+    #             print("\t%s" % os.path.split(path)[1])
 
 if __name__ == '__main__':
     main()
