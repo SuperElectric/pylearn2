@@ -8,11 +8,12 @@ through the 3-12 images that fit those labels.
 """
 
 import sys
+import os
 import argparse
 import numpy
 from matplotlib import pyplot
 from pylearn2.datasets.new_norb import NORB
-from pylearn2.utils import safe_zip
+from pylearn2.utils import safe_zip, serial
 
 
 def _parse_args():
@@ -21,15 +22,20 @@ def _parse_args():
 
     parser.add_argument('--which_norb',
                         type=str,
-                        required=True,
+                        required=False,
                         choices=('big', 'small'),
                         help="'Selects the (big) NORB, or the Small NORB.")
 
     parser.add_argument('--which_set',
                         type=str,
-                        required=True,
+                        required=False,
                         choices=('train', 'test', 'both'),
                         help="'train', or 'test'")
+
+    parser.add_argument('--pkl',
+                        type=str,
+                        required=False,
+                        help=".pkl file of NORB dataset")
 
     parser.add_argument('--stereo_viewer',
                         action='store_true',
@@ -37,6 +43,26 @@ def _parse_args():
                         "can see them in 3D by crossing your eyes.")
 
     result = parser.parse_args()
+
+    if (result.pkl is not None) == (result.which_norb is not None or
+                                    result.which_set is not None):
+        print("Must supply either --pkl, or both --which_norb and "
+              "--which_set.")
+        sys.exit(1)
+
+    if (result.which_norb is None) != (result.which_set is None):
+        print("When not supplying --pkl, you must supply both "
+              "--which_norb and --which_set.")
+        sys.exit(1)
+
+    if result.pkl is not None:
+        if not result.pkl.endswith('.pkl'):
+            print("--pkl must be a filename that ends in .pkl")
+            sys.exit(1)
+
+        if not os.path.isfile(result.pkl):
+            print("couldn't find --pkl file '%s'" % result.pkl)
+            sys.exit(1)
 
     return result
 
@@ -130,7 +156,11 @@ def main():
 
     args = _parse_args()
 
-    dataset = NORB(args.which_norb, args.which_set)
+    if args.pkl is not None:
+        dataset = serial.load(args.pkl)
+    else:
+        dataset = NORB(args.which_norb, args.which_set)
+
     # Indexes into the first 5 labels, which live on a 5-D grid.
     grid_indices = [0, ] * 5
 
@@ -148,7 +178,11 @@ def main():
     # Index into grid_indices currently being edited
     grid_dimension = [0, ]
 
-    figure, all_axes = pyplot.subplots(1, 3, squeeze=True, figsize=(10, 3.5))
+    dataset_is_stereo = 's' in dataset.view_converter.axes
+    figure, all_axes = pyplot.subplots(1,
+                                       3 if dataset_is_stereo else 2,
+                                       squeeze=True,
+                                       figsize=(10, 3.5))
 
     figure.canvas.set_window_title("NORB dataset (%sing set)" %
                                    args.which_set)
@@ -164,7 +198,7 @@ def main():
         axes.get_yaxis().set_visible(False)
 
     text_axes, image_axes = (all_axes[0], all_axes[1:])
-    image_captions = ('left', 'right')
+    image_captions = ('left', 'right') if dataset_is_stereo else ('mono image',)
 
     if args.stereo_viewer:
         image_captions = tuple(reversed(image_captions))
@@ -261,17 +295,31 @@ def main():
                     axis.clear()
             else:
                 data_row = dataset.X[row_index:row_index + 1, :]
-                image_pair = dataset.get_topological_view(mat=data_row,
-                                                          single_tensor=True)
 
-                # Shaves off the singleton dimensions (batch # and channel #).
-                image_pair = tuple(image_pair[0, :, :, :, 0])
+                axes_names = dataset.view_converter.axes
+                assert len(axes_names) in (4, 5)
+                assert axes_names[0] == 'b'
+                assert axes_names[-3] == 0
+                assert axes_names[-2] == 1
+                assert axes_names[-1] == 'c'
 
-                if args.stereo_viewer:
-                    image_pair = tuple(reversed(image_pair))
+                if 's' in axes_names:
+                    image_pair = \
+                        dataset.get_topological_view(mat=data_row,
+                                                     single_tensor=True)
+                    # Shaves off the singleton dimensions
+                    # (batch # and channel #), leaving just 's', 0, and 1.
+                    image_pair = tuple(image_pair[0, :, :, :, 0])
 
-                for axis, image in safe_zip(image_axes, image_pair):
-                    axis.imshow(image, cmap='gray')
+                    if args.stereo_viewer:
+                        image_pair = tuple(reversed(image_pair))
+
+                    for axis, image in safe_zip(image_axes, image_pair):
+                        axis.imshow(image, cmap='gray')
+                else:
+                    image = dataset.get_topological_view(mat=data_row)
+                    image = image[0, :, :, 0]
+                    image_axes[0].imshow(image, cmap='gray')
 
         if redraw_text:
             draw_text()

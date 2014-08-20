@@ -134,7 +134,7 @@ def get_output_dir(args):
             '%s_%02d_%02d' % (args.which_image,
                               args.azimuth_ratio,
                               args.elevation_ratio)]
-    return os.path.join(dirs)
+    return os.path.join(*dirs)
 
 
 # def get_output_paths(args):
@@ -457,9 +457,9 @@ def get_raw_datasets(norb,
             dataset.view_converter = copy.deepcopy(mono_view_converter)
             result.append(dataset)
 
-    for output_dataset, output_path in safe_zip(result, output_path):
+    for output_dataset, output_path in safe_zip(result, output_paths):
         if output_dataset is not None:
-            serial.save(output_dataset, output_path)
+            serial.save(output_path, output_dataset)
 
     return result
 
@@ -697,10 +697,12 @@ def main():
                 image_dtype=theano.config.floatX)
 
     output_dir = get_output_dir(args)
-    os.makedirs(output_dir)  # also creates any missing parent dirs.
+    if not os.path.isdir(output_dir):
+        os.makedirs(output_dir)  # also creates any missing parent dirs.
 
     # Splits norb into training and testing sets.
-    # If the sets already exist on disk, this just loads them.
+    # Saves them to disk, then returns them.
+    # If the sets already exist on disk, this just loads and returns them.
     raw_datasets = get_raw_datasets(norb,
                                     args.azimuth_ratio,
                                     args.elevation_ratio,
