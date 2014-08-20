@@ -8,15 +8,16 @@ import sys, argparse, os.path
 import numpy, matplotlib
 from matplotlib import pyplot
 from pylearn2.utils import safe_zip, serial
-from pylearn2.scripts.papers.maxout.norb import (load_norb_instance_dataset,
-                                                 norb_labels_to_object_ids,
-                                                 object_ids_to_category_instance)
+from pylearn2.scripts.papers.maxout.norb import \
+    (load_norb_instance_dataset,
+     norb_labels_to_object_ids,
+     object_id_to_category_and_instance)
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 from pylearn2.datasets.norb import SmallNORB
 from pylearn2.datasets.zca_dataset import ZCA_Dataset
 
 
-class TrainingSet(object):
+class DatasetPair(object):
     """
     Encapsulates the raw and preprocessed versions of a training or testing
     set. Provides methods for retrieving example images of a particular object,
@@ -35,8 +36,8 @@ class TrainingSet(object):
 
         def load_dataset(dataset_path):
             result = serial.load(dataset_path)
-            assert len(self.dataset.y.shape) == 2
-            assert self.dataset.y.shape[1] in (5, 11)
+            assert len(result.y.shape) == 2
+            assert result.y.shape[1] in (5, 11)
             return result
 
         self.dataset = load_dataset(dataset_path)
@@ -53,14 +54,14 @@ class TrainingSet(object):
             basename, extension = os.path.splitext(filename)
             assert extension == '.pkl'
 
-            filename_parts = '_'.split(filename)
-            assert len(filename_parts) == 2
-            assert filename_parts[1] in ('test', 'train')
+            basename_parts = basename.split('_')
+            assert len(basename_parts) == 2, 'filename: "%s"' % filename
+            assert basename_parts[1] in ('test', 'train')
 
-            raw_filename = 'raw_%s.pkl' % filename_parts[1]
+            raw_filename = 'raw_%s.pkl' % basename_parts[1]
             result = os.path.join(directory, raw_filename)
 
-            if filename_parts[0] == 'raw':
+            if basename_parts[0] == 'raw':
                 assert result == dataset_path
 
             return result
@@ -93,12 +94,8 @@ class TrainingSet(object):
 
         self.object_indices = get_object_indices()
 
-        # self.object_indices = []
-        # for c in xrange(self.num_categories):
-        #     for i in xrange(self.instances_per_category):
-        #         rowmask = numpy.all(self.training_set.y[:, :2] == [c, i],
-        #                             axis=1)
-        #         self.object_indices.append(numpy.nonzero(rowmask)[0])
+        self.label_to_index = dict(safe_zip(self.dataset.y,
+                                            range(self.dataset.y.shape[0])))
 
     def get_object_example(self, object_id, reference_label=None):
         """
@@ -111,7 +108,7 @@ class TrainingSet(object):
         if reference_label is not None:
             label[2:] = reference_label[2:]
 
-        category, instance = object_ids_to_category_instance(numpy.asarray(object_id))
+        category, instance = object_id_to_category_and_instance(object_id)
 
         label[0] = category
         label[1] = instance
@@ -163,8 +160,17 @@ class TrainingSet(object):
             return result[0, :, :, 0]
 
         return tuple(get_topo_image(d, i)
-                     for d, i in safe_zip((dataset, raw_dataset),
-                                          (image_row, raw_image_row))):
+                     for d, i in safe_zip((self.dataset, self.raw_dataset),
+                                          (image_row, raw_image_row)))
+
+    def get_images_with_label(self, label):
+        assert isinstance(label, (numpy.ndarray, numpy.memmap))
+
+        row_index = self.label_to_index[label]
+        assert numpy.all(label == self.labels[row_index, :])
+
+        return tuple(dataset.X[row_index, :]
+                     for dataset in (self.dataset, self.raw_dataset))
 
 
 def main():
@@ -349,38 +355,36 @@ def main():
     if not dataset_path.startswith(data_dir):
         dataset_path = os.path.join(data_dir, dataset_path)
 
-    dataset = load_norb_instance_dataset(dataset_path,
-                                         label_format="norb")
+    testing_set = DatasetPair(dataset_path)
 
-
-    raw_dataset_path = get_raw_dataset_path(dataset_path)
-    raw_dataset = load_norb_instance_dataset(raw_dataset_path)
+    # raw_dataset_path = get_raw_dataset_path(dataset_path)
+    # raw_dataset = load_norb_instance_dataset(raw_dataset_path)
 
     # # performs a mapback just to induce that function to compile.
     # print "compiling un-ZCA'ing function (used for visualization)..."
     # dataset.mapback_for_viewer(dataset.X[:1, :])
     # print "...done"
 
-    label_to_index = {}
-    for index, label in enumerate(dataset.y):
-        key = tuple(label)
-        # assert key not in label_to_index   #DEBUG: uncomment this
-        label_to_index[key] = index
+    # label_to_index = {}
+    # for index, label in enumerate(testing_set.y):
+    #     key = tuple(label)
+    #     # assert key not in label_to_index   #DEBUG: uncomment this
+    #     label_to_index[key] = index
 
-    def get_image_with_label(norb_label):
-        if len(norb_label) != dataset.y.shape[1]:
-            raise ValueError("len(norb_label) was %d, dataset.y.shape[1] was "
-                             "%d" % (len(norb_label), dataset.y.shape[1]))
+    # def get_image_with_label(norb_label):
+    #     if len(norb_label) != testing_set.y.shape[1]:
+    #         raise ValueError("len(norb_label) was %d, testing_set.y.shape[1] was "
+    #                          "%d" % (len(norb_label), testing_set.y.shape[1]))
 
-        row_index = label_to_index[tuple(norb_label)]
-        row = dataset.X[row_index, :]
-        single_row_batch = row[numpy.newaxis, :]
-        single_image_batch = dataset.get_topological_view(single_row_batch)
-        assert single_image_batch.shape[0] == 1
-        assert single_image_batch.shape[-1] == 1
-        return single_image_batch[0, :, :, 0]
+    #     row_index = label_to_index[tuple(norb_label)]
+    #     row = testing_set.X[row_index, :]
+    #     single_row_batch = row[numpy.newaxis, :]
+    #     single_image_batch = testing_set.get_topological_view(single_row_batch)
+    #     assert single_image_batch.shape[0] == 1
+    #     assert single_image_batch.shape[-1] == 1
+    #     return single_image_batch[0, :, :, 0]
 
-    training_set = TrainingSet(args.training_set)
+    training_set = DatasetPair(args.training_set)
 
     # def SmallNORB_labels_to_object_ids(norb_labels):
     #     assert norb_labels.shape[1] == 5
@@ -389,10 +393,10 @@ def main():
 
     # ground_truth = SmallNORB_labels_to_object_ids(norb_labels)
     ground_truth = norb_labels_to_object_ids(norb_labels,
-                                             training_set.training_set.label_name_to_index)
+                                             training_set.dataset.label_name_to_index)
     hard_labels = numpy.argmax(softmax_labels, axis=1)
 
-    num_instances = 50 if training_set.training_set.y.shape[1] == 5 else 51
+    num_instances = 50 if training_set.dataset.y.shape[1] == 5 else 51
     hard_confusion_matrix = numpy.zeros([num_instances, num_instances],
                                         dtype=float)
     soft_confusion_matrix = hard_confusion_matrix.copy()
@@ -404,7 +408,7 @@ def main():
         hard_confusion_matrix[ground_truth_label, hard_label] += 1.0
 
     # Normalize each row of the confusion matrix by dividing the row by the
-    # number of times that row's object actually occurred in the dataset.
+    # number of times that row's object actually occurred in the testing_set.
     for instance in range(num_instances):
         num_occurences = numpy.count_nonzero(ground_truth == instance)
         for confusion_matrix in (soft_confusion_matrix, hard_confusion_matrix):
@@ -458,43 +462,63 @@ def main():
         if is_confusion_matrix or is_softmax_matrix:
             if is_confusion_matrix:
                 correct_object = pointed_at['row_obj']
-                correct_image = training_set.get_object_example(correct_object)
+                correct_image_pair = \
+                    training_set.get_object_example(correct_object)
 
                 wrong_object = pointed_at['col_obj']
-                wrong_image = training_set.get_object_example(wrong_object)
+                wrong_image_pair = \
+                    training_set.get_object_example(wrong_object)
 
                 titles = ("correct example", "classifier example")
             else:  # i.e. is_softmax_matrix
                 # correct image taken from the testing set.
                 # It's the actual image we fed to the classifier.
-                correct_image = get_image_with_label(pointed_at['label'])
+                correct_image_pair = \
+                    training_set.get_images_with_label(pointed_at['label'])
 
                 wrong_object = pointed_at['col_obj']
                 correct_label = pointed_at['label']
-                wrong_image = training_set.get_object_example(wrong_object,
-                                                              correct_label)
+                wrong_image_pair = \
+                    training_set.get_object_example(wrong_object,
+                                                    correct_label)
                 titles = ("actual image", "classifier example")
 
-            # Show preprocessed images
-            for image, ax, title in safe_zip((correct_image, wrong_image),
+            # Show classified (i.e. possibly preprocessed) images
+            for image, ax, title in safe_zip((correct_image_pair[0],
+                                              wrong_image_pair[0]),
                                              all_axes[2, :2],
                                              titles):
                 plot_image(image, ax)
                 ax.set_title(title)
 
-            # Show corresponding un-ZCA'ed images. These are not the same as
-            # the original NORB images, becasue the ZCA preprocessor is unaware
-            # of and therefore can't undo the GCN preprocessing we did before
-            # ZCA.
-            for image, ax, title in safe_zip((correct_image, wrong_image),
+            # Show raw images
+            for image, ax, title in safe_zip((correct_image_pair[1],
+                                              wrong_image_pair[1]),
                                              all_axes[2, 2:],
                                              titles):
-                shape = image.shape
-                flattened = image.reshape((1, numpy.prod(shape)))
-
-                unpreprocessed = dataset.mapback_for_viewer(flattened)
-                plot_image(unpreprocessed.reshape(shape), ax)
+                plot_image(image, ax)
                 ax.set_title(title)
+
+            # for image_pair, ax, title in safe_zip((correct_image_pair,
+            #                                        wrong_image_pair),
+            #                                       all_axes[2, :2],
+            #                                       titles):
+            #     plot_image_pair(image_pair, ax)
+            #     ax.set_title(title)
+
+            # # Show corresponding un-ZCA'ed images. These are not the same as
+            # # the original NORB images, becasue the ZCA preprocessor is unaware
+            # # of and therefore can't undo the GCN preprocessing we did before
+            # # ZCA.
+            # for image, ax, title in safe_zip((correct_image, wrong_image),
+            #                                  all_axes[2, 2:],
+            #                                  titles):
+            #     shape = image.shape
+            #     flattened = image.reshape((1, numpy.prod(shape)))
+
+            #     unpreprocessed = testing_set.mapback_for_viewer(flattened)
+            #     plot_image(unpreprocessed.reshape(shape), ax)
+            #     ax.set_title(title)
 
             figure.canvas.draw()
 

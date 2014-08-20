@@ -38,7 +38,7 @@ def human_readable_time_duration(seconds):
     return result
 
 
-def object_ids_to_category_instance(object_ids):
+def object_id_to_category_and_instance(object_ids):
 
     assert len(object_ids.shape) in (0, 1)
 
@@ -46,6 +46,7 @@ def object_ids_to_category_instance(object_ids):
     instances = object_ids % 10  # TODO: is instance for blank really 0?
 
     return categories, instances
+
 
 def norb_labels_to_object_ids(norb_labels, label_name_to_index):
     """
