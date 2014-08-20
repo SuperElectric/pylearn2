@@ -18,30 +18,72 @@ from pylearn2.datasets.zca_dataset import ZCA_Dataset
 
 class TrainingSet(object):
     """
-    A one-method class whose method, get_closest(label_vector) returns an image
-    in the training set with the closest label vector to label_vector.
+    Encapsulates the raw and preprocessed versions of a training or testing
+    set. Provides methods for retrieving example images of a particular object,
+    retrieving images with a given label, or retrieving images with the
+    closest label to the given label.
+
+    Parameters
+    ----------
+    dataset_path : str
+      The dataset path. If this points to a raw dataset, then self.dataset and
+      self.raw_dataset will point to the same object.
     """
 
-    def __init__(self, pkl_path):
-        self.training_set = serial.load(pkl_path)
+    def __init__(self, dataset_path):
+        assert os.path.splitext(dataset_path)[1] == '.pkl'
 
-        assert len(self.training_set.y.shape) == 2
-        assert self.training_set.y.shape[1] in (5, 11)
-        # self.num_categories = 5
-        # self.instances_per_category = 10
+        def load_dataset(dataset_path):
+            result = serial.load(dataset_path)
+            assert len(self.dataset.y.shape) == 2
+            assert self.dataset.y.shape[1] in (5, 11)
+            return result
+
+        self.dataset = load_dataset(dataset_path)
+
+        def get_raw_dataset_path(dataset_path):
+            """
+            Returns the path to the raw dataset corresponding to the given
+            dataset.
+
+            If the given dataset is itself a raw dataset, this just returns
+            dataset_path unchanged.
+            """
+            directory, filename = os.path.split(dataset_path)
+            basename, extension = os.path.splitext(filename)
+            assert extension == '.pkl'
+
+            filename_parts = '_'.split(filename)
+            assert len(filename_parts) == 2
+            assert filename_parts[1] in ('test', 'train')
+
+            raw_filename = 'raw_%s.pkl' % filename_parts[1]
+            result = os.path.join(directory, raw_filename)
+
+            if filename_parts[0] == 'raw':
+                assert result == dataset_path
+
+            return result
+
+        raw_dataset_path = get_raw_dataset_path(dataset_path)
+
+        if raw_dataset_path == dataset_path:
+            self.raw_dataset = self.dataset
+        else:
+            self.raw_dataset = load_dataset(raw_dataset_path)
+            assert (self.raw_dataset.y == self.dataset.y).all()
 
         def get_object_indices():
-            object_ids = norb_labels_to_object_ids(self.training_set.y,
-                                                   self.training_set.label_name_to_index)
+            """
+            Returns a list x where x[i] is a tuple of row indices that
+            point to instances of object i.
+            """
+
+            object_ids = norb_labels_to_object_ids(self.dataset.y,
+                                                   self.dataset.label_name_to_index)
             print "len(object_ids): %d" % len(object_ids)
 
             unique_ids = frozenset(object_ids)
-            # print "len(unique_ids): %d" % len(unique_ids)
-            # unique_labels = frozenset(tuple(x) for x in self.training_set.y)
-            # print "len (unique_labels): %d" % len(unique_labels)
-            # print "self.training_set.y[0, :] : %s" % str(self.training_set.y[0,:])
-            # assert not numpy.all(self.training_set.y[0,:] == self.training_set.
-                                 # y[1:,:])
             result = [(), ] * (max(unique_ids) + 1)
 
             for unique_id in unique_ids:
@@ -64,7 +106,7 @@ class TrainingSet(object):
         find an example whose label is closest to the reference_label's
         azimuth, elevation, and lighting.
         """
-        label = numpy.zeros(self.training_set.y.shape[1], dtype=int)
+        label = numpy.zeros(self.dataset.y.shape[1], dtype=int)
 
         if reference_label is not None:
             label[2:] = reference_label[2:]
@@ -78,29 +120,31 @@ class TrainingSet(object):
     def get_closest(self, label):
         label = numpy.array(label, dtype='int')
         object_id = norb_labels_to_object_ids(label,
-                                              self.training_set.label_name_to_index)
+                                              self.dataset.label_name_to_index)
         print "label: %s" % str(label)
         print "object_id: %d" % object_id
         print "len(object_indices): %d" % len(self.object_indices)
-        print "self.training_set.y.shape: %s" % str(self.training_set.y.shape)
+        print "self.dataset.y.shape: %s" % str(self.dataset.y.shape)
         # object_id = label[0] * self.instances_per_category + label[1]
-        labels = self.training_set.y[self.object_indices[object_id], :]
-        images = self.training_set.X[self.object_indices[object_id], :]
+        labels = self.dataset.y[self.object_indices[object_id], :]
+        images = self.dataset.X[self.object_indices[object_id], :]
+        raw_images = self.raw_dataset.X[self.object_indices[object_id], :]
 
         # Measures the angle difference (SSD of pitch & yaw) from <label>
-        print ("labels.shape: %s, label.shape: %s" % 
+        print ("labels.shape: %s, label.shape: %s" %
                (str(labels.shape), str(label.shape)))
         angle_differences = (labels[:, 2:4] - label[2:4])
         angle_differences *= numpy.array([5.0, 10.0])  # convert to degrees
         angle_differences = numpy.sum(angle_differences ** 2.0, axis=1)
         print "angle_differences.shape: %s" % str(angle_differences.shape)
-        print ("numpy.min(angle_differences).shape: %s" % 
+        print ("numpy.min(angle_differences).shape: %s" %
                str(numpy.min(angle_differences).shape))
         # Discards all but the closest viewing angles.
         closest_indices = numpy.nonzero(angle_differences ==
                                         numpy.min(angle_differences))[0]
         labels = labels[closest_indices, :]
         images = images[closest_indices, :]
+        raw_images = raw_images[closest_indices, :]
 
         # Look for a label with the same illumination
         row_indices = numpy.nonzero(labels[:, 4] == label[4])[0]
@@ -109,11 +153,18 @@ class TrainingSet(object):
         else:
             assert len(row_indices == 1)
 
-        zca_image_row = images[row_indices, :]
         label_row = labels[row_indices, :]
+        image_row = images[row_indices, :]
+        raw_image_row = raw_images[row_indices, :]
 
-        result = self.training_set.get_topological_view(zca_image_row)
-        return result[0, :, :, 0]  # removes batch and channel singleton axes
+        def get_topo_image(dataset, image_row):
+            result = dataset.get_topological_view(image_row)
+            # removes batch and channel singleton axes
+            return result[0, :, :, 0]
+
+        return tuple(get_topo_image(d, i)
+                     for d, i in safe_zip((dataset, raw_dataset),
+                                          (image_row, raw_image_row))):
 
 
 def main():
@@ -301,10 +352,14 @@ def main():
     dataset = load_norb_instance_dataset(dataset_path,
                                          label_format="norb")
 
-    # performs a mapback just to induce that function to compile.
-    print "compiling un-ZCA'ing function (used for visualization)..."
-    dataset.mapback_for_viewer(dataset.X[:1, :])
-    print "...done"
+
+    raw_dataset_path = get_raw_dataset_path(dataset_path)
+    raw_dataset = load_norb_instance_dataset(raw_dataset_path)
+
+    # # performs a mapback just to induce that function to compile.
+    # print "compiling un-ZCA'ing function (used for visualization)..."
+    # dataset.mapback_for_viewer(dataset.X[:1, :])
+    # print "...done"
 
     label_to_index = {}
     for index, label in enumerate(dataset.y):

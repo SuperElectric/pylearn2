@@ -96,44 +96,34 @@ def norb_labels_to_object_ids(norb_labels, label_name_to_index):
 
 def load_norb_instance_dataset(dataset_path,
                                label_format="obj_id",
-                               return_zca_dataset=True,
                                crop_shape=None):
-    """
-    Loads a NORB (big or small) instance dataset and its preprocessor,
-    returns both as a ZCA_Dataset (contains its own preprocessor).
+    """Loads a NORB (big or small) instance dataset.
 
-    The dataset's y (labels) will be converted to object_id integers.
+    Optionally replaces the dataset's y (NORB label vectors) to object ID
+    integers, or to object ID one-hot vectors. Small NORB maps to 50 classes (1
+    per object). Big NORB maps to 51 classes (50 objects + "blank" images).
 
-    Small NORB maps to 50 classes (1 per object).
-    Big NORB maps to 51 classes (50 objects + "blank" images).
+    Optionally crops the NORB images to a central window.
 
     returns: dataset
 
-    dataset_path: string
+    Parameters:
+    -----------
+
+    dataset_path : string
       path to instance dataset's .pkl file
 
-    label_format: str
+    label_format : str
       choices: "norb", "obj_id", "obj_onehot"
       "norb": leave the label vectors untouched, as NORB label vectors
       "obj_id": convert the label vectors to object ID scalars.
       "obj_onehot": convert the label vectors to object ID one-hot vectors.
 
-    # convert_labels_to_object_ids: bool
-    #   If True, convert NORB label vectors to unique object ID scalars.
-
-    # convert_to_one_hot: bool
-    #   If True, convert instance label to one-hot representation.
-
-    crop_shape: tuple
+    crop_shape : tuple
       A tuple of two ints. Specifies the shape of a central window to crop
       the images to.
-    """
 
-    assert not (return_zca_dataset and (crop_shape is not None))
-    if label_format not in ("norb", "obj_id", "obj_onehot"):
-        raise ValueError('Expected label_format to be "norb", "obj_id", or '
-                         '"obj_onehot", but got "%s" instead.' %
-                         str(label_format))
+    """
 
     def load_instance_dataset(dataset_path):
 
@@ -154,35 +144,32 @@ def load_norb_instance_dataset(dataset_path,
         return result
 
     dataset = load_instance_dataset(dataset_path)
-    # assert dataset.y.shape[1] == 1, ("Dataset labels must have size 1, "
-    #                                  "but dataset.y.shape = %s" %
-    #                                  str(dataset.y.shape))
 
-    def get_preprocessor_path(dataset_path):
-        directory, filename = os.path.split(dataset_path)
-        basename, extension = os.path.splitext(filename)
-        assert extension == '.pkl'
+    # def get_preprocessor_path(dataset_path):
+    #     directory, filename = os.path.split(dataset_path)
+    #     basename, extension = os.path.splitext(filename)
+    #     assert extension == '.pkl'
 
-        basename_parts = '_'.split(basename)
-        assert(len(basename_parts) == 2)
-        assert basename_parts[1] in ('train', 'test')
-        preprocessor_name = basename_parts[0] + "_preprocessor.pkl"
-        return os.path.join(directory, preprocessor_name)
+    #     basename_parts = '_'.split(basename)
+    #     assert(len(basename_parts) == 2)
+    #     assert basename_parts[1] in ('train', 'test')
+    #     preprocessor_name = basename_parts[0] + "_preprocessor.pkl"
+    #     return os.path.join(directory, preprocessor_name)
 
-        # assert any(basename.endswith(x) for x in ('train', 'test'))
+    #     # assert any(basename.endswith(x) for x in ('train', 'test'))
 
-        # if base_path.endswith('train'):
-        #     base_path = base_path[:-5]
-        # elif base_path.endswith('test'):
-        #     base_path = base_path[:-4]
+    #     # if base_path.endswith('train'):
+    #     #     base_path = base_path[:-5]
+    #     # elif base_path.endswith('test'):
+    #     #     base_path = base_path[:-4]
 
-        # return base_path + 'preprocessor.pkl'
+    #     # return base_path + 'preprocessor.pkl'
 
-    preprocessor = serial.load(get_preprocessor_path(dataset_path))
-    # c01b_axes = ['c', 0, 1, 'b']
+    # preprocessor = serial.load(get_preprocessor_path(dataset_path))
+    # # c01b_axes = ['c', 0, 1, 'b']
 
     if crop_shape is not None:
-        assert not return_zca_dataset
+        # assert not return_zca_dataset
 
         cropper = CentralWindow(crop_shape)
         print "cropping to %s" % str(crop_shape)
@@ -199,18 +186,18 @@ def load_norb_instance_dataset(dataset_path,
         return dataset
 
         # preprocessor = Pipeline(items=(preprocessor, cropper))
-    else:
-        assert return_zca_dataset
-        return ZCA_Dataset(preprocessed_dataset=dataset,
-                           preprocessor=preprocessor,
-                           convert_to_one_hot=False)
-        # return ZCA_Dataset(preprocessed_dataset=dataset,
-        #                    preprocessor=preprocessor,
-        #                    convert_to_one_hot=convert_to_one_hot)
-        # return ZCA_Dataset(preprocessed_dataset=dataset,
-        #                    preprocessor=preprocessor,
-        #                    convert_to_one_hot=convert_to_one_hot,
-        #                    axes=c01b_axes)
+    # else:
+    #     assert return_zca_dataset
+    #     return ZCA_Dataset(preprocessed_dataset=dataset,
+    #                        preprocessor=preprocessor,
+    #                        convert_to_one_hot=False)
+    #     # return ZCA_Dataset(preprocessed_dataset=dataset,
+    #     #                    preprocessor=preprocessor,
+    #     #                    convert_to_one_hot=convert_to_one_hot)
+    #     # return ZCA_Dataset(preprocessed_dataset=dataset,
+    #     #                    preprocessor=preprocessor,
+    #     #                    convert_to_one_hot=convert_to_one_hot,
+    #     #                    axes=c01b_axes)
 
 
 # def object_id_to_SmallNORB_label_pair(object_ids):
