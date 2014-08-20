@@ -3,7 +3,7 @@
 import argparse
 import os.path
 import numpy
-
+from pylearn2.utils import serial
 
 def _parse_args():
     parser = argparse.ArgumentParser("Converts weixun's .npz files to "
@@ -52,12 +52,22 @@ def main():
     for key in ('S', 'L'):
         assert key in npz_dict, "Couldn't find key '%s' in npz file"
 
-    assert npz_dict['S'].shape[0] == 50
-    assert npz_dict['L'].shape[0] == 5
+    assert npz_dict['S'].shape[0] == npz_dict['L'].shape[0]
+    assert npz_dict['S'].shape[1] == 50
+    assert npz_dict['L'].shape[1] == 5
+
+    # Checks that the dataset labels are one-to-one and onto with weixun's
+    # labels
+    dataset_abspath = os.path.join(os.environ['PYLEARN2_DATA_PATH'],
+                                   args.dataset)
+    dataset = serial.load(dataset_abspath)
+    dataset_unique_labels = frozenset(tuple(label) for label in dataset.y)
+    weixun_unique_labels = frozenset(tuple(label) for label in npz_dict['L'])
+    assert dataset_unique_labels == weixun_unique_labels
 
     numpy.savez(args.output,
-                softmaxes=npz_dict['S'].transpose(),
-                norb_labels=npz_dict['L'].transpose(),
+                softmaxes=npz_dict['S'],
+                norb_labels=npz_dict['L'],
                 dataset_path=args.dataset)
 
 if __name__ == '__main__':

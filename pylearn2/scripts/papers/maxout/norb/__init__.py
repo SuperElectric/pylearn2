@@ -39,7 +39,7 @@ def human_readable_time_duration(seconds):
 
 
 def object_ids_to_category_instance(object_ids):
-    
+
     assert len(object_ids.shape) in (0, 1)
 
     categories = object_ids // 10
@@ -96,7 +96,6 @@ def norb_labels_to_object_ids(norb_labels, label_name_to_index):
 
 def load_norb_instance_dataset(dataset_path,
                                label_format="obj_id",
-                               # convert_to_one_hot=False,
                                return_zca_dataset=True,
                                crop_shape=None):
     """
@@ -160,16 +159,24 @@ def load_norb_instance_dataset(dataset_path,
     #                                  str(dataset.y.shape))
 
     def get_preprocessor_path(dataset_path):
-        base_path, extension = os.path.splitext(dataset_path)
+        directory, filename = os.path.split(dataset_path)
+        basename, extension = os.path.splitext(filename)
         assert extension == '.pkl'
-        assert any(base_path.endswith(x) for x in ('train', 'test'))
 
-        if base_path.endswith('train'):
-            base_path = base_path[:-5]
-        elif base_path.endswith('test'):
-            base_path = base_path[:-4]
+        basename_parts = '_'.split(basename)
+        assert(len(basename_parts) == 2)
+        assert basename_parts[1] in ('train', 'test')
+        preprocessor_name = basename_parts[0] + "_preprocessor.pkl"
+        return os.path.join(directory, preprocessor_name)
 
-        return base_path + 'preprocessor.pkl'
+        # assert any(basename.endswith(x) for x in ('train', 'test'))
+
+        # if base_path.endswith('train'):
+        #     base_path = base_path[:-5]
+        # elif base_path.endswith('test'):
+        #     base_path = base_path[:-4]
+
+        # return base_path + 'preprocessor.pkl'
 
     preprocessor = serial.load(get_preprocessor_path(dataset_path))
     # c01b_axes = ['c', 0, 1, 'b']

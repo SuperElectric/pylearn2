@@ -102,20 +102,39 @@ def parse_args():
                         required=True,
                         help="Which preprocessor to use, if any")
 
+    parser.add_argument("--lcn-size",
+                        type=int,
+                        default=None,
+                        help=("The kernel_size argument to pass to LeCunLCN. "
+                              "If omitted, use LeCunLCN's constructor's "
+                              "default."))
+
     result = parser.parse_args()
 
     if (result.azimuth_ratio == 0) != (result.elevation_ratio == 0):
-        print ("--azimuth-ratio and --elevation-ratio must either both be "
-               "positive, or both be zero. Exiting...")
+        print("--azimuth-ratio and --elevation-ratio must either both be "
+              "positive, or both be zero. Exiting...")
         sys.exit(1)
 
     if result.azimuth_ratio == 1 and \
        result.elevation_ratio == 1 and \
        result.preprocessor == 'gcn-zca':
-        print ("Both --azimuth-ratio and --elevation-ratio are 1, making the "
-               "training set empty. The gcn-zca --preprocessor requires a "
-               "non-empty training set. Exiting...")
+        print("Both --azimuth-ratio and --elevation-ratio are 1, making the "
+              "training set empty. The gcn-zca --preprocessor requires a "
+              "non-empty training set. Exiting...")
         sys.exit(1)
+
+    if result.lcn_size is not None:
+        if (result.preprocessor != 'lcn'):
+            print("--preprocessor wasn't lcn, yet --lcn-size was supplied.")
+            sys.exit(1)
+
+        if result.lcn_size < 1:
+            print("--lcn-size must be at least 1")
+            sys.exit(1)
+    elif result.preprocessor == 'lcn':
+        dummy_lcn = LeCunLCN(image_shape=(20, 20))
+        result.lcn_size = dummy_lcn._kernel_size
 
     return result
 
@@ -364,11 +383,11 @@ def get_raw_datasets(norb,
         num_training = num_total - num_testing
         testing_fraction = (num_testing / float(num_total))
         training_fraction = 1.0 - testing_fraction
-        print ("%d (%d%%) training images, %d (%d%%) testing images." %
-               (num_training,
-                int(training_fraction * 100),
-                num_testing,
-                int(testing_fraction * 100)))
+        print("%d (%d%%) training images, %d (%d%%) testing images." %
+              (num_training,
+               int(training_fraction * 100),
+               num_testing,
+               int(testing_fraction * 100)))
 
         return result
 
@@ -440,8 +459,6 @@ def get_raw_datasets(norb,
                                      (images_shape, labels_shape),
                                      (images_dtype, labels_dtype)))
 
-            # print("%s: X.shape: %s images[rowmask, :].shape: %s" %
-            #       (set_name, str(X.shape), str(images[rowmask, :].shape)))
             X[...] = images[rowmask, :]
             assert isinstance(X, numpy.memmap), "type(X) = %s" % type(X)
 
@@ -464,8 +481,14 @@ def get_raw_datasets(norb,
     return result
 
 
-def preprocess_lcn(datasets):
-    raise NotImplementedError()
+def preprocess_lcn(datasets, image_shape, kernel_size):
+    args = dict(img_shape=image_shape)
+    if kernel_size is not None:
+        dict['kernel_size'] = kernel_size
+
+    lcn = LeCunLCN(**args)
+    for dataset in datasets:
+        lcn.apply(dataset)
 
 
 def preprocess_gcn_zca(datasets, preprocessor_path):
@@ -578,7 +601,7 @@ def preprocess_gcn_zca(datasets, preprocessor_path):
         print("\t...done (%g seconds)." % (time.time() - start_time))
 
 
-def preprocess_and_save_datasets(raw_datasets, preprocessor_name, output_dir):
+def preprocess_and_save_datasets(raw_datasets, args):
     """
     Takes a pair of raw datasets, makes deep copies of them, and preprocesses
     the copies in-place. The datasets are saved in canonically-named paths.
@@ -592,13 +615,20 @@ def preprocess_and_save_datasets(raw_datasets, preprocessor_name, output_dir):
     preprocessor_name: str
       The --preprocessor argument.
     """
-    assert preprocessor_name != 'none'
+    assert args.preprocessor != 'none'
     assert len(raw_datasets) == 2
     for raw_dataset in raw_datasets:
         assert raw_dataset is None or isinstance(raw_dataset, NORB)
 
+    def get_preprocessor_name(args):
+        if args.preprocessor == 'lcn':
+            return '%s-%d' % (args.preprocessor, args.lcn_size)
+        else:
+            return args.preprocessor
+
     # The prefix shared by all output files' full paths.
-    base_path = os.path.join(output_dir, preprocessor_name)
+    output_dir = get_output_dir(args)
+    base_path = os.path.join(output_dir, get_preprocessor_name(args))
 
     preprocessed_dataset_paths = [base_path + '_%s.pkl' % set_name
                                   for set_name in ('train', 'test')]
@@ -608,7 +638,7 @@ def preprocess_and_save_datasets(raw_datasets, preprocessor_name, output_dir):
               "touching them.")
         return
 
-    def make_dataset_to_preprocess(raw_dataset, output_path):
+    def deep_copy_dataset(raw_dataset, future_output_path):
         """
         Returns a deep copy of raw_dataset.
 
@@ -619,74 +649,77 @@ def preprocess_and_save_datasets(raw_datasets, preprocessor_name, output_dir):
           The set to be deep-copied. Can be None, in which case this function
           does nothing, returning None.
 
-        output_path:
+        future_output_path:
           The path that the set will be saved under. This will be used
           to name the copy's memmap files. For example, if path is foo/bar.pkl,
           the memmaps will be foo/bar_images.npy and foo/bar_labels.npy.
+
+        Return: NORB
+          A deep copy of raw_dataset.
         """
-        assert set_name in ('train', 'test')
 
         if raw_dataset is None:
             return None
 
         assert isinstance(raw_dataset, NORB)
 
-        def deep_copy(raw_dataset, memmap_paths):
-            """
-            Returns a deep copy of raw_dataset. Saves the new X and y
-            memmaps to memmap_paths.
-            """
-
-            def copy_memmap(memmap_to_copy, memmap_path):
-                """
-                Makes a copy of a memmap to memmap_path.
-
-                If the memmap file already exists, opens it in read-only mode,
-                and asserts that its contents are already identical to
-                memmap_to_copy.
-                """
-                mode = 'r' if os.path.isfile(memmap_path) else 'w+'
-                result = numpy.memmap(filename=memmap_path,
-                                      mode=mode,
-                                      shape=memmap_to_copy.shape,
-                                      dtype=memmap_to_copy.dtype)
-
-                if mode == 'r':
-                    assert numpy.all(result == memmap_to_copy)
-                else:
-                    result[...] = memmap_to_copy
-
-                return result
-
-            shallow_copy = copy.copy(raw_dataset)
-            shallow_copy.X = None
-            shallow_copy.y = None
-            result = copy.deepcopy(shallow_copy)
-            result.X = copy_memmap(raw_dataset.X, memmap_paths[0])
-            result.y = copy_memmap(raw_dataset.y, memmap_paths[1])
-
-            return result
-
-        basepath = os.path.splitext(output_path)[0]
+        basepath = os.path.splitext(future_output_path)[0]
         memmap_paths = [basepath + "_%s.npy" % tensor_name
                         for tensor_name in ('images', 'labels')]
 
-        result_dataset = deep_copy(raw_dataset, memmap_paths)
-        result_path = basepath + ".pkl"
-        return result_dataset, result_path
+        def copy_memmap(memmap_to_copy, memmap_path):
+            """
+            Makes a copy of a memmap to memmap_path.
 
-    preprocessed_datasets = [make_dataset_to_preprocess(r, d)
+            If the memmap file already exists, opens it in read-only mode,
+            and asserts that its contents are already identical to
+            memmap_to_copy.
+            """
+            mode = 'r' if os.path.isfile(memmap_path) else 'w+'
+            result = numpy.memmap(filename=memmap_path,
+                                  mode=mode,
+                                  shape=memmap_to_copy.shape,
+                                  dtype=memmap_to_copy.dtype)
+
+            if mode == 'w+':
+            #     assert numpy.all(result == memmap_to_copy), "memmap_to_copy wasn't equal to memmap read from %s" % memmap_path
+            # else:
+                result[...] = memmap_to_copy
+
+            return result
+
+        shallow_copy = copy.copy(raw_dataset)
+        shallow_copy.X = shallow_copy.X[0:1, ...]
+        shallow_copy.y = shallow_copy.y[0:1, ...]
+        result = copy.deepcopy(shallow_copy)
+        result.X = copy_memmap(raw_dataset.X, memmap_paths[0])
+        result.y = copy_memmap(raw_dataset.y, memmap_paths[1])
+
+        return result
+
+
+        # return deep_copy(raw_dataset, memmap_paths)
+
+    if all(os.path.isfile(p) for p in preprocessed_dataset_paths):
+        print("Preprocessed dataset files already exist:")
+        for pp_path in preprocessed_dataset_paths:
+            print("\t%s" % pp_path)
+
+        print("Exiting without doing anything.")
+        sys.exit(0)
+
+    preprocessed_datasets = [deep_copy_dataset(r, d)
                              for r, d in safe_zip(raw_datasets,
                                                   preprocessed_dataset_paths)]
 
-    if preprocessor_name == 'gcn-zca':
-        preprocessor_path = base_path + ".pkl"
+    if args.preprocessor == 'gcn-zca':
+        preprocessor_path = base_path + "_preprocessor.pkl"
         preprocess_gcn_zca(preprocessed_datasets, preprocessor_path)
-    elif preprocessor_name == 'lcn':
-        preprocess_lcn(preprocessed_datasets)
+    elif args.preprocessor == 'lcn':
+        preprocess_lcn(preprocessed_datasets, image_size, args.lcn_size)
 
-    for d, p in safe_zip(preprocessed_datasets, preprocessed_dataset_paths):
-        serial.save(d, p)
+    for p, d in safe_zip(preprocessed_dataset_paths, preprocessed_datasets):
+        serial.save(p, d)
 
 
 def main():
@@ -716,9 +749,7 @@ def main():
     # Preprocesses, saves datasets, unless they already exist.
     # Also saves preprocessor, if it's fittable.
     if args.preprocessor != 'none':
-        preprocess_and_save_datasets(raw_datasets,
-                                     args.preprocessor,
-                                     output_dir)
+        preprocess_and_save_datasets(raw_datasets, args)
 
 
     # # Subtracts each image's mean intensity. Scale of 55.0 taken from

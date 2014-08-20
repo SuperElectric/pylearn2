@@ -41,7 +41,7 @@ class TrainingSet(object):
             # print "len (unique_labels): %d" % len(unique_labels)
             # print "self.training_set.y[0, :] : %s" % str(self.training_set.y[0,:])
             # assert not numpy.all(self.training_set.y[0,:] == self.training_set.
-                                 y[1:,:])
+                                 # y[1:,:])
             result = [(), ] * (max(unique_ids) + 1)
 
             for unique_id in unique_ids:
@@ -88,12 +88,14 @@ class TrainingSet(object):
         images = self.training_set.X[self.object_indices[object_id], :]
 
         # Measures the angle difference (SSD of pitch & yaw) from <label>
-        print "labels.shape: %s, label.shape: %s" % (str(labels.shape), str(label.shape))
+        print ("labels.shape: %s, label.shape: %s" % 
+               (str(labels.shape), str(label.shape)))
         angle_differences = (labels[:, 2:4] - label[2:4])
         angle_differences *= numpy.array([5.0, 10.0])  # convert to degrees
         angle_differences = numpy.sum(angle_differences ** 2.0, axis=1)
         print "angle_differences.shape: %s" % str(angle_differences.shape)
-        print "numpy.min(angle_differences).shape: %s" % str(numpy.min(angle_differences).shape)
+        print ("numpy.min(angle_differences).shape: %s" % 
+               str(numpy.min(angle_differences).shape))
         # Discards all but the closest viewing angles.
         closest_indices = numpy.nonzero(angle_differences ==
                                         numpy.min(angle_differences))[0]

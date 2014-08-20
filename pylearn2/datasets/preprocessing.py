@@ -1488,7 +1488,8 @@ class LeCunLCN(ExamplewisePreprocessor):
 
     Parameters
     ----------
-    img_shape : WRITEME
+    img_shape : tuple or list
+        Number of rows and columns in the image.
     kernel_size : int, optional
         local contrast kernel size
     batch_size: int, optional
@@ -1751,7 +1752,8 @@ def lecun_lcn(input, img_shape, kernel_shape, threshold=1e-4):
     Parameters
     ----------
     input : WRITEME
-    img_shape : WRITEME
+    img_shape : tuple or list
+      Number of rows and columns in the image.
     kernel_shape : WRITEME
     threshold : WRITEME
     """
