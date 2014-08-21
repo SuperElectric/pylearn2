@@ -39,6 +39,8 @@ def human_readable_time_duration(seconds):
 
 
 def object_id_to_category_and_instance(object_ids):
+    if numpy.isscalar(object_ids):
+        object_ids = numpy.array(object_ids)
 
     assert len(object_ids.shape) in (0, 1)
 

@@ -80,9 +80,9 @@ class DatasetPair(object):
             point to instances of object i.
             """
 
-            object_ids = norb_labels_to_object_ids(self.dataset.y,
-                                                   self.dataset.label_name_to_index)
-            print "len(object_ids): %d" % len(object_ids)
+            object_ids = \
+                norb_labels_to_object_ids(self.dataset.y,
+                                          self.dataset.label_name_to_index)
 
             unique_ids = frozenset(object_ids)
             result = [(), ] * (max(unique_ids) + 1)
@@ -94,8 +94,11 @@ class DatasetPair(object):
 
         self.object_indices = get_object_indices()
 
-        self.label_to_index = dict(safe_zip(self.dataset.y,
-                                            range(self.dataset.y.shape[0])))
+        self.label_to_index = {}
+        for row_index, label in enumerate(self.dataset.y):
+            self.label_to_index[tuple(label)] = row_index
+
+        assert len(self.label_to_index) == self.dataset.y.shape[0]
 
     def get_object_example(self, object_id, reference_label=None):
         """
@@ -114,28 +117,32 @@ class DatasetPair(object):
         label[1] = instance
         return self.get_closest(label)
 
+    @staticmethod
+    def _get_topo_image(dataset, image_row):
+        if len(image_row.shape) == 1:
+            image_row = image_row[numpy.newaxis, :]
+        else:
+            assert image_row.shape[0] == 1, \
+                "num_images: %d" % image_row.shape[0]
+
+        result = dataset.get_topological_view(image_row)
+
+        # removes batch and channel singleton axes
+        return result[0, :, :, 0]
+
     def get_closest(self, label):
         label = numpy.array(label, dtype='int')
         object_id = norb_labels_to_object_ids(label,
                                               self.dataset.label_name_to_index)
-        print "label: %s" % str(label)
-        print "object_id: %d" % object_id
-        print "len(object_indices): %d" % len(self.object_indices)
-        print "self.dataset.y.shape: %s" % str(self.dataset.y.shape)
-        # object_id = label[0] * self.instances_per_category + label[1]
         labels = self.dataset.y[self.object_indices[object_id], :]
         images = self.dataset.X[self.object_indices[object_id], :]
         raw_images = self.raw_dataset.X[self.object_indices[object_id], :]
 
         # Measures the angle difference (SSD of pitch & yaw) from <label>
-        print ("labels.shape: %s, label.shape: %s" %
-               (str(labels.shape), str(label.shape)))
         angle_differences = (labels[:, 2:4] - label[2:4])
         angle_differences *= numpy.array([5.0, 10.0])  # convert to degrees
         angle_differences = numpy.sum(angle_differences ** 2.0, axis=1)
-        print "angle_differences.shape: %s" % str(angle_differences.shape)
-        print ("numpy.min(angle_differences).shape: %s" %
-               str(numpy.min(angle_differences).shape))
+
         # Discards all but the closest viewing angles.
         closest_indices = numpy.nonzero(angle_differences ==
                                         numpy.min(angle_differences))[0]
@@ -148,28 +155,23 @@ class DatasetPair(object):
         if len(row_indices) == 0:
             row_indices = [0, ]
         else:
-            assert len(row_indices == 1)
+            # arbitrarily choose the first of qualifying row_indices
+            row_indices = row_indices[0:1]
 
-        label_row = labels[row_indices, :]
         image_row = images[row_indices, :]
         raw_image_row = raw_images[row_indices, :]
 
-        def get_topo_image(dataset, image_row):
-            result = dataset.get_topological_view(image_row)
-            # removes batch and channel singleton axes
-            return result[0, :, :, 0]
-
-        return tuple(get_topo_image(d, i)
-                     for d, i in safe_zip((self.dataset, self.raw_dataset),
+        return tuple(self._get_topo_image(d, p)
+                     for d, p in safe_zip((self.dataset, self.raw_dataset),
                                           (image_row, raw_image_row)))
 
     def get_images_with_label(self, label):
         assert isinstance(label, (numpy.ndarray, numpy.memmap))
 
-        row_index = self.label_to_index[label]
-        assert numpy.all(label == self.labels[row_index, :])
+        row_index = self.label_to_index[tuple(label)]
+        assert numpy.all(label == self.dataset.y[row_index, :])
 
-        return tuple(dataset.X[row_index, :]
+        return tuple(self._get_topo_image(dataset, dataset.X[row_index, :])
                      for dataset in (self.dataset, self.raw_dataset))
 
 
@@ -240,7 +242,6 @@ def main():
     def plot_heatmap(heatmap, axes, row_ids=None, col_ids=None, labels=None):
         axes.imshow(heatmap,
                     norm=matplotlib.colors.NoNorm(),
-                    #norm=matplotlib.colors.no_norm(),
                     interpolation='nearest')
 
         if row_ids is None:
@@ -295,7 +296,7 @@ def main():
             assert isinstance(one_or_more_axes, (tuple,
                                                  list,
                                                  numpy.ndarray)), \
-                              "type: %s" % type(one_or_more_axes)
+                "type: %s" % type(one_or_more_axes)
 
         wrongnesses = wrongness(softmax_labels, ground_truth)
 
@@ -356,44 +357,11 @@ def main():
         dataset_path = os.path.join(data_dir, dataset_path)
 
     testing_set = DatasetPair(dataset_path)
-
-    # raw_dataset_path = get_raw_dataset_path(dataset_path)
-    # raw_dataset = load_norb_instance_dataset(raw_dataset_path)
-
-    # # performs a mapback just to induce that function to compile.
-    # print "compiling un-ZCA'ing function (used for visualization)..."
-    # dataset.mapback_for_viewer(dataset.X[:1, :])
-    # print "...done"
-
-    # label_to_index = {}
-    # for index, label in enumerate(testing_set.y):
-    #     key = tuple(label)
-    #     # assert key not in label_to_index   #DEBUG: uncomment this
-    #     label_to_index[key] = index
-
-    # def get_image_with_label(norb_label):
-    #     if len(norb_label) != testing_set.y.shape[1]:
-    #         raise ValueError("len(norb_label) was %d, testing_set.y.shape[1] was "
-    #                          "%d" % (len(norb_label), testing_set.y.shape[1]))
-
-    #     row_index = label_to_index[tuple(norb_label)]
-    #     row = testing_set.X[row_index, :]
-    #     single_row_batch = row[numpy.newaxis, :]
-    #     single_image_batch = testing_set.get_topological_view(single_row_batch)
-    #     assert single_image_batch.shape[0] == 1
-    #     assert single_image_batch.shape[-1] == 1
-    #     return single_image_batch[0, :, :, 0]
-
     training_set = DatasetPair(args.training_set)
 
-    # def SmallNORB_labels_to_object_ids(norb_labels):
-    #     assert norb_labels.shape[1] == 5
-    #     result = norb_labels[:, 0] * 10 + norb_labels[:, 1]
-    #     return result
-
-    # ground_truth = SmallNORB_labels_to_object_ids(norb_labels)
-    ground_truth = norb_labels_to_object_ids(norb_labels,
-                                             training_set.dataset.label_name_to_index)
+    ground_truth = \
+        norb_labels_to_object_ids(norb_labels,
+                                  training_set.dataset.label_name_to_index)
     hard_labels = numpy.argmax(softmax_labels, axis=1)
 
     num_instances = 50 if training_set.dataset.y.shape[1] == 5 else 51
@@ -446,7 +414,7 @@ def main():
         is_confusion_matrix = event.inaxes in all_axes[0, :]
         is_softmax_matrix = event.inaxes in all_axes[1, :]
 
-        def plot_image(image, axes):
+        def plot_image(image, axes, normalize):
             # Neither ZCA_Dataset.mapback() nor .mapback_for_viewer() actually
             # map the image back to its original form, because the dataset's
             # preprocessor is unaware of the global contrast normalization we
@@ -454,10 +422,14 @@ def main():
             #
             # Therefore we rely on matpotlib's pixel normalization that
             # happens by default.
-            axes.imshow(image,
-                        cmap='gray',
-                        # norm=matplotlib.colors.no_norm(),
-                        interpolation='nearest')
+            kwargs = dict(X=image,
+                          cmap='gray',
+                          interpolation='nearest')
+
+            if not normalize:
+                kwargs['norm'] = matplotlib.colors.NoNorm()
+
+            axes.imshow(**kwargs)
 
         if is_confusion_matrix or is_softmax_matrix:
             if is_confusion_matrix:
@@ -474,7 +446,7 @@ def main():
                 # correct image taken from the testing set.
                 # It's the actual image we fed to the classifier.
                 correct_image_pair = \
-                    training_set.get_images_with_label(pointed_at['label'])
+                    testing_set.get_images_with_label(pointed_at['label'])
 
                 wrong_object = pointed_at['col_obj']
                 correct_label = pointed_at['label']
@@ -488,7 +460,7 @@ def main():
                                               wrong_image_pair[0]),
                                              all_axes[2, :2],
                                              titles):
-                plot_image(image, ax)
+                plot_image(image, ax, normalize=True)
                 ax.set_title(title)
 
             # Show raw images
@@ -496,29 +468,8 @@ def main():
                                               wrong_image_pair[1]),
                                              all_axes[2, 2:],
                                              titles):
-                plot_image(image, ax)
-                ax.set_title(title)
-
-            # for image_pair, ax, title in safe_zip((correct_image_pair,
-            #                                        wrong_image_pair),
-            #                                       all_axes[2, :2],
-            #                                       titles):
-            #     plot_image_pair(image_pair, ax)
-            #     ax.set_title(title)
-
-            # # Show corresponding un-ZCA'ed images. These are not the same as
-            # # the original NORB images, becasue the ZCA preprocessor is unaware
-            # # of and therefore can't undo the GCN preprocessing we did before
-            # # ZCA.
-            # for image, ax, title in safe_zip((correct_image, wrong_image),
-            #                                  all_axes[2, 2:],
-            #                                  titles):
-            #     shape = image.shape
-            #     flattened = image.reshape((1, numpy.prod(shape)))
-
-            #     unpreprocessed = testing_set.mapback_for_viewer(flattened)
-            #     plot_image(unpreprocessed.reshape(shape), ax)
-            #     ax.set_title(title)
+                plot_image(image, ax, normalize=False)
+                ax.set_title(title + " (raw)")
 
             figure.canvas.draw()
 
@@ -534,13 +485,12 @@ def main():
 
     difference_of_confusions = numpy.abs(hard_confusion_matrix -
                                          soft_confusion_matrix)
-    print "max difference of confusions: %g" % difference_of_confusions.max()
+
     plot_heatmap(difference_of_confusions, all_axes[0, 2])
-    all_axes[0, 2].set_title('difference')
+    all_axes[0, 2].set_title('difference (max=%g)' %
+                             difference_of_confusions.max())
 
     def plot_confusion_spread(confusion_matrix, most_confused_objects, axis):
-        # confusion_matrix = confusion_matrix.copy()
-        # numpy.fill_diagonal(confusion_matrix, 0.0)
         sorted_confusions = confusion_matrix[most_confused_objects, :]
 
         # sorts columns in ascending order
@@ -580,12 +530,7 @@ def main():
         # rows of images showing object <object_id>
         row_mask = ground_truth == object_id
         assert len(row_mask.shape) == 1
-        # assert row_mask.shape[1] == 1
-        # row_mask = row_mask[:, 0]
 
-        # Find the current object's NORB labels, object ids, and softmaxes
-        print "row_mask.shape: %s, norb_labels.shape: %s" % (str(row_mask.shape),
-                                                             str(norb_labels.shape))
         actual_norb_labels = norb_labels[row_mask, :]
         actual_ids = ground_truth[row_mask]
         assert (actual_ids == object_id).all()
