@@ -51,7 +51,9 @@ def main():
                      numpy.asarray(crop_shape)) // 2
             end = start + crop_shape
             topo_X = topo_X[:, start[0]:end[0], start[1]:end[1], :]
-            assert topo_X.shape[1:-1] == crop_shape, "topo_X.shape: %s, crop_shape: %s" % (str(topo_X.shape), str(crop_shape))
+            assert topo_X.shape[1:-1] == crop_shape, \
+                ("topo_X.shape: %s, crop_shape: %s" %
+                 (str(topo_X.shape), str(crop_shape)))
 
             print "setting topo"
             dataset.set_topological_view(topo_X)

@@ -198,7 +198,8 @@ def main():
         axes.get_yaxis().set_visible(False)
 
     text_axes, image_axes = (all_axes[0], all_axes[1:])
-    image_captions = ('left', 'right') if dataset_is_stereo else ('mono image',)
+    image_captions = ('left', 'right') if dataset_is_stereo \
+                     else ('mono image',)
 
     if args.stereo_viewer:
         image_captions = tuple(reversed(image_captions))

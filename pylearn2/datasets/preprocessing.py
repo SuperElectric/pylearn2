@@ -1204,8 +1204,10 @@ class ZCA(Preprocessor):
         if not hasattr(ZCA._gpu_matrix_dot, 'theano_func'):
             ma, mb = theano.tensor.matrices('A', 'B')
             mc = theano.tensor.dot(ma, mb)
-            ZCA._gpu_matrix_dot.theano_func = theano.function([ma, mb], mc,
-                    allow_input_downcast=True)
+            ZCA._gpu_matrix_dot.theano_func = \
+                theano.function([ma, mb],
+                                mc,
+                                allow_input_downcast=True)
 
         theano_func = ZCA._gpu_matrix_dot.theano_func
 
@@ -1420,17 +1422,6 @@ class ZCA(Preprocessor):
 
             WRITEME
         """
-        # Compiles apply.x_minus_mean_times_p(), a numeric Theano function that
-        # evauates dot(X - mean, P)
-        if not hasattr(ZCA, '_x_minus_mean_times_p'):
-            x_symbol = tensor.matrix('X')
-            mean_symbol = tensor.vector('mean')
-            p_symbol = tensor.matrix('P_')
-            new_x_symbol = tensor.dot(x_symbol - mean_symbol, p_symbol)
-            ZCA._x_minus_mean_times_p = theano.function([x_symbol,
-                                                         mean_symbol,
-                                                         p_symbol],
-                                                        new_x_symbol)
 
         X = dataset.get_design_matrix()
         assert X.dtype in ['float32', 'float64']
@@ -1454,6 +1445,7 @@ class ZCA(Preprocessor):
                 old_X[...] = X
             else:
                 old_X = numpy.asarray(X)
+                #assert numpy.all(old_X == X)
                 if not hasattr(self, 'use_memmap_workspace'):
                     self.use_memmap_workspace = False
 

@@ -586,6 +586,9 @@ def preprocess_gcn_zca(datasets, preprocessor_path):
         for pp_path in (preprocessor_path, preprocessor_npz_path):
             print("\t%s" % os.path.split(pp_path)[1])
 
+    for d in datasets:
+        assert not numpy.all(d.X == 0.0)
+
     # ZCA the training set
     print("ZCA'ing training set...")
     start_time = time.time()
@@ -599,6 +602,9 @@ def preprocess_gcn_zca(datasets, preprocessor_path):
         start_time = time.time()
         datasets[1].apply_preprocessor(preprocessor=zca, can_fit=False)
         print("\t...done (%g seconds)." % (time.time() - start_time))
+
+    for d, n in safe_zip(datasets, ('train', 'test')):
+        assert not numpy.all(d.X == 0.0), "%s set is all zeros" % n
 
 
 def preprocess_and_save_datasets(raw_datasets, args):
@@ -682,9 +688,11 @@ def preprocess_and_save_datasets(raw_datasets, args):
                                   dtype=memmap_to_copy.dtype)
 
             if mode == 'w+':
-            #     assert numpy.all(result == memmap_to_copy), "memmap_to_copy wasn't equal to memmap read from %s" % memmap_path
-            # else:
                 result[...] = memmap_to_copy
+            else:
+                assert numpy.all(result == memmap_to_copy), \
+                    ("memmap_to_copy wasn't equal to memmap read from %s" %
+                     memmap_path)
 
             return result
 
@@ -695,6 +703,9 @@ def preprocess_and_save_datasets(raw_datasets, args):
         result.X = copy_memmap(raw_dataset.X, memmap_paths[0])
         result.y = copy_memmap(raw_dataset.y, memmap_paths[1])
 
+        assert numpy.all(result.X == raw_dataset.X)
+        assert numpy.all(result.y == raw_dataset.y)
+        print("in copy_memmap, result.X.filename = " + result.X.filename)
         return result
 
 
@@ -714,9 +725,21 @@ def preprocess_and_save_datasets(raw_datasets, args):
 
     if args.preprocessor == 'gcn-zca':
         preprocessor_path = base_path + "_preprocessor.pkl"
+        for d, n in safe_zip(preprocessed_datasets, ('train', 'test')):
+            assert not numpy.all(d.X == 0.0), "%s set was all zeros" % n
+
         preprocess_gcn_zca(preprocessed_datasets, preprocessor_path)
     elif args.preprocessor == 'lcn':
         preprocess_lcn(preprocessed_datasets, image_size, args.lcn_size)
+
+    for r, d, n in safe_zip(raw_datasets,
+                            preprocessed_datasets,
+                            ('train', 'test')):
+        assert not numpy.all(d.X == 0.0), "%s set was all zeros" % n
+        assert not numpy.all(d.y == 0.0), "%s set was all zeros" % n
+        print("%s set images are not zero, saved to %s" % (n, d.X.filename))
+        # d.X.flush()
+        # d.y.flush()
 
     for p, d in safe_zip(preprocessed_dataset_paths, preprocessed_datasets):
         serial.save(p, d)
