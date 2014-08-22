@@ -133,7 +133,7 @@ def parse_args():
             print("--lcn-size must be at least 1")
             sys.exit(1)
     elif result.preprocessor == 'lcn':
-        dummy_lcn = LeCunLCN(image_shape=(20, 20))
+        dummy_lcn = preprocessing.LeCunLCN(img_shape=(20, 20))
         result.lcn_size = dummy_lcn._kernel_size
 
     return result
@@ -482,11 +482,11 @@ def get_raw_datasets(norb,
 
 
 def preprocess_lcn(datasets, image_shape, kernel_size):
-    args = dict(img_shape=image_shape)
+    kwargs = dict(img_shape=image_shape)
     if kernel_size is not None:
-        dict['kernel_size'] = kernel_size
+        kwargs['kernel_size'] = kernel_size
 
-    lcn = LeCunLCN(**args)
+    lcn = preprocessing.LeCunLCN(**kwargs)
     for dataset in datasets:
         lcn.apply(dataset)
 
@@ -709,7 +709,6 @@ def preprocess_and_save_datasets(raw_datasets, args):
 
         assert numpy.all(result.X == raw_dataset.X)
         assert numpy.all(result.y == raw_dataset.y)
-        print("in copy_memmap, result.X.filename = " + result.X.filename)
         return result
 
     if all(os.path.isfile(p) for p in preprocessed_dataset_paths):
@@ -728,7 +727,9 @@ def preprocess_and_save_datasets(raw_datasets, args):
         preprocessor_path = base_path + "_preprocessor.pkl"
         preprocess_gcn_zca(preprocessed_datasets, preprocessor_path)
     elif args.preprocessor == 'lcn':
-        preprocess_lcn(preprocessed_datasets, image_size, args.lcn_size)
+        image_shape = preprocessed_datasets[0].view_converter.shape[:2]
+        assert image_shape == preprocessed_datasets[1].view_converter.shape[:2]
+        preprocess_lcn(preprocessed_datasets, image_shape, args.lcn_size)
     for p, d in safe_zip(preprocessed_dataset_paths, preprocessed_datasets):
         serial.save(p, d)
 
