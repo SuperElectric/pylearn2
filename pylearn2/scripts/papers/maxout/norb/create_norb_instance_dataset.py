@@ -10,7 +10,8 @@ dataset, by doing the following:
 
 3) Saves the split datasets individually
 
-4) Optionally preprocesses them, and saves the preprocessed versions, along with the preprocessor, if applicable.
+4) Optionally preprocesses them, and saves the preprocessed versions, along
+   with the preprocessor, if applicable.
 
 For example, if you call:
   ./create_norb_instance_dataset -a 2 -e 1 -i left -n small -p gcn-zca
@@ -43,7 +44,6 @@ from __future__ import print_function
 import sys, os, time, argparse, copy
 import numpy
 import theano
-#from numpy import logical_and, logical_not
 from pylearn2.expr.preprocessing import global_contrast_normalize
 from pylearn2.utils import serial, string_utils, safe_zip
 from pylearn2.datasets import preprocessing
@@ -492,7 +492,11 @@ def preprocess_lcn(datasets, image_shape, kernel_size):
 
 
 def preprocess_gcn_zca(datasets, preprocessor_path):
-    assert datasets[0] is not None
+    if datasets[0] is None:
+        raise ValueError("Can't use ZCA preprocessor when there's no training "
+                         "data.")
+
+    assert datasets[0].X.shape[0] > 0
     assert len(datasets) == 2
 
     # GCN: Subtracts each image's mean intensity. Scale of 55.0 taken from
@@ -568,7 +572,8 @@ def preprocess_gcn_zca(datasets, preprocessor_path):
        os.path.isfile(preprocessor_npz_path):
         zca = serial.load(preprocessor_path)
         print("Loaded existing preprocessor %s" % preprocessor_path)
-    elif datasets[0] is not None:
+    else:
+        assert datasets[0] is not None
         zca = preprocessing.ZCA(use_memmap_workspace=True)
         zca_training_set = get_zca_training_set(datasets[0])
 
@@ -586,7 +591,9 @@ def preprocess_gcn_zca(datasets, preprocessor_path):
         for pp_path in (preprocessor_path, preprocessor_npz_path):
             print("\t%s" % os.path.split(pp_path)[1])
 
-    for d in datasets:
+    for r, d in safe_zip(raw_datasets, datasets):
+        assert numpy.all(r.X == d.X)
+        assert numpy.all(r.y == d.y)
         assert not numpy.all(d.X == 0.0)
 
     # ZCA the training set
@@ -602,9 +609,6 @@ def preprocess_gcn_zca(datasets, preprocessor_path):
         start_time = time.time()
         datasets[1].apply_preprocessor(preprocessor=zca, can_fit=False)
         print("\t...done (%g seconds)." % (time.time() - start_time))
-
-    for d, n in safe_zip(datasets, ('train', 'test')):
-        assert not numpy.all(d.X == 0.0), "%s set is all zeros" % n
 
 
 def preprocess_and_save_datasets(raw_datasets, args):
@@ -708,9 +712,6 @@ def preprocess_and_save_datasets(raw_datasets, args):
         print("in copy_memmap, result.X.filename = " + result.X.filename)
         return result
 
-
-        # return deep_copy(raw_dataset, memmap_paths)
-
     if all(os.path.isfile(p) for p in preprocessed_dataset_paths):
         print("Preprocessed dataset files already exist:")
         for pp_path in preprocessed_dataset_paths:
@@ -725,22 +726,9 @@ def preprocess_and_save_datasets(raw_datasets, args):
 
     if args.preprocessor == 'gcn-zca':
         preprocessor_path = base_path + "_preprocessor.pkl"
-        for d, n in safe_zip(preprocessed_datasets, ('train', 'test')):
-            assert not numpy.all(d.X == 0.0), "%s set was all zeros" % n
-
         preprocess_gcn_zca(preprocessed_datasets, preprocessor_path)
     elif args.preprocessor == 'lcn':
         preprocess_lcn(preprocessed_datasets, image_size, args.lcn_size)
-
-    for r, d, n in safe_zip(raw_datasets,
-                            preprocessed_datasets,
-                            ('train', 'test')):
-        assert not numpy.all(d.X == 0.0), "%s set was all zeros" % n
-        assert not numpy.all(d.y == 0.0), "%s set was all zeros" % n
-        print("%s set images are not zero, saved to %s" % (n, d.X.filename))
-        # d.X.flush()
-        # d.y.flush()
-
     for p, d in safe_zip(preprocessed_dataset_paths, preprocessed_datasets):
         serial.save(p, d)
 
@@ -774,76 +762,6 @@ def main():
     if args.preprocessor != 'none':
         preprocess_and_save_datasets(raw_datasets, args)
 
-
-    # # Subtracts each image's mean intensity. Scale of 55.0 taken from
-    # # pylearn2/scripts/datasets/make_cifar10_gcn_whitened.py
-    # for dataset in datasets:
-    #     if dataset is not None:
-    #         global_contrast_normalize(dataset.X, scale=55.0, in_place=True)
-
-    # # Prepares the output directory and checks against the existence of
-    # # output files. We do this before ZCA'ing, to make sure we trigger any
-    # # IOErrors now rather than later.
-    # output_paths = get_output_paths(args)
-    # (training_pkl_path,
-    #  training_images_path,
-    #  training_labels_path,
-    #  testing_pkl_path,
-    #  testing_images_path,
-    #  testing_labels_path,
-    #  pp_pkl_path,
-    #  pp_npz_path) = output_paths
-
-    # # Create / load a ZCA preprocessor if the training set is nonzero.
-    # if datasets[0] is not None:
-
-    #     # Load or create a ZCA preprocessor.
-    #     if os.path.isfile(pp_pkl_path) and os.path.isfile(pp_npz_path):
-    #         zca = serial.load(pp_pkl_path)
-    #     elif datasets[0] is not None:
-    #         zca = preprocessing.ZCA(use_memmap_workspace=True)
-    #         zca_training_set = get_zca_training_set(datasets[0])
-
-    #         print("Computing ZCA components using %d images out the %d "
-    #               "training images" %
-    #               (zca_training_set.shape[0], datasets[0].y.shape[0]))
-    #         start_time = time.time()
-    #         zca.fit(zca_training_set)
-    #         print("\t...done (%g seconds)." % (time.time() - start_time))
-
-    #         zca.set_matrices_save_path(pp_npz_path)
-    #         serial.save(pp_pkl_path, zca)
-
-    #         print("saved preprocessor to:")
-    #         for pp_path in (pp_pkl_path, pp_npz_path):
-    #             print("\t%s" % os.path.split(pp_path)[1])
-
-    #     # ZCA the training set
-    #     print("ZCA'ing training set...")
-    #     start_time = time.time()
-    #     datasets[0].apply_preprocessor(preprocessor=zca, can_fit=False)
-    #     print("\t...done (%g seconds)." % (time.time() - start_time))
-
-    #     # ZCA the testing set
-    #     if datasets[1] is not None:
-    #         print("ZCA'ing testing set...")
-    #         start_time = time.time()
-    #         datasets[1].apply_preprocessor(preprocessor=zca, can_fit=False)
-    #         print("\t...done (%g seconds)." % (time.time() - start_time))
-
-    # print("Saving to %s:" % os.path.split(training_pkl_path)[0])
-
-    # for (dataset,
-    #      pkl_path,
-    #      images_path,
-    #      labels_path) in safe_zip(datasets,
-    #                               (training_pkl_path, testing_pkl_path),
-    #                               (training_images_path, testing_images_path),
-    #                               (training_labels_path, testing_labels_path)):
-    #     if dataset is not None:
-    #         serial.save(pkl_path, dataset)
-    #         for path in (pkl_path, images_path, labels_path):
-    #             print("\t%s" % os.path.split(path)[1])
 
 if __name__ == '__main__':
     main()
