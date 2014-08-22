@@ -99,7 +99,8 @@ def norb_labels_to_object_ids(norb_labels, label_name_to_index):
 
 def load_norb_instance_dataset(dataset_path,
                                label_format="obj_id",
-                               crop_shape=None):
+                               crop_shape=None,
+                               axes=None):
     """Loads a NORB (big or small) instance dataset.
 
     Optionally replaces the dataset's y (NORB label vectors) to object ID
@@ -127,6 +128,9 @@ def load_norb_instance_dataset(dataset_path,
       the images to.
 
     """
+    if axes is not None:
+        assert tuple(axes) in (('c', 0, 1, 'b'),
+                               ('b', 0, 1, 'c'))
 
     def load_instance_dataset(dataset_path):
 
@@ -171,6 +175,9 @@ def load_norb_instance_dataset(dataset_path,
     # preprocessor = serial.load(get_preprocessor_path(dataset_path))
     # # c01b_axes = ['c', 0, 1, 'b']
 
+    if axes is not None:
+        dataset.set_view_converter_axes(axes)
+
     if crop_shape is not None:
         # assert not return_zca_dataset
 
@@ -186,7 +193,7 @@ def load_norb_instance_dataset(dataset_path,
         #     assert len(dataset.y.shape) == 1
         #     dataset.convert_to_one_hot()
 
-        return dataset
+    return dataset
 
         # preprocessor = Pipeline(items=(preprocessor, cropper))
     # else:

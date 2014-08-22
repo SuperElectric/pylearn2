@@ -61,7 +61,7 @@ def main():
                             '-d',
                             default=default_dataset_path,
                             help=('The .pkl file of an instance recognition '
-                                  'SmallNORB dataset.'))
+                                  'NORB dataset.'))
 
         parser.add_argument('--output',
                             '-o',
