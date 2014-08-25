@@ -78,7 +78,7 @@
         },
     },
     algorithm: !obj:pylearn2.training_algorithms.sgd.SGD {
-        learning_rate: .17, #.08,  # .17
+        learning_rate: .01, # .04, #.08, #.17, #.08,  # .17
         init_momentum: .5,
         train_iteration_mode: 'even_sequential',
         monitor_iteration_mode: 'even_sequential',

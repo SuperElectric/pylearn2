@@ -11,6 +11,7 @@ import sys
 import os
 import argparse
 import numpy
+import matplotlib
 from matplotlib import pyplot
 from pylearn2.datasets.new_norb import NORB
 from pylearn2.utils import safe_zip, serial
@@ -41,6 +42,10 @@ def _parse_args():
                         action='store_true',
                         help="Swaps left and right stereo images, so you "
                         "can see them in 3D by crossing your eyes.")
+
+    parser.add_argument('--no_norm',
+                        action='store_true',
+                        help="Don't normalize pixel values")
 
     result = parser.parse_args()
 
@@ -184,8 +189,9 @@ def main():
                                        squeeze=True,
                                        figsize=(10, 3.5))
 
-    figure.canvas.set_window_title("NORB dataset (%sing set)" %
-                                   args.which_set)
+    set_name = (os.path.split(args.pkl)[1] if args.which_set is None
+                else "%sing set" % args.which_set)
+    figure.canvas.set_window_title("NORB dataset (%s)" % set_name)
 
     label_text = figure.suptitle('Up/down arrows choose label, '
                                  'left/right arrows change it',
@@ -198,8 +204,8 @@ def main():
         axes.get_yaxis().set_visible(False)
 
     text_axes, image_axes = (all_axes[0], all_axes[1:])
-    image_captions = ('left', 'right') if dataset_is_stereo \
-                     else ('mono image',)
+    image_captions = (('left', 'right') if dataset_is_stereo
+                      else ('mono image', ))
 
     if args.stereo_viewer:
         image_captions = tuple(reversed(image_captions))
@@ -236,6 +242,8 @@ def main():
     def get_row_indices(grid_indices):
         short_label = get_short_label(grid_indices)
         return label_to_row_indices.get(short_label, None)
+
+    axes_to_pixels = {}
 
     def redraw(redraw_text, redraw_images):
         row_indices = get_row_indices(grid_indices)
@@ -304,6 +312,12 @@ def main():
                 assert axes_names[-2] == 1
                 assert axes_names[-1] == 'c'
 
+                def draw_image(image, axes):
+                    assert len(image.shape) == 2
+                    norm = matplotlib.colors.NoNorm() if args.no_norm else None
+                    axes_to_pixels[axes] = image
+                    axes.imshow(image, norm=norm, cmap='gray')
+
                 if 's' in axes_names:
                     image_pair = \
                         dataset.get_topological_view(mat=data_row,
@@ -316,11 +330,11 @@ def main():
                         image_pair = tuple(reversed(image_pair))
 
                     for axis, image in safe_zip(image_axes, image_pair):
-                        axis.imshow(image, cmap='gray')
+                        draw_image(image, axis)
                 else:
                     image = dataset.get_topological_view(mat=data_row)
                     image = image[0, :, :, 0]
-                    image_axes[0].imshow(image, cmap='gray')
+                    draw_image(image, image_axes[0])
 
         if redraw_text:
             draw_text()
@@ -329,6 +343,24 @@ def main():
             draw_images()
 
         figure.canvas.draw()
+
+    default_status_text = ("mouseover image%s for pixel values" % ""
+                           if len(image_axes)==1 else "s")
+    status_text = figure.text(0.1, 0.1, default_status_text)
+
+    def on_mouse_motion(event):
+        original_text = status_text.get_text()
+
+        if event.inaxes not in image_axes:
+            status_text.set_text(default_status_text)
+        else:
+            pixels = axes_to_pixels[event.inaxes]
+            row = int(event.ydata + .5)
+            col = int(event.xdata + .5)
+            status_text.set_text("Pixel value: %g" % pixels[row, col])
+
+        if status_text.get_text != original_text:
+            figure.canvas.draw()
 
     def on_key_press(event):
 
@@ -398,6 +430,7 @@ def main():
                 redraw(True, True)
 
     figure.canvas.mpl_connect('key_press_event', on_key_press)
+    figure.canvas.mpl_connect('motion_notify_event', on_mouse_motion)
     redraw(True, True)
 
     pyplot.show()

@@ -25,22 +25,22 @@ def main():
     args = _parse_args()
     dataset_path = preprocess("${PYLEARN2_DATA_PATH}/norb/"
                               "instance_recognition/"
-                              "norb_left_02_01_gcn_zca_train.pkl")
+                              "left_02_01/raw_train.pkl")
 
     print "loading %s" % os.path.split(dataset_path)[1]
     start_time = time.time()
 
-    crop_shape = (77, 77)
+    # crop_shape = (77, 77)
+    crop_shape = (106, 106)
 
     if args.crop == 'preprocess':
         print "cropping dataset with preprocessor"
         dataset = load_norb_instance_dataset(dataset_path,
-                                             convert_to_one_hot=True,
-                                             return_zca_dataset=False,
+                                             label_format="norb",
                                              crop_shape=crop_shape)
     else:
         dataset = load_norb_instance_dataset(dataset_path,
-                                             convert_to_one_hot=True)
+                                             label_format="norb")
         if args.crop == 'crop':
             print "cropping dataset 'manually'"
             print "getting topo view"
@@ -70,6 +70,8 @@ def main():
     dataset_nbytes = dataset.X.nbytes + dataset.y.nbytes
     print ("dataset memory footprint: %s" %
            human_readable_memory_size(dataset_nbytes))
+
+    print("dataset.X's type is %s" % type(dataset.X))
 
 if __name__ == '__main__':
     main()
