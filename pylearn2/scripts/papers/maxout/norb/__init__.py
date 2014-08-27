@@ -97,11 +97,63 @@ def norb_labels_to_object_ids(norb_labels, label_name_to_index):
     # return object_ids[:, numpy.newaxis]
 
 
+class CropBlock(Block):
+
+    def __init__(self, dataset, crop_shape):
+        assert len(crop_shape) == 2
+        assert isinstance(dataset, DenseDesignMatrix)
+
+        self._dataset_view_converter = dataset.view_converter
+        self._cropped_view_converter = copy.copy(self._dataset_view_converter)
+        self._cropped_view_converter.shape = \
+            (tuple(crop_shape) + (self._dataset_view_converter[-1], ))
+        # self._dataset = dataset
+        self._crop_shape = crop_shape
+
+    def __call__(self, batch):
+        """
+        Crops a batch.
+
+        Parameters:
+        -----------
+
+        batch: theano matrix
+          A symbolic matrix, representing a batch of rows from a dense
+          design matrix.
+
+        returs: theano matrix
+          The matrix_batch, cropped.
+        """
+
+        # view_converter = self._dataset.view_converter
+        topo_batch = dataset_view_converter.design_mat_to_topo_view(batch)
+
+        needs_transpose = not self._axes[1:3] == (0, 1)
+
+        if needs_transpose:
+            axes_order = tuple(self._axes.index(a) for a in ('c', 0, 1, 'b'))
+            batch = batch.transpose(axes_order)
+
+        offset = (arr.shape[1:3] - self._crop_shape) // 2
+        batch = batch[:,
+                      offset[0]:offset[0] + self._crop_shape[0]
+                      offset[1]:offset[1] + self._crop_shape[1],
+                      :]
+
+        if needs_transpose:
+            reverse_axes_order = tuple(('c', 0, 1, 'b').index(a)
+                                       for a in self._axis)
+            batch = batch.transpose(reverse_axes_order)
+
+        return cropped_view_converter.topo_view_to_design_mat(batch)
+
+
 def load_norb_instance_dataset(dataset_path,
                                label_format="obj_id",
                                crop_shape=None,
                                axes=None):
-    """Loads a NORB (big or small) instance dataset.
+    """
+    Loads a NORB (big or small) instance dataset.
 
     Optionally replaces the dataset's y (NORB label vectors) to object ID
     integers, or to object ID one-hot vectors. Small NORB maps to 50 classes (1
@@ -126,7 +178,6 @@ def load_norb_instance_dataset(dataset_path,
     crop_shape : tuple
       A tuple of two ints. Specifies the shape of a central window to crop
       the images to.
-
     """
     if axes is not None:
         assert tuple(axes) in (('c', 0, 1, 'b'),
@@ -179,82 +230,40 @@ def load_norb_instance_dataset(dataset_path,
         dataset.set_view_converter_axes(axes)
 
     if crop_shape is not None:
-        # assert not return_zca_dataset
+        crop_block = CropBlock(dataset, crop_shape)
+        # topo_shape = tuple(crop_shape) + (dataset.view_converter.shape[-1], )
+        # dataset.view_conveter = DefaultViewConverter(shape=topo_shape,
+        #                                              axes=axes)
+        dataset = TransformerDataset(raw=dataset,
+                                     transformer=crop_block,
+                                     space_preserving=False)
 
-        cropper = CentralWindow(crop_shape)
-        print "cropping to %s" % str(crop_shape)
-        crop_time = time.time()
-        dataset.apply_preprocessor(cropper, can_fit=False)
-        crop_time = time.time() - crop_time
-        print "...finished cropping in %g secs" % crop_time
-        # dataset.set_view_converter_axes(c01b_axes)
-        assert tuple(dataset.view_converter.shape[:2]) == tuple(crop_shape)
-        # if label_format == "obj_onehot":
-        #     assert len(dataset.y.shape) == 1
-        #     dataset.convert_to_one_hot()
+    # if crop_shape is not None:
+    #     # assert not return_zca_dataset
+
+    #     cropper = CentralWindow(crop_shape)
+    #     print "cropping to %s" % str(crop_shape)
+    #     crop_time = time.time()
+    #     dataset.apply_preprocessor(cropper, can_fit=False)
+    #     crop_time = time.time() - crop_time
+    #     print "...finished cropping in %g secs" % crop_time
+    #     # dataset.set_view_converter_axes(c01b_axes)
+    #     assert tuple(dataset.view_converter.shape[:2]) == tuple(crop_shape)
+    #     # if label_format == "obj_onehot":
+    #     #     assert len(dataset.y.shape) == 1
+    #     #     dataset.convert_to_one_hot()
 
     return dataset
 
-        # preprocessor = Pipeline(items=(preprocessor, cropper))
-    # else:
-    #     assert return_zca_dataset
-    #     return ZCA_Dataset(preprocessed_dataset=dataset,
-    #                        preprocessor=preprocessor,
-    #                        convert_to_one_hot=False)
-    #     # return ZCA_Dataset(preprocessed_dataset=dataset,
-    #     #                    preprocessor=preprocessor,
-    #     #                    convert_to_one_hot=convert_to_one_hot)
-    #     # return ZCA_Dataset(preprocessed_dataset=dataset,
-    #     #                    preprocessor=preprocessor,
-    #     #                    convert_to_one_hot=convert_to_one_hot,
-    #     #                    axes=c01b_axes)
 
+# class PreprocessingViewConverter(dense_design_matrix.DefaultViewConverter):
 
-# def object_id_to_SmallNORB_label_pair(object_ids):
-#     """
-#     Given an Nx1 matrix of object IDs, this returns a Nx2 matrix of
-#     corresponding class and instance SmallNORB labels.
-#     """
-#     assert len(object_ids.shape) == 2
-#     assert object_ids.shape[1] == 1
+#     def __init__(self, preprocessor, shape, axes=('b', 0, 1, 'c')):
+#         self._super = super(PreprocessingViewConverter, self)
+#         self._preprocessor = preprocessor
+#         self._dummy_design_matrix = None
 
-#     instance_index = SmallNORB.label_type_to_index['instance']
-#     instances_per_class = SmallNORB.num_labels_by_type[instance_index]
-
-#     result = numpy.zeros((object_ids.shape[0], 2), int)
-#     result[:, 0] = int(object_ids / instances_per_class)
-#     result[:, 1] = numpy.mod(object_ids, instances_per_class)
-#     return result
-
-
-# def SmallNORB_labels_to_object_ids(label_vectors):
-#     """
-#     Given a NxM matrix of SmallNORB labels, returns a Nx1 matrix of unique
-#     IDs for each object.
-#     """
-
-#     def contains_equal_numbers_of_all_objects(object_ids, num_objects):
-#         """
-#         Returns True iff object_ids contains all numbers from 0 to
-#         num_objects-1
-#         """
-#         assert len(object_ids.shape) == 1
-#         assert object_ids.shape[0] > 0
-
-#         object_counts = numpy.array([numpy.count_nonzero(object_ids == i)
-#                                      for i in xrange(num_objects)], int)
-
-#         return numpy.all(object_counts[1:] == object_counts[0])
-
-#     category_index, instance_index = (SmallNORB.label_type_to_index[n]
-#                                       for n in ('category', 'instance'))
-
-#     num_categories, num_instances = (SmallNORB.num_labels_by_type[i]
-#                                      for i in (category_index,
-#                                                instance_index))
-
-#     categories, instances = (label_vectors[:, i]
-#                              for i in (category_index, instance_index))
-#     result = categories * num_instances + instances
-
-#     return result
+#     def get_formatted_batch(self, batch, dspace):
+#         batch = self._super.get_formatted_batch(batch, dspace)
+#         if self.dummy_design_matrix is None:
+#             self._dummy_design_matrix = DenseDesignMatrix(X=batch)

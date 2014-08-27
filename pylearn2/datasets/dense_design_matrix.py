@@ -814,13 +814,19 @@ class DenseDesignMatrix(Dataset):
             training examples.
         axes : WRITEME
         """
+        print "checking for NaNs"
         assert not contains_nan(V)
+        print "... done checking for NaNs"
         rows = V.shape[axes.index(0)]
         cols = V.shape[axes.index(1)]
         channels = V.shape[axes.index('c')]
+        print "before DefaultViewConverter constructor"
         self.view_converter = DefaultViewConverter([rows, cols, channels],
                                                    axes=axes)
+        print "after DefaultViewConverter constructor"
+        print "before topo_view_to_design_mat"
         self.X = self.view_converter.topo_view_to_design_mat(V)
+        print "... after topo_view_to_design_mat"
         # self.X_topo_space stores a "default" topological space that
         # will be used only when self.iterator is called without a
         # data_specs, and with "topo=True", which is deprecated.
@@ -849,9 +855,11 @@ class DenseDesignMatrix(Dataset):
             space = CompositeSpace((X_space, y_space))
             source = (X_source, y_source)
 
+        print "done setting up spaces"
         self.data_specs = (space, source)
         self.X_space = X_space
         self._iter_data_specs = (X_space, X_source)
+        print "returning from set_topological_view"
 
     def get_design_matrix(self, topo=None):
         """
@@ -1447,6 +1455,7 @@ class DefaultViewConverter(object):
           try to return a view into topo_array if possible; otherwise it will
           allocate a new ndarray.
         """
+        print "entered topo_view_to_design_mat"
         for shape_elem, axis in safe_zip(self.shape, (0, 1, 'c')):
             if topo_array.shape[self.axes.index(axis)] != shape_elem:
                 raise ValueError(
@@ -1458,11 +1467,15 @@ class DefaultViewConverter(object):
                     "  self.axes:        %s\n"
                     "  topo_array.shape: %s (should be in self.axes' order)")
 
+        print "transposing..."
         topo_array_bc01 = topo_array.transpose([self.axes.index(ax)
                                                 for ax in ('b', 'c', 0, 1)])
 
-        return topo_array_bc01.reshape((topo_array_bc01.shape[0],
-                                        np.prod(topo_array_bc01.shape[1:])))
+        print "done transposing. now reshaping."
+        result = topo_array_bc01.reshape((topo_array_bc01.shape[0],
+                                          np.prod(topo_array_bc01.shape[1:])))
+        print "done reshaping. now returning from topo_view_to_design_mat"
+        return result
 
     def get_formatted_batch(self, batch, dspace):
         """
