@@ -4,6 +4,7 @@ Defines the pylearn2.scripts.papers.maxout.norb module.
 
 import os, pickle, sys, time
 import numpy
+from pylearn2.blocks import Block
 from pylearn2.utils import serial
 from pylearn2.datasets.preprocessing import CentralWindow, Pipeline
 from pylearn2.datasets.zca_dataset import ZCA_Dataset
@@ -136,7 +137,7 @@ class CropBlock(Block):
 
         offset = (arr.shape[1:3] - self._crop_shape) // 2
         batch = batch[:,
-                      offset[0]:offset[0] + self._crop_shape[0]
+                      offset[0]:offset[0] + self._crop_shape[0],
                       offset[1]:offset[1] + self._crop_shape[1],
                       :]
 
