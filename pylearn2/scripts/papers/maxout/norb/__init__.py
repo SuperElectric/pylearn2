@@ -2,7 +2,7 @@
 Defines the pylearn2.scripts.papers.maxout.norb module.
 """
 
-import os, pickle, sys, time
+import os, pickle, sys, time, copy
 import numpy
 from pylearn2.blocks import Block
 from pylearn2.utils import serial
@@ -127,12 +127,13 @@ class CropBlock(Block):
         """
 
         # view_converter = self._dataset.view_converter
-        topo_batch = dataset_view_converter.design_mat_to_topo_view(batch)
+        topo_batch = self._dataset_view_converter.design_mat_to_topo_view(batch)
 
-        needs_transpose = not self._axes[1:3] == (0, 1)
+        axes = self._dataset_view_converter.axes
+        needs_transpose = not axes[1:3] == (0, 1)
 
         if needs_transpose:
-            axes_order = tuple(self._axes.index(a) for a in ('c', 0, 1, 'b'))
+            axes_order = tuple(axes.index(a) for a in ('c', 0, 1, 'b'))
             batch = batch.transpose(axes_order)
 
         offset = (arr.shape[1:3] - self._crop_shape) // 2

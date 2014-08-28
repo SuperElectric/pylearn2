@@ -256,8 +256,8 @@ def get_raw_datasets(norb,
                      which_image,
                      output_dir):
     """
-    Splits norb into two DenseDesignMatrices, saves them to output_dir,
-    and returns them.
+    Splits norb into two DenseDesignMatrices, shuffles them, saves them to
+    output_dir, and returns them.
 
     If they already exist in output_dir, this just loads and returns them.
 
@@ -474,8 +474,29 @@ def get_raw_datasets(norb,
             dataset.view_converter = copy.deepcopy(mono_view_converter)
             result.append(dataset)
 
+    def parallel_shuffle(images, labels, seed):
+        original_labels = numpy.array(labels, copy=True)
+        original_first_pixels = numpy.array(images[:, 0], copy=True)
+        indices = numpy.arange(labels.shape[0])
+        arrays = (images, labels, indices)
+        for array in arrays:
+            rng = numpy.random.RandomState(seed)
+            rng.shuffle(array)  # in-place
+
+        # Checks that a permutation happened
+        assert not (indices == numpy.arange(labels.shape[0])).all()
+
+        # Out of an (over)abudnance of caution, we check that shuffling
+        # <images>, <labels> and <indices> with the same seed resulted in the
+        # same permutations.
+        assert (original_labels[indices, :] == labels).all()
+        assert (original_first_pixels[indices] == images[:, 0]).all()
+
     for output_dataset, output_path in safe_zip(result, output_paths):
         if output_dataset is not None:
+            parallel_shuffle(output_dataset.X,
+                             output_dataset.y,
+                             seed=1234)
             serial.save(output_path, output_dataset)
 
     return result
@@ -591,23 +612,17 @@ def preprocess_gcn_zca(datasets, preprocessor_path):
         for pp_path in (preprocessor_path, preprocessor_npz_path):
             print("\t%s" % os.path.split(pp_path)[1])
 
-    for r, d in safe_zip(raw_datasets, datasets):
-        assert numpy.all(r.X == d.X)
-        assert numpy.all(r.y == d.y)
-        assert not numpy.all(d.X == 0.0)
+    # for r, d in safe_zip(raw_datasets, datasets):
+    #     assert numpy.all(r.X == d.X)
+    #     assert numpy.all(r.y == d.y)
+    #     assert not numpy.all(d.X == 0.0)
 
-    # ZCA the training set
-    print("ZCA'ing training set...")
-    start_time = time.time()
-    datasets[0].apply_preprocessor(preprocessor=zca,
-                                   can_fit=False)  # sic; fit() called above.
-    print("\t...done (%g seconds)." % (time.time() - start_time))
-
-    # ZCA the testing set
-    if datasets[1] is not None:
-        print("ZCA'ing testing set...")
+    for dataset, name in safe_zip(datasets, ('train', 'test')):
+        print("ZCA'ing %sing set..." % name)
         start_time = time.time()
-        datasets[1].apply_preprocessor(preprocessor=zca, can_fit=False)
+
+        # No need to fit preprocessor; zca.fit() was called above.
+        dataset.apply_preprocessor(preprocessor=zca, can_fit=False)
         print("\t...done (%g seconds)." % (time.time() - start_time))
 
 
