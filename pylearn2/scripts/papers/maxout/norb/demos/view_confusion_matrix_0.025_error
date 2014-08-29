@@ -1,0 +1,3 @@
+# last tested with commit 
+../view_confusion_matrix.py -i ../norb_maxout_experiments/2014_07_27_0.026_error/norb_small_restart_best_small_norb_left_02_00_gcn_zca_test.npz -t /scratch/data/norb_small/instance_recognition/small_norb_left_02_01_gcn_zca_train.pkl
+

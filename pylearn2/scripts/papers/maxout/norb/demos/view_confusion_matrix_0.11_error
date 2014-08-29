@@ -1,0 +1,3 @@
+#! /bin/sh
+OUTPUT_DIR=/scratch/pylearn2_training/norb_maxout/norb_maxout_experiments
+../view_confusion_matrix.py -i $OUTPUT_DIR/2014_08_29_0.11_error/norb_small_best_gcn-zca_test.npz -t $PYLEARN2_DATA_PATH/norb_small/instance_recognition/left_02_01/gcn-zca_train.pkl
