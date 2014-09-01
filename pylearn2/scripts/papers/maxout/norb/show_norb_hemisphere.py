@@ -3,7 +3,8 @@
 import argparse, sys
 import numpy
 from matplotlib import pyplot
-from pylearn2.datasets.norb import SmallNORB
+from pylearn2.datasets.new_norb import NORB
+from pylearn2.utils import safe_zip
 
 
 def main():
@@ -50,83 +51,75 @@ def main():
 
         return parser.parse_args()
 
-    def get_data(dataset):
-        # Gets the left images
-        values = dataset.get_topological_view(single_tensor=False)[0]
-        labels = dataset.y
-        return values, numpy.array(labels, 'int')
-
-    instance_index = SmallNORB.label_type_to_index['instance']
-
-    def remap_instances(which_set, labels):
-        if which_set == 'train':
-            new_to_old_instance = [4, 6, 7, 8, 9]
-        elif which_set == 'test':
-            new_to_old_instance = [0, 1, 2, 3, 5]
-
-        num_instances = len(new_to_old_instance)
-        old_to_new_instance = numpy.ndarray(10, 'int')
-        old_to_new_instance.fill(-1)
-        old_to_new_instance[new_to_old_instance] = numpy.arange(num_instances)
-
-        instance_slice = numpy.index_exp[:, instance_index]
-        old_instances = labels[instance_slice]
-
-        new_instances = old_to_new_instance[old_instances]
-        labels[instance_slice] = new_instances
-
-        azimuth_index = SmallNORB.label_type_to_index['azimuth']
-        azimuth_slice = numpy.index_exp[:, azimuth_index]
-        labels[azimuth_slice] = labels[azimuth_slice] / 2
-
-        return new_to_old_instance, old_to_new_instance
-
-    def get_label_to_index_map(num_instances):
-
-        # Maps a label vector to the corresponding index in <values>
-        num_labels_by_type = numpy.array(SmallNORB.num_labels_by_type,
-                                         'int')
-        num_labels_by_type[instance_index] = num_instances
-
-        label_to_index = numpy.ndarray(num_labels_by_type, 'int')
-        label_to_index.fill(-1)
-
-        for i, label in enumerate(labels):
-            label_to_index[tuple(label)] = i
-
-        # all elements have been set
-        assert not numpy.any(label_to_index == -1)
-
-        return label_to_index
-
     args = parse_args()
-    which_set = ('test' if args.instance in (0, 1, 2, 3, 5)
-                 else 'train')
-    norb = SmallNORB(which_set, True)
-    left_images, labels = get_data(norb)
-    new_to_old_instance, old_to_new_instance = remap_instances(which_set,
-                                                               labels)
-    label_to_index = get_label_to_index_map(len(new_to_old_instance))
+    norb = NORB(which_norb="small", which_set="both")
 
-    new_instance = old_to_new_instance[args.instance]
-    assert new_instance >= 0
-    label_subset = label_to_index[args.category, new_instance, :, :, args.lighting]
+    def check_label_ordering(norb):
+        column_order = tuple(norb.label_name_to_index[label_name]
+                             for label_name in ('category',
+                                                'instance',
+                                                'elevation',
+                                                'azimuth',
+                                                'lighting condition'))
+        if column_order != (0, 1, 2, 3, 4):
+            raise ValueError("Unexpected label column order: %s" %
+                             str(column_order))
 
-    elevations = range(0, label_subset.shape[0], args.elevation_downsample)
-    azimuths = range(0, label_subset.shape[1], args.azimuth_downsample)
-    # matplotlib.figure(figsize=(8,6))
+    check_label_ordering(norb)
+
+    def get_rowmask(labels, category, instance, lighting):
+        column_indices = (0, 1, 4)  # category, instance, lighting
+        label_values = (category, instance, lighting)
+        rowmasks = (labels[:, c] == v
+                    for c, v in safe_zip(column_indices, label_values))
+        return reduce(numpy.logical_and, rowmasks)
+
+    left_images = norb.get_topological_view(single_tensor=False)[0]
+
+    rowmask = get_rowmask(norb.y,
+                          args.category,
+                          args.instance,
+                          args.lighting)
+
+    left_images = left_images[rowmask, :]
+    labels = norb.y[rowmask, :]
+
+    elevation_index = 2
+    azimuth_index = 3
+
+    def get_sorted_unique_elements(values):
+        return numpy.sort(numpy.asarray(tuple(frozenset(values))))
+
+    elevations, azimuths = (get_sorted_unique_elements(labels[:, c])
+                            for c in (elevation_index, azimuth_index))
+
+    azimuths = azimuths[::args.azimuth_downsample]
+    elevations = elevations[::args.elevation_downsample]
+
+    def get_angles_to_index_map(labels):
+        elevations = labels[:, elevation_index]
+        azimuths = labels[:, azimuth_index]
+        angles = tuple((e, a) for e, a in safe_zip(elevations, azimuths))
+        return dict(safe_zip(angles, range(len(elevations))))
+
+    angles_to_index = get_angles_to_index_map(labels)
+
     fig_size_inches = (len(azimuths) * 2,
                        len(elevations) * 2)
-    figure, axes = pyplot.subplots(len(elevations),
-                                   len(azimuths),
-                                   squeeze=False,
-                                   figsize=fig_size_inches)
+    figure, all_axes = pyplot.subplots(len(elevations),
+                                       len(azimuths),
+                                       squeeze=False,
+                                       figsize=fig_size_inches)
 
-    for ie, elevation in enumerate(elevations):
-        for ia, azimuth in enumerate(azimuths):
-            left_image = left_images[label_subset[elevation, azimuth], :, :, 0]
-            axis = axes[ie][ia]
-            axis.imshow(left_image, cmap='gray')
+    for axes_row, elevation in safe_zip(all_axes, elevations):
+        for axes, azimuth in safe_zip(axes_row, azimuths):
+            # hides axes' tickmarks
+            axes.get_xaxis().set_visible(False)
+            axes.get_yaxis().set_visible(False)
+
+            row_index = angles_to_index[(elevation, azimuth)]
+            left_image = left_images[row_index, :, :, 0]
+            axes.imshow(left_image, cmap='gray')
 
     def on_key_press(event):
         if event.key == 'q':
