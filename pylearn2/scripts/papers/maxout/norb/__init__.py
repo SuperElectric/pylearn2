@@ -5,10 +5,11 @@ Defines the pylearn2.scripts.papers.maxout.norb module.
 import os, pickle, sys, time, copy
 import numpy
 from pylearn2.blocks import Block
-from pylearn2.utils import serial
+from pylearn2.utils import serial, safe_zip
 from pylearn2.datasets.preprocessing import CentralWindow, Pipeline
 from pylearn2.datasets.zca_dataset import ZCA_Dataset
 from pylearn2.datasets.norb import SmallNORB
+from pylearn2.utils.iteration import SubsetIterato
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 
 

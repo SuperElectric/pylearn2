@@ -338,27 +338,41 @@ class DenseDesignMatrix(Dataset):
 
                 convert.append(conv_fn)
 
-        # TODO: Refactor
-        if mode is None:
-            if hasattr(self, '_iter_subset_class'):
-                mode = self._iter_subset_class
-            else:
-                raise ValueError('iteration mode not provided and no default '
-                                 'mode set for %s' % str(self))
-        else:
-            mode = resolve_iterator_class(mode)
+        # monkeypatch by mkg to add support for EvenlySamplingIterator.
+        # This should never get into any PR, let alone the master branch.
+        # Alert the authorities, and mkg@alum.mit.edu, if you see this.
 
         if batch_size is None:
             batch_size = getattr(self, '_iter_batch_size', None)
         if num_batches is None:
             num_batches = getattr(self, '_iter_num_batches', None)
+
+        subset_iterator_args = dict()
+        if mode == 'evenly_sampling':
+            subset_iterator_args['labels'] = self.y
+
+        # TODO: Refactor
+        if mode is None:
+            if hasattr(self, '_iter_subset_class'):
+                mode = self._iter_subset_class
+            else:
+                raise ValueError('iteration mode not provided and no '
+                                 'default mode set for %s' % str(self))
+        else:
+            mode = resolve_iterator_class(mode)
+
         if rng is None and mode.stochastic:
             rng = self.rng
+
+        subset_iterator_args.update(dict(dataset_size=self.X.shape[0],
+                                         batch_size=batch_size,
+                                         num_batches=num_batches,
+                                         rng=rng))
+
+        subset_iterator = mode(**subset_iterator_args)
+
         return FiniteDatasetIterator(self,
-                                     mode(self.X.shape[0],
-                                          batch_size,
-                                          num_batches,
-                                          rng),
+                                     subset_iterator=subset_iterator,
                                      data_specs=data_specs,
                                      return_tuple=return_tuple,
                                      convert=convert)

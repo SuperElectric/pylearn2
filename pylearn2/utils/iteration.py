@@ -617,11 +617,98 @@ class BatchwiseShuffledSequentialIterator(SequentialSubsetIterator):
     uniform_batch_size = False
 
 
+# Part of a monkeypatch by mkg to add support for EvenlySamplingIterator.
+# This should never get into any PR, let alone the master branch.
+# Alert the authorities, and mkg@alum.mit.edu, if you see this.
+class EvenlySamplingIterator(SubsetIterator):
+    """
+    An iterator that chooses samples so that all labels have an equal chance
+    of being selected, even if some labels have more examples than others
+    in the dataset.
+    """
+
+    fancy = True
+    stochastic = True
+    uniform_batch_size = True
+
+    def __init__(self, labels, batch_size, rng=None, **kwargs):
+        assert isinstance(labels, np.ndarray)
+        assert batch_size is not None
+
+        if len(labels.shape) != 1:
+            raise ValueError("Expected 1-D labels array, but labels.shape = %s"
+                             % str(labels.shape))
+
+        unique_labels = np.sort(np.asarray(tuple(frozenset(labels))))
+        label_rowmasks = [labels == u for u in unique_labels]
+        label_counts = [np.count_nonzero(mask) for mask in label_rowmasks]
+        weights = np.array([1.0 / c for c in label_counts])
+        # probabilities /= probabilities.sum()
+
+        label_weights = np.zeros(labels.shape[0], dtype='float')
+        for label_rowmask, label_weight in safe_izip(label_rowmasks, weights):
+            label_weights[label_rowmask] = label_weight
+
+        label_weights /= label_weights.sum()
+
+        self._label_weights = label_weights
+        self._batch_size = batch_size
+        self._num_examples = labels.shape[0]
+        self._rng = rng if rng is not None else np.random.RandomState(12345)
+
+        self._iteration_count = 0
+        # row_index_arrays = [np.nonzero(labels == u)[0]
+        #                     for u in unique_labels]
+
+        # label_to_row_indices = dict(safe_izip(unique_labels, row_index_arrays))
+
+
+        # self._row_index_arrays = row_index_arrays
+        # self._probabilities = probabilities
+
+    @property
+    def num_batches(self):
+        return (self._num_examples // self._batch_size +
+                (0 if self._num_examples % self._batch_size == 0 else 1))
+
+    def num_examples(self):
+        return self._num_examples
+
+    def next(self):
+        if self._iteration_count >= self.num_batches:
+            raise StopIteration
+
+        self._iteration_count += 1
+        return self._rng.choice(self._num_examples,
+                                size=self.batch_size,
+                                replace=True,
+                                p=self._label_weights)
+
+        # print "self.batch_size: ", self.batch_size
+        # arrays_indices = self._rng.choice(len(self._row_index_arrays),
+        #                                   size=self.batch_size,
+        #                                   replace=True,
+        #                                   p=self._probabilities)
+
+        # assert arrays_indices.shape == (self.batch_size, )
+        # print "row_index_arrays[0] is a '%s'" % str(self._row_index_arrays[0])
+        # result = np.array([self._rng.choice(self._row_index_arrays[i])
+        #                    for i in arrays_indices])
+
+        # return result
+
+    # print "type(r): ", type(batch_row_index_arrays[0])
+    #     batch_indices = np.array(self._rng.choice(r)
+    #                              for r in batch_row_index_arrays)
+    #     print "batch dtype: ", batch_indices.dtype
+    #     return batch_indices
+
 _iteration_schemes = {
     'sequential': SequentialSubsetIterator,
     'shuffled_sequential': ShuffledSequentialSubsetIterator,
     'random_slice': RandomSliceSubsetIterator,
     'random_uniform': RandomUniformSubsetIterator,
+    'evenly_sampling': EvenlySamplingIterator,
     'batchwise_shuffled_sequential': BatchwiseShuffledSequentialIterator,
     'even_sequential': as_even(SequentialSubsetIterator),
     'even_shuffled_sequential': as_even(ShuffledSequentialSubsetIterator),

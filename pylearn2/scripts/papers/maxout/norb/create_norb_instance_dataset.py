@@ -647,7 +647,7 @@ def preprocess_and_save_datasets(raw_datasets, args):
 
     def get_preprocessor_name(args):
         if args.preprocessor == 'lcn':
-            return '%s-%d' % (args.preprocessor, args.lcn_size)
+            return '%s%d' % (args.preprocessor, args.lcn_size)
         else:
             return args.preprocessor
 
