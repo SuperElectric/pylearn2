@@ -9,7 +9,6 @@ from pylearn2.utils import serial, safe_zip
 from pylearn2.datasets.preprocessing import CentralWindow, Pipeline
 from pylearn2.datasets.zca_dataset import ZCA_Dataset
 from pylearn2.datasets.norb import SmallNORB
-from pylearn2.utils.iteration import SubsetIterato
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 
 
