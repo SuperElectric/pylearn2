@@ -492,12 +492,16 @@ def get_raw_datasets(norb,
         assert (original_labels[indices, :] == labels).all()
         assert (original_first_pixels[indices] == images[:, 0]).all()
 
-    for output_dataset, output_path in safe_zip(result, output_paths):
+    for output_dataset, output_path, set_name in safe_zip(result,
+                                                          output_paths,
+                                                          set_names):
+        print("Shuffling raw %s set..." % set_name)
         if output_dataset is not None:
             parallel_shuffle(output_dataset.X,
                              output_dataset.y,
                              seed=1234)
             serial.save(output_path, output_dataset)
+            print("   ...saved %s" % os.path.split(output_path)[1])
 
     return result
 
@@ -647,7 +651,7 @@ def preprocess_and_save_datasets(raw_datasets, args):
 
     def get_preprocessor_name(args):
         if args.preprocessor == 'lcn':
-            return '%s-%d' % (args.preprocessor, args.lcn_size)
+            return '%s%d' % (args.preprocessor, args.lcn_size)
         else:
             return args.preprocessor
 
@@ -734,10 +738,12 @@ def preprocess_and_save_datasets(raw_datasets, args):
         print("Exiting without doing anything.")
         sys.exit(0)
 
+    print("Allocating preprocessed datasets...")
     preprocessed_datasets = [deep_copy_dataset(r, d)
                              for r, d in safe_zip(raw_datasets,
                                                   preprocessed_dataset_paths)]
 
+    print("Preprocessing datasets...")
     if args.preprocessor == 'gcn-zca':
         preprocessor_path = base_path + "_preprocessor.pkl"
         preprocess_gcn_zca(preprocessed_datasets, preprocessor_path)
@@ -745,6 +751,7 @@ def preprocess_and_save_datasets(raw_datasets, args):
         image_shape = preprocessed_datasets[0].view_converter.shape[:2]
         assert image_shape == preprocessed_datasets[1].view_converter.shape[:2]
         preprocess_lcn(preprocessed_datasets, image_shape, args.lcn_size)
+
     for p, d in safe_zip(preprocessed_dataset_paths, preprocessed_datasets):
         serial.save(p, d)
 

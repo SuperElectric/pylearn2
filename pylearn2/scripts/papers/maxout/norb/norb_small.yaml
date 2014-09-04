@@ -2,7 +2,7 @@
     dataset: &train !obj:pylearn2.scripts.papers.maxout.norb.load_norb_instance_dataset {
       dataset_path: "${PYLEARN2_DATA_PATH}/norb_small/instance_recognition/left_02_01/gcn-zca_train.pkl",
       label_format: "obj_onehot",
-      axes: ['c', 0, 1, 'b']
+      axes: &common_axes ['c', 0, 1, 'b']
     },
     model: !obj:pylearn2.models.mlp.MLP {
         batch_size: 10, # cuda-convnet only optimized for multiples of 128. See: http://deeplearning.net/software/pylearn2/library/alex.html
@@ -96,7 +96,7 @@
         input_space: !obj:pylearn2.space.Conv2DSpace {
             shape: &window_shape [96, 96],
             num_channels: 1,
-            axes: ['c', 0, 1, 'b'],
+            axes: *common_axes #['c', 0, 1, 'b'],
         },
     },
     algorithm: !obj:pylearn2.training_algorithms.sgd.SGD {
@@ -110,23 +110,14 @@
           'valid' : !obj:pylearn2.scripts.papers.maxout.norb.load_norb_instance_dataset {
             dataset_path: "${PYLEARN2_DATA_PATH}/norb_small/instance_recognition/left_02_01/gcn-zca_test.pkl",
             label_format: "obj_onehot",
-            axes: ['c', 0, 1, 'b']
+            axes: *common_axes #['c', 0, 1, 'b']
             },
           'test' : &valid !obj:pylearn2.scripts.papers.maxout.norb.load_norb_instance_dataset {
             dataset_path: "${PYLEARN2_DATA_PATH}/norb_small/instance_recognition/left_02_01/gcn-zca_test.pkl",
             label_format: "obj_onehot",
-            axes: ['c', 0, 1, 'b']
+            axes: *common_axes #['c', 0, 1, 'b']
             },
         },
-
-        # monitoring_dataset:
-        #     {
-        #         'test' : &valid !obj:pylearn2.datasets.zca_dataset.ZCA_Dataset {
-        # preprocessed_dataset: !pkl: "${PYLEARN2_DATA_PATH}/norb_small/instance_recognition/small_norb_02_00_test.pkl",
-        # preprocessor: !pkl: "${PYLEARN2_DATA_PATH}/norb_small/instance_recognition/small_norb_02_00_preprocessor.pkl",
-        # axes: ['c', 0, 1, 'b']
-        #                   },
-        #     },
         cost: !obj:pylearn2.costs.mlp.dropout.Dropout {
             input_include_probs: { 'h0' : .8 },
             input_scales: { 'h0' : 1. }
@@ -155,12 +146,12 @@
             saturate: *max_num_epochs, # 500,
             decay_factor: .01  # final learning rate = initial rate times this.
         },
-        # !obj:pylearn2.train_extensions.window_flip.WindowAndFlipC01B {
-        #     pad_randomized: 8,
-        #     window_shape: *window_shape,
-        #     randomize: [ *train],
-        #     center: [ *valid ]
-        # },
+        !obj:pylearn2.train_extensions.window_flip.WindowAndFlipC01B {
+            pad_randomized: 5,  # matches max perturbation used by big NORB
+            window_shape: *window_shape,
+            randomize: [ *train],
+            center: [ *valid ]
+        },
         !obj:pylearn2.train_extensions.best_params.MonitorBasedSaveBest {
             channel_name: 'valid_y_misclass',
             save_path: 'norb_maxout_experiments/${PYLEARN2_TRAIN_FILE_FULL_STEM}_best.pkl'
