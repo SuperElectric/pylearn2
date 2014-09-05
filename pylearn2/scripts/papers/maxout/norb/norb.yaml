@@ -1,7 +1,7 @@
 !obj:pylearn2.train.Train {
     dataset: &train !obj:pylearn2.scripts.papers.maxout.norb.load_norb_instance_dataset {
       dataset_path: "${PYLEARN2_DATA_PATH}/norb/instance_recognition/left_02_01/lcn7-cropped96_train.pkl",
-      label_format: "obj_onehot",
+      use_object_id_labels: True,
       axes: &common_axes ['c', 0, 1, 'b']
     },
     model: !obj:pylearn2.models.mlp.MLP {
@@ -114,12 +114,12 @@
         # this feels cheaty: using the test set as validation. maxout's cifar10.yaml does it, but the real thing to do is probably split the test set into two, and use one for validation and the other for testing?
           'valid' : !obj:pylearn2.scripts.papers.maxout.norb.load_norb_instance_dataset {
             dataset_path: "${PYLEARN2_DATA_PATH}/norb/instance_recognition/left_02_01/lcn7-cropped96_test.pkl",
-            label_format: "obj_onehot",
+            use_object_id_labels: True,
             axes: *common_axes #['c', 0, 1, 'b']
             },
           'test' : &valid !obj:pylearn2.scripts.papers.maxout.norb.load_norb_instance_dataset {
             dataset_path: "${PYLEARN2_DATA_PATH}/norb/instance_recognition/left_02_01/lcn7-cropped96_test.pkl",
-            label_format: "obj_onehot",
+            use_object_id_labels: True,
             axes: *common_axes #['c', 0, 1, 'b']
             },
         },
