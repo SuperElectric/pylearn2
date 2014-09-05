@@ -88,7 +88,7 @@
                  !obj:pylearn2.models.mlp.Softmax {
                      max_col_norm: 1.9365,
                      layer_name: 'y',
-                     n_classes: 50,
+                     n_classes: 51,
                      irange: *common_irange
                  }
                  # Output: 50
@@ -107,7 +107,7 @@
             inf_is_error: True,
             big_is_error: True
         },
-        train_iteration_mode: 'evenly_sampled',
+        train_iteration_mode: 'evenly_sampling',
         monitor_iteration_mode: 'even_sequential',
         monitoring_dataset:
         {
