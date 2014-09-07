@@ -350,6 +350,8 @@ class DenseDesignMatrix(Dataset):
         subset_iterator_args = dict()
         if mode == 'evenly_sampling':
             subset_iterator_args['labels'] = self.y
+            if hasattr(self, 'examples_per_epoch'):
+                subset_iterator_args['examples_per_epoch'] = self.examples_per_epoch
 
         # TODO: Refactor
         if mode is None:

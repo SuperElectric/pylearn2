@@ -1,7 +1,7 @@
 !obj:pylearn2.train.Train {
     dataset: &train !obj:pylearn2.scripts.papers.maxout.norb.load_norb_instance_dataset {
       dataset_path: "${PYLEARN2_DATA_PATH}/norb/instance_recognition/left_02_01/lcn7-cropped96_train.pkl",
-      label_format: "obj_onehot",
+      use_object_id_labels: True,
       axes: &common_axes ['c', 0, 1, 'b']
     },
     model: !obj:pylearn2.models.mlp.MLP {
@@ -88,7 +88,7 @@
                  !obj:pylearn2.models.mlp.Softmax {
                      max_col_norm: 1.9365,
                      layer_name: 'y',
-                     n_classes: 50,
+                     n_classes: 51,
                      irange: *common_irange
                  }
                  # Output: 50
@@ -102,19 +102,24 @@
     algorithm: !obj:pylearn2.training_algorithms.sgd.SGD {
         learning_rate: .04, #.17, #.01, # .04, #.08, #.17, #.08,  # .17
         init_momentum: .5,
-        train_iteration_mode: 'evenly_sampled',
+        theano_function_mode: !obj:pylearn2.devtools.nan_guard.NanGuardMode {
+            nan_is_error: True,
+            inf_is_error: True,
+            big_is_error: True
+        },
+        train_iteration_mode: 'evenly_sampling',
         monitor_iteration_mode: 'even_sequential',
         monitoring_dataset:
         {
         # this feels cheaty: using the test set as validation. maxout's cifar10.yaml does it, but the real thing to do is probably split the test set into two, and use one for validation and the other for testing?
           'valid' : !obj:pylearn2.scripts.papers.maxout.norb.load_norb_instance_dataset {
             dataset_path: "${PYLEARN2_DATA_PATH}/norb/instance_recognition/left_02_01/lcn7-cropped96_test.pkl",
-            label_format: "obj_onehot",
+            use_object_id_labels: True,
             axes: *common_axes #['c', 0, 1, 'b']
             },
           'test' : &valid !obj:pylearn2.scripts.papers.maxout.norb.load_norb_instance_dataset {
             dataset_path: "${PYLEARN2_DATA_PATH}/norb/instance_recognition/left_02_01/lcn7-cropped96_test.pkl",
-            label_format: "obj_onehot",
+            use_object_id_labels: True,
             axes: *common_axes #['c', 0, 1, 'b']
             },
         },

@@ -102,6 +102,11 @@
     algorithm: !obj:pylearn2.training_algorithms.sgd.SGD {
         learning_rate: .04, #.17, #.01, # .04, #.08, #.17, #.08,  # .17
         init_momentum: .5,
+        theano_function_mode: !obj:pylearn2.devtools.nan_guard.NanGuardMode {
+            nan_is_error: True,
+            inf_is_error: True,
+            big_is_error: True
+        },
         train_iteration_mode: 'even_sequential',
         monitor_iteration_mode: 'even_sequential',
         monitoring_dataset:

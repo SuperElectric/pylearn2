@@ -10,6 +10,7 @@ from pylearn2.datasets.preprocessing import CentralWindow, Pipeline
 from pylearn2.datasets.zca_dataset import ZCA_Dataset
 from pylearn2.datasets.norb import SmallNORB
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
+from pylearn2.space import IndexSpace, CompositeSpace
 
 
 def human_readable_memory_size(size, precision=2):
@@ -94,7 +95,7 @@ def norb_labels_to_object_ids(norb_labels, label_name_to_index):
     #      "dataset; expected all %d objects."
     #      % (len(unique_ids), expected_num_ids))
 
-    return object_ids
+    return object_ids[:, numpy.newaxis]
     # return object_ids[:, numpy.newaxis]
 
 
@@ -150,8 +151,26 @@ class CropBlock(Block):
         return cropped_view_converter.topo_view_to_design_mat(batch)
 
 
+def get_objects_with_few_examples(norb, min_num_instances):
+    """
+    Returns a list of objects with fewer than min_num_instances.
+
+    Used to generate the 'exclude' argument to load_norb_instance_dataset.
+    """
+
+    object_ids = norb_labels_to_object_ids(norb.y, norb.label_name_to_index)
+
+    unique_ids = frozenset(object_ids)
+    id_to_count = dict()
+    for id in unique_ids:
+        id_to_count[id] = numpy.count_nonzero(object_ids == id)
+
+    return [id for id in unique_ids if id_to_count[id] < min_num_instances]
+
+
 def load_norb_instance_dataset(dataset_path,
-                               label_format="obj_id",
+                               use_object_id_labels,
+                               # object_id_blacklist=None,
                                crop_shape=None,
                                axes=None):
     """
@@ -192,11 +211,26 @@ def load_norb_instance_dataset(dataset_path,
         assert result.y.shape[1] in (5, 11), ("Expected 5 or 11 columns, "
                                               "got %d" % result.y.shape[1])
 
-        if label_format in ('obj_id', 'obj_onehot'):
-            result.y = norb_labels_to_object_ids(result.y,
-                                                 result.label_name_to_index)
-            if label_format == 'obj_onehot':
-                result.convert_to_one_hot()
+        if result.y.shape[1] == 11:  # if big NORB
+            # This parameter used by EvenlySamplingIterator
+            result.examples_per_epoch = 24300  # what's used in small NORB
+
+
+
+        if use_object_id_labels:
+            labels = norb_labels_to_object_ids(result.y,
+                                               result.label_name_to_index)
+            assert labels.shape[1] == 1
+
+            unique_labels = frozenset(labels[:, 0])
+            assert len(unique_labels) == max(unique_labels) + 1, \
+                ("len(unique_labels) = %d, max(unique_labels) + 1 = %d" %
+                 (len(unique_labels), max(unique_labels) + 1))
+            X_space = result.data_specs[0].components[0]
+            y_space = IndexSpace(dim=1, max_labels=len(unique_labels))
+            space = CompositeSpace((X_space, y_space))
+            result.data_specs = (space, result.data_specs[1])
+            result.y = labels
 
         # No need to update result.view_converter; it only deals with images,
         # not labels.

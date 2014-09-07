@@ -1,0 +1,5 @@
+#! /bin/sh
+OUTPUT_DIR=/scratch/pylearn2_training/norb_maxout/norb_maxout_experiments
+SOFTMAXES=$OUTPUT_DIR/2014_09_03_norb_small_windowed_0.067_0.018_errors/norb_small_restart_best_gcn-zca_test.npz
+TRAINING=$PYLEARN2_DATA_PATH/norb_small/instance_recognition/left_02_01/gcn-zca_train.pkl
+../view_confusion_matrix.py -i $SOFTMAXES -t $TRAINING
