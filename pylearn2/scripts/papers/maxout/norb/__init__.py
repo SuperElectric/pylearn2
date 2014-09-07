@@ -151,8 +151,26 @@ class CropBlock(Block):
         return cropped_view_converter.topo_view_to_design_mat(batch)
 
 
+def get_objects_with_few_examples(norb, min_num_instances):
+    """
+    Returns a list of objects with fewer than min_num_instances.
+
+    Used to generate the 'exclude' argument to load_norb_instance_dataset.
+    """
+
+    object_ids = norb_labels_to_object_ids(norb.y, norb.label_name_to_index)
+
+    unique_ids = frozenset(object_ids)
+    id_to_count = dict()
+    for id in unique_ids:
+        id_to_count[id] = numpy.count_nonzero(object_ids == id)
+
+    return [id for id in unique_ids if id_to_count[id] < min_num_instances]
+
+
 def load_norb_instance_dataset(dataset_path,
                                use_object_id_labels,
+                               # object_id_blacklist=None,
                                crop_shape=None,
                                axes=None):
     """
@@ -192,6 +210,12 @@ def load_norb_instance_dataset(dataset_path,
         assert len(result.y.shape) == 2
         assert result.y.shape[1] in (5, 11), ("Expected 5 or 11 columns, "
                                               "got %d" % result.y.shape[1])
+
+        if result.y.shape[1] == 11:  # if big NORB
+            # This parameter used by EvenlySamplingIterator
+            result.examples_per_epoch = 24300  # what's used in small NORB
+
+
 
         if use_object_id_labels:
             labels = norb_labels_to_object_ids(result.y,
