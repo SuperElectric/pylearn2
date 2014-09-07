@@ -231,6 +231,7 @@ def load_norb_instance_dataset(dataset_path,
             space = CompositeSpace((X_space, y_space))
             result.data_specs = (space, result.data_specs[1])
             result.y = labels
+            result.y_labels = len(unique_labels)
 
         # No need to update result.view_converter; it only deals with images,
         # not labels.
