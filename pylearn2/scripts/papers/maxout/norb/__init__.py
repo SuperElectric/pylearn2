@@ -261,12 +261,15 @@ def load_norb_instance_dataset(dataset_path,
         dataset.X = dataset.X[:num_elements, :]
         dataset.y = dataset.y[:num_elements, :]
 
-    if dataset.y.shape[1] == 11:  # if big NORB
-        # This parameter used by EvenlySamplingIterator
-        result._iter_examples_per_epoch = min(24300, dataset.X.shape[0])  # what's used in small NORB
-
-    if iter_batch_size is not None:
+    elif iter_batch_size is not None:
         dataset._iter_batch_size = iter_batch_size
+
+    if dataset.y.shape[1] == 11:  # if big NORB
+        assert iter_batch_size is not None
+        # This parameter used by EvenlySamplingIterator
+        # 24300 : size of small norb instance dataset
+        dataset._iter_num_batches = 24300 / iter_batch_size
+    elif iter_batch_size is not None:
         dataset._iter_num_batches = dataset.X.shape[0] // iter_batch_size
 
     if axes is not None:

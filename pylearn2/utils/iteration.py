@@ -631,11 +631,15 @@ class EvenlySamplingIterator(SubsetIterator):
     def __init__(self,
                  labels,
                  batch_size,
-                 approx_examples_per_epoch=None,
+                 num_batches,
                  rng=None,
                  **kwargs):
         assert isinstance(labels, np.ndarray)
         assert batch_size is not None
+        assert num_batches is not None
+
+        assert num_batches > 0
+        assert batch_size > 0
 
         if len(labels.shape) == 2 and labels.shape[1] == 1:
             labels = labels[:, 0]
@@ -660,9 +664,7 @@ class EvenlySamplingIterator(SubsetIterator):
 
         self._label_weights = label_weights
         self._batch_size = batch_size
-        self._num_batches = (approx_examples_per_epoch // self._batch_size +
-                             (0 if (approx_examples_per_epoch % self._batch_size) == 0
-                              else 1))
+        self._num_batches = num_batches
         assert self._num_batches > 0
         self._num_examples = self._num_batches * self._batch_size
         self._dataset_size = self._num_examples
