@@ -637,7 +637,6 @@ class EvenlySamplingIterator(SubsetIterator):
         assert isinstance(labels, np.ndarray)
         assert batch_size is not None
         assert num_batches is not None
-
         assert num_batches > 0
         assert batch_size > 0
 
@@ -654,7 +653,6 @@ class EvenlySamplingIterator(SubsetIterator):
         weights = np.array([1.0 / c for c in label_counts])
         assert not np.isnan(weights).any()
         assert not (weights < 0.0).any()
-        # probabilities /= probabilities.sum()
 
         label_weights = np.zeros(labels.shape[0], dtype='float')
         for label_rowmask, label_weight in safe_izip(label_rowmasks, weights):
@@ -665,10 +663,9 @@ class EvenlySamplingIterator(SubsetIterator):
         self._label_weights = label_weights
         self._batch_size = batch_size
         self._num_batches = num_batches
-        assert self._num_batches > 0
         self._num_examples = self._num_batches * self._batch_size
         self._dataset_size = self._num_examples
-        self._total_num_examples = labels.shape[0]
+        # self._total_num_examples = labels.shape[0]
         self._rng = make_np_rng(rng, which_method=['choice'])
 
         self._iteration_count = 0
@@ -689,10 +686,10 @@ class EvenlySamplingIterator(SubsetIterator):
     #             (0 if (self._num_examples_per_epoch % self._batch_size) == 0
     #              else 1))
 
-    @property
-    @wraps(SubsetIterator.num_examples, assigned=(), updated=())
-    def num_examples(self):
-        return self._num_examples
+    # @property
+    # @wraps(SubsetIterator.num_examples, assigned=(), updated=())
+    # def num_examples(self):
+    #     return self._num_examples
 
     @wraps(SubsetIterator.next, assigned=(), updated=())
     def next(self):
@@ -701,7 +698,7 @@ class EvenlySamplingIterator(SubsetIterator):
 
         self._iteration_count += 1
         start_time = time.time()
-        result = self._rng.choice(self._total_num_examples,
+        result = self._rng.choice(self._label_weights.shape[0],
                                   size=self.batch_size,
                                   replace=True,
                                   p=self._label_weights)
