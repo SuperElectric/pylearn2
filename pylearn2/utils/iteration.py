@@ -19,6 +19,7 @@ from __future__ import division
 import functools
 import inspect
 import numpy as np
+import time
 
 from pylearn2.space import CompositeSpace
 from pylearn2.utils import safe_izip, wraps
@@ -627,10 +628,6 @@ class EvenlySamplingIterator(SubsetIterator):
     in the dataset.
     """
 
-    fancy = True
-    stochastic = True
-    uniform_batch_size = True
-
     def __init__(self,
                  labels,
                  batch_size,
@@ -651,6 +648,8 @@ class EvenlySamplingIterator(SubsetIterator):
         label_rowmasks = [labels == u for u in unique_labels]
         label_counts = [np.count_nonzero(mask) for mask in label_rowmasks]
         weights = np.array([1.0 / c for c in label_counts])
+        assert not np.isnan(weights).any()
+        assert not (weights < 0.0).any()
         # probabilities /= probabilities.sum()
 
         label_weights = np.zeros(labels.shape[0], dtype='float')
@@ -664,10 +663,15 @@ class EvenlySamplingIterator(SubsetIterator):
         self._num_examples_per_epoch = (labels.shape[0]
                                         if examples_per_epoch is None
                                         else examples_per_epoch)
+        self._dataset_size = self._num_examples_per_epoch
         self._total_num_examples = labels.shape[0]
-        self._rng = rng if rng is not None else np.random.RandomState(12345)
+        self._rng = make_np_rng(rng, which_method=['choice'])
 
         self._iteration_count = 0
+
+        self._num_batches = (self._num_examples_per_epoch // self._batch_size +
+                             (0 if (self._num_examples_per_epoch % self._batch_size) == 0
+                              else 1))
         # row_index_arrays = [np.nonzero(labels == u)[0]
         #                     for u in unique_labels]
 
@@ -677,25 +681,32 @@ class EvenlySamplingIterator(SubsetIterator):
         # self._row_index_arrays = row_index_arrays
         # self._probabilities = probabilities
 
-    @property
-    def num_batches(self):
-        return (self._num_examples_per_epoch // self._batch_size +
-                (0 if (self._num_examples_per_epoch % self._batch_size) == 0
-                 else 1))
+    # @property
+    # @wraps(SubsetIterator.num_batches, assigned=(), updated=())
+    # def num_batches(self):
+    #     return (self._num_examples_per_epoch // self._batch_size +
+    #             (0 if (self._num_examples_per_epoch % self._batch_size) == 0
+    #              else 1))
 
+    @property
+    @wraps(SubsetIterator.num_examples, assigned=(), updated=())
     def num_examples(self):
         return self._num_examples_per_epoch
 
+    @wraps(SubsetIterator.next, assigned=(), updated=())
     def next(self):
-        if self._iteration_count >= self.num_batches:
+        if self._iteration_count >= self._num_batches:
             raise StopIteration
 
         self._iteration_count += 1
-        return self._rng.choice(self._total_num_examples,
-                                size=self.batch_size,
-                                replace=True,
-                                p=self._label_weights)
-
+        start_time = time.time()
+        result = self._rng.choice(self._total_num_examples,
+                                  size=self.batch_size,
+                                  replace=True,
+                                  p=self._label_weights)
+        # result = np.zeros(self.batch_size, dtype='int')
+        # print "rng.choice() took %g secs" % (time.time() - start_time)
+        return result
         # print "self.batch_size: ", self.batch_size
         # arrays_indices = self._rng.choice(len(self._row_index_arrays),
         #                                   size=self.batch_size,
@@ -708,6 +719,15 @@ class EvenlySamplingIterator(SubsetIterator):
         #                    for i in arrays_indices])
 
         # return result
+
+    @property
+    @wraps(SubsetIterator.uneven, assigned=(), updated=())
+    def uneven(self):
+        return False
+
+    fancy = True
+    stochastic = True
+    uniform_batch_size = True
 
     # print "type(r): ", type(batch_row_index_arrays[0])
     #     batch_indices = np.array(self._rng.choice(r)

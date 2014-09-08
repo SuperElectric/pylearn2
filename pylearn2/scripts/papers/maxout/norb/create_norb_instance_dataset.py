@@ -98,7 +98,7 @@ def parse_args():
 
     parser.add_argument("-p",
                         "--preprocessor",
-                        choices=('gcn-zca', 'lcn', 'none'),
+                        choices=('gcn-zca', 'gcn-lcn', 'lcn', 'none'),
                         required=True,
                         help="Which preprocessor to use, if any")
 
@@ -125,14 +125,14 @@ def parse_args():
         sys.exit(1)
 
     if result.lcn_size is not None:
-        if (result.preprocessor != 'lcn'):
+        if (result.preprocessor not in ('gcn-lcn', 'lcn')):
             print("--preprocessor wasn't lcn, yet --lcn-size was supplied.")
             sys.exit(1)
 
         if result.lcn_size < 1:
             print("--lcn-size must be at least 1")
             sys.exit(1)
-    elif result.preprocessor == 'lcn':
+    elif result.preprocessor in ('gcn-lcn', 'lcn'):
         dummy_lcn = preprocessing.LeCunLCN(img_shape=(20, 20))
         result.lcn_size = dummy_lcn._kernel_size
 
@@ -506,6 +506,16 @@ def get_raw_datasets(norb,
     return result
 
 
+def preprocess_gcn_lcn(datasets, image_shape, kernel_size):
+    for dataset in datasets:
+        if dataset is not None:
+            print("applying GCN...")
+            global_contrast_normalize(dataset.X, scale=55.0, in_place=True)
+            print("... done applying GCN.")
+
+    preprocess_lcn(datasets, image_shape, kernel_size)
+
+
 def preprocess_lcn(datasets, image_shape, kernel_size):
     kwargs = dict(img_shape=image_shape)
     if kernel_size is not None:
@@ -650,7 +660,7 @@ def preprocess_and_save_datasets(raw_datasets, args):
         assert raw_dataset is None or isinstance(raw_dataset, NORB)
 
     def get_preprocessor_name(args):
-        if args.preprocessor == 'lcn':
+        if args.preprocessor in ('gcn-lcn', 'lcn'):
             return '%s%d' % (args.preprocessor, args.lcn_size)
         else:
             return args.preprocessor
@@ -747,10 +757,15 @@ def preprocess_and_save_datasets(raw_datasets, args):
     if args.preprocessor == 'gcn-zca':
         preprocessor_path = base_path + "_preprocessor.pkl"
         preprocess_gcn_zca(preprocessed_datasets, preprocessor_path)
-    elif args.preprocessor == 'lcn':
+    elif args.preprocessor in ('gcn-lcn', 'lcn'):
         image_shape = preprocessed_datasets[0].view_converter.shape[:2]
         assert image_shape == preprocessed_datasets[1].view_converter.shape[:2]
-        preprocess_lcn(preprocessed_datasets, image_shape, args.lcn_size)
+        if args.preprocessor == 'gcn-lcn':
+            preprocess_gcn_lcn(preprocessed_datasets,
+                               image_shape,
+                               args.lcn_size)
+        else:
+            preprocess_lcn(preprocessed_datasets, image_shape, args.lcn_size)
 
     for p, d in safe_zip(preprocessed_dataset_paths, preprocessed_datasets):
         serial.save(p, d)

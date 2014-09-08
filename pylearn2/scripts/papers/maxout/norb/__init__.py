@@ -171,6 +171,8 @@ def get_objects_with_few_examples(norb, min_num_instances):
 def load_norb_instance_dataset(dataset_path,
                                use_object_id_labels,
                                # object_id_blacklist=None,
+                               iter_batch_size=None,
+                               num_elements=None,
                                crop_shape=None,
                                axes=None):
     """
@@ -205,18 +207,10 @@ def load_norb_instance_dataset(dataset_path,
                                ('b', 0, 1, 'c'))
 
     def load_instance_dataset(dataset_path):
-
         result = serial.load(dataset_path)
         assert len(result.y.shape) == 2
         assert result.y.shape[1] in (5, 11), ("Expected 5 or 11 columns, "
                                               "got %d" % result.y.shape[1])
-
-        if result.y.shape[1] == 11:  # if big NORB
-            # This parameter used by EvenlySamplingIterator
-            result.examples_per_epoch = 24300  # what's used in small NORB
-
-
-
         if use_object_id_labels:
             labels = norb_labels_to_object_ids(result.y,
                                                result.label_name_to_index)
@@ -263,6 +257,18 @@ def load_norb_instance_dataset(dataset_path,
     # preprocessor = serial.load(get_preprocessor_path(dataset_path))
     # # c01b_axes = ['c', 0, 1, 'b']
 
+    if num_elements is not None:
+        dataset.X = dataset.X[:num_elements, :]
+        dataset.y = dataset.y[:num_elements, :]
+
+    if dataset.y.shape[1] == 11:  # if big NORB
+        # This parameter used by EvenlySamplingIterator
+        result._iter_examples_per_epoch = min(24300, dataset.X.shape[0])  # what's used in small NORB
+
+    if iter_batch_size is not None:
+        dataset._iter_batch_size = iter_batch_size
+        dataset._iter_num_batches = dataset.X.shape[0] // iter_batch_size
+
     if axes is not None:
         dataset.set_view_converter_axes(axes)
 
@@ -274,6 +280,7 @@ def load_norb_instance_dataset(dataset_path,
         dataset = TransformerDataset(raw=dataset,
                                      transformer=crop_block,
                                      space_preserving=False)
+
 
     # if crop_shape is not None:
     #     # assert not return_zca_dataset
