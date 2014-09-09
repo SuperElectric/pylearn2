@@ -1,63 +1,103 @@
+"""
+Tests ../resize_input_of_model.py
+"""
+
 import numpy
 import theano
 from pylearn2.space import (Conv2DSpace)
 from pylearn2.utils import safe_zip
-from pylearn2.models.mlp import MLP
-from pylearn2.models.maxout import Maxout, MaxoutConvC01B
+from pylearn2.models.mlp import Layer, MLP
+from pylearn2.models.maxout import Maxout
 from pylearn2.scripts.papers.maxout.norb.resize_input_of_model import (
-    convert_Maxout_to_MaxoutConvC01B,
-    get_convolutional_equivalent)
+    resize_mlp_input)
 
 
 def _test_equivalence(original_layer, conv_layer, batch_size, rng):
     """
     Test that original_layer and conv_layer perform equivalent calculations.
     """
-    def get_func(layer):
+    assert isinstance(original_layer, Layer)
+    assert isinstance(conv_layer, Layer)
+    assert batch_size > 0
+    assert isinstance(rng, numpy.random.RandomState)
+
+    def get_func(input_name, layer):
         """
         Returns the numerical function implemented by layer.fprop().
         """
-        input_batch_symbol = layer.get_input_space().make_theano_batch()
+        input_batch_symbol = \
+            layer.get_input_space().make_theano_batch(name=input_name,
+                                                      batch_size=batch_size)
         output_batch_symbol = layer.fprop(input_batch_symbol)
-        return theano.function(input_batch_symbol, [output_batch_symbol])
+        return theano.function((input_batch_symbol, ), output_batch_symbol)
 
-    funcs = [get_func(layer) for layer in (original_layer, conv_layer)]
+    original_func = get_func('small_images', original_layer)
+    conv_func = get_func('big_images', conv_layer)
 
-    original_input = original_layer.get_origin_batch(batch_size=batch_size)
-    original_input[...] = rng.uniform(low=-4.0,
-                                      high=4.0,
-                                      size=original_input.shape)
+    small_images = \
+        original_layer.get_input_space().get_origin_batch(batch_size)
 
-    conv_input = original_layer.get_input_space().np_format_as(
-        original_input,
-        conv_layer.get_input_space())
+    big_images = \
+        conv_layer.get_input_space().get_origin_batch(batch_size)
 
-    inputs = (original_input, conv_input)
+    print("small_images.shape: %s" % str(small_images.shape))
+    print("big_images.shape: %s" % str(big_images.shape))
+    print("conv_layer.weights.shape %s" %
+          str(conv_layer.layers[0].get_params()[0].get_value().shape))
+    small_images[...] = rng.uniform(low=-4.0,
+                                    high=4.0,
+                                    size=small_images.shape)
+    big_images[...] = rng.uniform(low=-4.0,
+                                  high=4.0,
+                                  size=big_images.shape)
 
-    original_output, conv_output = tuple(f(x)
-                                         for f, x in safe_zip(funcs, inputs))
+    # conv_input = original_layer.get_input_space().np_format_as(
+    #     original_input,
+    #     conv_layer.get_input_space())
+    print("original input space axes: %s" % str(original_layer.get_input_space().axes))
+    print("conv input space axes: %s" % str(conv_layer.get_input_space().axes))
+
+    # DEBUG (the following are temporary)
+    assert small_images.shape == big_images.shape
+    assert original_layer.get_input_space() == conv_layer.get_input_space()
+
+    original_output = original_func(small_images)
+    conv_output = conv_func(big_images)
+
+    # original_output, conv_output = tuple(f(input_batch) for f in funcs)
 
     # reshape original output to conv output
     original_output = original_layer.get_output_space().np_format_as(
         original_output,
         conv_layer.get_output_space())
 
-    assert numpy.all(original_output == conv_output)
+    # compare original_output vector with the 0, 0'th pixel of the conv output
+    assert numpy.all(original_output == conv_output[:, :1, :1, :])
 
 
 def test_convert_Maxout_to_MaxoutConvC01B(rng=None):
-    input_shape = (2, 2, 96)
+    input_shape = (2, 2, 12)
+
     input_space = Conv2DSpace(shape=input_shape[:2],
-                              num_channels=input_shape[2])
-    batch_size = 10
+                              num_channels=input_shape[2],
+                              axes=('c', 0, 1, 'b'))
+    batch_size = 5
     seed = 1234
 
     maxout = Maxout(layer_name='test_maxout_layer_name',
                     irange=.05,
-                    num_units=50,
-                    num_pieces=3,
+                    num_units=40,
+                    num_pieces=4,
                     min_zero=True,
                     max_col_norm=1.9)
+
+    assert (maxout.num_units * maxout.num_pieces) % 16 == 0, \
+        ("Bug in test setup: cuda_convnet requires that num_channels * "
+         "num_pieces be divisible by 16. num_channels: %d, num_pieces: "
+         "%d, product %% 16: %d" %
+         (maxout.num_units,
+          maxout.num_pieces,
+          (maxout.num_units * maxout.num_pieces) % 16))
 
     # Sadly, we need to wrap the layers in MLPs, because their
     # set_input_space() methods call self.mlp.rng, and it's the MLP constructor
@@ -67,17 +107,18 @@ def test_convert_Maxout_to_MaxoutConvC01B(rng=None):
                      input_space=input_space,
                      seed=seed)
 
-    maxout_conv = convert_Maxout_to_MaxoutConvC01B(maxout)
-    conv_mlp = MLP(layers=[maxout],
-                   batch_size=batch_size,
-                   input_space=input_space,
-                   seed=seed)
+    conv_mlp = resize_mlp_input(maxout_mlp, input_shape[:2])
+    # maxout_conv = convert_Maxout_to_MaxoutConvC01B(maxout)
+    # conv_mlp = MLP(layers=[maxout],
+    #                batch_size=batch_size,
+    #                input_space=input_space,
+    #                seed=seed)
 
     if rng is None:
         rng = numpy.random.RandomState(1234)
 
-    test_equivalence(maxout, maxout_conv, batch_size, rng)
-    test_equivalence(maxout_mlp, conv_mlp, batch_size, rng)
+    # test_equivalence(maxout, maxout_conv, batch_size, rng)
+    _test_equivalence(maxout_mlp, conv_mlp, batch_size, rng)
 
 
 # def test_get_convolutional_equivalent():
