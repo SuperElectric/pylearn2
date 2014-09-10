@@ -325,36 +325,43 @@ class SoftmaxConvC01B(MaxoutConvC01B):
     @functools.wraps(MaxoutConvC01B.fprop)  # Layer.fprop?
     def fprop(self, state_below):
         result = super(SoftmaxConvC01B, self).fprop(state_below)
-        output_space = self.get_output_space()
-        # original_shape = result.shape  # C, 0, 1, B
-        size_per_batch = numpy.prod((output_space.num_channels, ) +
-                                    output_space.shape)
-        output_space = self.get_output_space()
-        flat_space = VectorSpace(dim=size_per_batch, dtype=output_space.dtype)
-        result = output_space.format_as(result, flat_space)
-
-        # result = result.reshape((size_per_batch, -1))  # C01, B
-        # print "result.shape: %s" % str(original_shape)
-        # expected_shape = ((output_space.num_channels, ) +
-        #                   output_space.shape +
-        #                   (state_below.shape[-1], ))
-        # print "expected shape: %s" % str(expected_shape)
-        # assert original_shape == expected_shape
-        # result = result.reshape((numpy.prod(original_shape[:3]),
-        #                          original_shape[3]))  # C01, B
-        # result = result.transpose()  # B, C01
+        orignal_shape = result.shape  # C, 0, 1, B
+        flat_shape = (result.shape[0], numpy.prod(result.shape[1:]))  # C, 01B
+        result = result.reshape(flat_shape)
+        result = result.transpose()  # 01B, C
         softmaxes = theano.tensor.nnet.softmax(result)
-        # softmaxes = softmaxes.transpose()  # C01, B
-        # softmaxes = softmaxes.reshape(original_shape)
-        return flat_space.format_as(softmaxes, output_space)
-        # return softmaxes
+        softmaxes = softmaxes.transpose()  # C, 01B
+        return softmaxes.reshape(original_shape)  # C, 0, 1, B
 
-        # flat_space = VectorSpace(dim=(numpy.prod(output_space.shape) *
-        #                               output_space.num_channels),
-        #                          dtype=output_space.dtype)
-        # flat_result = output_space.format_as(result, flat_space)
-        # flat_softmaxes = theano.tensor.nnet.softmax(flat_result)
-        # return flat_space.format_as(flat_softmaxes, output_space)
+        # # original_shape = result.shape  # C, 0, 1, B
+        # size_per_batch = numpy.prod((output_space.num_channels, ) +
+        #                             output_space.shape)
+        # output_space = self.get_output_space()
+        # flat_space = VectorSpace(dim=size_per_batch, dtype=output_space.dtype)
+        # result = output_space.format_as(result, flat_space)
+
+        # # result = result.reshape((size_per_batch, -1))  # C01, B
+        # # print "result.shape: %s" % str(original_shape)
+        # # expected_shape = ((output_space.num_channels, ) +
+        # #                   output_space.shape +
+        # #                   (state_below.shape[-1], ))
+        # # print "expected shape: %s" % str(expected_shape)
+        # # assert original_shape == expected_shape
+        # # result = result.reshape((numpy.prod(original_shape[:3]),
+        # #                          original_shape[3]))  # C01, B
+        # # result = result.transpose()  # B, C01
+        # softmaxes = theano.tensor.nnet.softmax(result)
+        # # softmaxes = softmaxes.transpose()  # C01, B
+        # # softmaxes = softmaxes.reshape(original_shape)
+        # return flat_space.format_as(softmaxes, output_space)
+        # # return softmaxes
+
+        # # flat_space = VectorSpace(dim=(numpy.prod(output_space.shape) *
+        # #                               output_space.num_channels),
+        # #                          dtype=output_space.dtype)
+        # # flat_result = output_space.format_as(result, flat_space)
+        # # flat_softmaxes = theano.tensor.nnet.softmax(flat_result)
+        # # return flat_space.format_as(flat_softmaxes, output_space)
 
     @functools.wraps(Layer.cost)
     def cost(self, Y, Y_hat):
