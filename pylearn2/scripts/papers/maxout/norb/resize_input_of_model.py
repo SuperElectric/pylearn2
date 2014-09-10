@@ -325,8 +325,8 @@ class SoftmaxConvC01B(MaxoutConvC01B):
     @functools.wraps(MaxoutConvC01B.fprop)  # Layer.fprop?
     def fprop(self, state_below):
         result = super(SoftmaxConvC01B, self).fprop(state_below)
-        orignal_shape = result.shape  # C, 0, 1, B
-        flat_shape = (result.shape[0], numpy.prod(result.shape[1:]))  # C, 01B
+        original_shape = result.shape  # C, 0, 1, B
+        flat_shape = (result.shape[0], result.shape[1:].prod())  # C, 01B
         result = result.reshape(flat_shape)
         result = result.transpose()  # 01B, C
         softmaxes = theano.tensor.nnet.softmax(result)
