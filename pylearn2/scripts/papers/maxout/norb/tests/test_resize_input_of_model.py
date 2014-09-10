@@ -6,7 +6,7 @@ import numpy
 import theano
 from pylearn2.space import Conv2DSpace
 from pylearn2.utils import safe_zip
-from pylearn2.models.mlp import Layer, MLP
+from pylearn2.models.mlp import Layer, MLP, Softmax
 from pylearn2.models.maxout import Maxout
 from pylearn2.scripts.papers.maxout.norb.resize_input_of_model import (
     resize_mlp_input)
@@ -101,6 +101,14 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
     # print("np_reformatted original output:\n%s" % original_output)
     # print("conv output:\n%s" % conv_output)
 
+    # DEBUG (see if any output pixel matches the original)
+    for r in range(conv_output.shape[1]):
+        for c in range(conv_output.shape[2]):
+            max_abs_diff = numpy.abs(original_output -
+                                     conv_output[:, r:r+1, c:c+1, :]).max()
+            print("abs diff for %d %d: %g" % (r, c, max_abs_diff))
+
+
     # compare original_output vector with the 0, 0'th pixel of the conv output
     abs_difference = numpy.abs(original_output - conv_output[:, :1, :1, :])
     assert numpy.all(abs_difference < 1e-06), ("max abs difference: %g" %
@@ -110,6 +118,9 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
 
 def test_convert_Maxout_to_MaxoutConvC01B(rng=None):
     input_shape = (2, 2, 12)
+    assert input_shape[0] == input_shape[1], ("Bug in test setup: Image not "
+                                              "square. MaxoutConvC01B requires"
+                                              " square images.")
 
     input_space = Conv2DSpace(shape=input_shape[:2],
                               num_channels=input_shape[2],
@@ -140,18 +151,62 @@ def test_convert_Maxout_to_MaxoutConvC01B(rng=None):
                      input_space=input_space,
                      seed=seed)
 
-    conv_mlp = resize_mlp_input(maxout_mlp, (4, 4)) #input_shape[:2])
-    # maxout_conv = convert_Maxout_to_MaxoutConvC01B(maxout)
-    # conv_mlp = MLP(layers=[maxout],
-    #                batch_size=batch_size,
-    #                input_space=input_space,
-    #                seed=seed)
+    size_increase = 3
+    conv_mlp = resize_mlp_input(maxout_mlp,
+                                (input_shape[0] + size_increase,
+                                 input_shape[1] + size_increase))
 
     if rng is None:
         rng = numpy.random.RandomState(1234)
 
     # test_equivalence(maxout, maxout_conv, batch_size, rng)
     _test_equivalence(maxout_mlp, conv_mlp, batch_size, rng)
+
+
+def test_convert_Softmax_to_SoftmaxConvC01B(rng=None):
+    input_shape = (2, 2, 8)
+    assert input_shape[0] == input_shape[1], ("Bug in test setup: Image not "
+                                              "square. MaxoutConvC01B requires"
+                                              " square images.")
+
+    input_space = Conv2DSpace(shape=input_shape[:2],
+                              num_channels=input_shape[2],
+                              axes=('c', 0, 1, 'b'))
+    softmax = Softmax(n_classes=16,  # must be divisible by 16
+                      layer_name='test_softmax_layer_name',
+                      irange=.05,
+                      max_col_norm=1.9)
+
+    # assert (maxout.num_units * maxout.num_pieces) % 16 == 0, \
+    #     ("Bug in test setup: cuda_convnet requires that num_channels * "
+    #      "num_pieces be divisible by 16. num_channels: %d, num_pieces: "
+    #      "%d, product %% 16: %d" %
+    #      (maxout.num_units,
+    #       maxout.num_pieces,
+    #       (maxout.num_units * maxout.num_pieces) % 16))
+
+    # Sadly, we need to wrap the layers in MLPs, because their
+    # set_input_space() methods call self.mlp.rng, and it's the MLP constructor
+    # that sets its layers' self.mlp fields.
+
+    batch_size = 5
+    seed = 1234
+
+    softmax_mlp = MLP(layers=[softmax],
+                      batch_size=batch_size,
+                      input_space=input_space,
+                      seed=seed)
+
+    size_increase = 1
+    conv_mlp = resize_mlp_input(softmax_mlp,
+                                (input_shape[0] + size_increase,
+                                 input_shape[1] + size_increase))
+
+    if rng is None:
+        rng = numpy.random.RandomState(1234)
+
+    # test_equivalence(maxout, maxout_conv, batch_size, rng)
+    _test_equivalence(softmax_mlp, conv_mlp, batch_size, rng)
 
 
 # def test_get_convolutional_equivalent():
