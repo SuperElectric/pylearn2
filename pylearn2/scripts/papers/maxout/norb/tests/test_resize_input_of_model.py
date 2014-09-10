@@ -60,23 +60,14 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
                :small_images.shape[2],
                :] = small_images
 
-    # conv_input = original_layer.get_input_space().np_format_as(
-    #     original_input,
-    #     conv_layer.get_input_space())
     print("original input space axes: %s" %
           str(original_layer.get_input_space().axes))
     print("conv input space axes: %s" % str(conv_layer.get_input_space().axes))
-
-    # DEBUG (the following are temporary)
-    # assert small_images.shape == big_images.shape
-    # assert original_layer.get_input_space() == conv_layer.get_input_space()
 
     original_output = original_func(small_images)
     conv_output = conv_func(big_images)
 
     print("original output shape: %s" % str(original_output.shape))
-
-    # original_output, conv_output = tuple(f(input_batch) for f in funcs)
 
     # reshape original output to conv output
     def get_original_conv_output_space(conv_layer):
@@ -98,22 +89,10 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
           str(original_output.shape))
     print("conv output shape: %s" % str(conv_output.shape))
 
-    # print("np_reformatted original output:\n%s" % original_output)
-    # print("conv output:\n%s" % conv_output)
-
-    # DEBUG (see if any output pixel matches the original)
-    for r in range(conv_output.shape[1]):
-        for c in range(conv_output.shape[2]):
-            max_abs_diff = numpy.abs(original_output -
-                                     conv_output[:, r:r+1, c:c+1, :]).max()
-            print("abs diff for %d %d: %g" % (r, c, max_abs_diff))
-
-
     # compare original_output vector with the 0, 0'th pixel of the conv output
     abs_difference = numpy.abs(original_output - conv_output[:, :1, :1, :])
     assert numpy.all(abs_difference < 1e-06), ("max abs difference: %g" %
                                                abs_difference.max())
-    # assert (original_output == conv_output[:, :1, :1, :]).all()
 
 
 def test_convert_Maxout_to_MaxoutConvC01B(rng=None):
@@ -177,14 +156,6 @@ def test_convert_Softmax_to_SoftmaxConvC01B(rng=None):
                       irange=.05,
                       max_col_norm=1.9)
 
-    # assert (maxout.num_units * maxout.num_pieces) % 16 == 0, \
-    #     ("Bug in test setup: cuda_convnet requires that num_channels * "
-    #      "num_pieces be divisible by 16. num_channels: %d, num_pieces: "
-    #      "%d, product %% 16: %d" %
-    #      (maxout.num_units,
-    #       maxout.num_pieces,
-    #       (maxout.num_units * maxout.num_pieces) % 16))
-
     # Sadly, we need to wrap the layers in MLPs, because their
     # set_input_space() methods call self.mlp.rng, and it's the MLP constructor
     # that sets its layers' self.mlp fields.
@@ -207,38 +178,3 @@ def test_convert_Softmax_to_SoftmaxConvC01B(rng=None):
 
     # test_equivalence(maxout, maxout_conv, batch_size, rng)
     _test_equivalence(softmax_mlp, conv_mlp, batch_size, rng)
-
-
-# def test_get_convolutional_equivalent():
-#     test_dir = os.path.split(os.path.realpath(__file__))[0]
-#     model = yaml_parse.load_path(os.path.join(test_dir, 'test_model.yaml'))
-
-#     def test_impl(layer, rng):
-#         def get_func(layer):
-#             input_batch_symbol = layer.get_input_space().make_theano_batch()
-#             output_batch_symbol = layer.fprop(input_batch_symbol)
-#             return theano.function(input_batch_symbol, [output_batch_symbol])
-
-#         conv_layer = get_convolutional_equivalent(layer)
-
-#         original_func = get_func(layer)
-#         conv_func = get_func(conv_layer)
-
-#         for iteration in range(5):
-#             input_batch = layer.get_input_space().get_origin_batch()
-#             input_batch[...] = rng.uniform(input_batch.shape())
-
-#             original_output = layer_func(input_batch)
-
-#             original_outspace = layer.get_output_space()
-#             conv_outspace = conv_layer.get_output_space()
-#             expected_conv_output = original_outpspace.np_convert(output_batch,
-#                                                                  conv_outspace)
-
-#             original_inspace = layer.get_input_space()
-#             conv_inspace = conv_layer.get_input_space()
-#             conv_input_batch = original_inspace.np_convert(input_batch,
-#                                                            conv_inspace)
-#             conv_output = conv_func(conv_input_batch)
-
-#             assert (expected_conv_output == conv_output).all()
