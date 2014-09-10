@@ -68,8 +68,8 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
     print("conv input space axes: %s" % str(conv_layer.get_input_space().axes))
 
     # DEBUG (the following are temporary)
-    assert small_images.shape == big_images.shape
-    assert original_layer.get_input_space() == conv_layer.get_input_space()
+    # assert small_images.shape == big_images.shape
+    # assert original_layer.get_input_space() == conv_layer.get_input_space()
 
     original_output = original_func(small_images)
     conv_output = conv_func(big_images)
@@ -79,9 +79,20 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
     # original_output, conv_output = tuple(f(input_batch) for f in funcs)
 
     # reshape original output to conv output
+    def get_original_conv_output_space(conv_layer):
+        output_space = conv_layer.get_output_space()
+        assert output_space.axes == ('c', 0, 1, 'b')
+
+        conv_weights = conv_layer.get_params()[0].get_value()
+
+        return Conv2DSpace(shape=(1, 1),
+                           num_channels=output_space.num_channels,
+                           axes=output_space.axes,
+                           dtype=output_space.dtype)
+
     original_output = original_layer.get_output_space().np_format_as(
         original_output,
-        conv_layer.get_output_space())
+        get_original_conv_output_space(conv_layer))
 
     print("np_format_as'ed original output shape: %s" %
           str(original_output.shape))
@@ -108,8 +119,8 @@ def test_convert_Maxout_to_MaxoutConvC01B(rng=None):
 
     maxout = Maxout(layer_name='test_maxout_layer_name',
                     irange=.05,
-                    num_units=16,
-                    num_pieces=1,
+                    num_units=4,
+                    num_pieces=4,
                     min_zero=True,
                     max_col_norm=1.9)
 
@@ -129,7 +140,7 @@ def test_convert_Maxout_to_MaxoutConvC01B(rng=None):
                      input_space=input_space,
                      seed=seed)
 
-    conv_mlp = resize_mlp_input(maxout_mlp, input_shape[:2])
+    conv_mlp = resize_mlp_input(maxout_mlp, (4, 4)) #input_shape[:2])
     # maxout_conv = convert_Maxout_to_MaxoutConvC01B(maxout)
     # conv_mlp = MLP(layers=[maxout],
     #                batch_size=batch_size,
