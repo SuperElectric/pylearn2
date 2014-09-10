@@ -178,7 +178,8 @@ def copy_params_from_Maxout_to_MaxoutConv2D(maxout, maxout_conv):
     theano_conv_weights.set_value(conv_weights)
     theano_conv_biases.set_value(biases)  # no need to reshape biases.
 
-    # assert False, "deliberate crash"
+    # print("maxout weights: \n%s" % weights)
+    # print("\nconv weights:\n%s" % theano_conv_weights.get_value())
 
 
 def copy_params(old_layer, conv_layer):

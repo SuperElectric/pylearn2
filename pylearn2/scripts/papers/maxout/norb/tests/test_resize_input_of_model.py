@@ -4,7 +4,7 @@ Tests ../resize_input_of_model.py
 
 import numpy
 import theano
-from pylearn2.space import (Conv2DSpace)
+from pylearn2.space import Conv2DSpace
 from pylearn2.utils import safe_zip
 from pylearn2.models.mlp import Layer, MLP
 from pylearn2.models.maxout import Maxout
@@ -20,6 +20,11 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
     assert isinstance(conv_layer, Layer)
     assert batch_size > 0
     assert isinstance(rng, numpy.random.RandomState)
+
+    assert isinstance(original_layer.get_input_space(), Conv2DSpace)
+    assert isinstance(conv_layer.get_input_space(), Conv2DSpace)
+    assert original_layer.get_input_space().axes == ('c', 0, 1, 'b')
+    assert conv_layer.get_input_space().axes == ('c', 0, 1, 'b')
 
     def get_func(input_name, layer):
         """
@@ -50,11 +55,16 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
     big_images[...] = rng.uniform(low=-4.0,
                                   high=4.0,
                                   size=big_images.shape)
+    big_images[:,
+               :small_images.shape[1],
+               :small_images.shape[2],
+               :] = small_images
 
     # conv_input = original_layer.get_input_space().np_format_as(
     #     original_input,
     #     conv_layer.get_input_space())
-    print("original input space axes: %s" % str(original_layer.get_input_space().axes))
+    print("original input space axes: %s" %
+          str(original_layer.get_input_space().axes))
     print("conv input space axes: %s" % str(conv_layer.get_input_space().axes))
 
     # DEBUG (the following are temporary)
@@ -64,6 +74,8 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
     original_output = original_func(small_images)
     conv_output = conv_func(big_images)
 
+    print("original output shape: %s" % str(original_output.shape))
+
     # original_output, conv_output = tuple(f(input_batch) for f in funcs)
 
     # reshape original output to conv output
@@ -71,8 +83,18 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
         original_output,
         conv_layer.get_output_space())
 
+    print("np_format_as'ed original output shape: %s" %
+          str(original_output.shape))
+    print("conv output shape: %s" % str(conv_output.shape))
+
+    # print("np_reformatted original output:\n%s" % original_output)
+    # print("conv output:\n%s" % conv_output)
+
     # compare original_output vector with the 0, 0'th pixel of the conv output
-    assert numpy.all(original_output == conv_output[:, :1, :1, :])
+    abs_difference = numpy.abs(original_output - conv_output[:, :1, :1, :])
+    assert numpy.all(abs_difference < 1e-06), ("max abs difference: %g" %
+                                               abs_difference.max())
+    # assert (original_output == conv_output[:, :1, :1, :]).all()
 
 
 def test_convert_Maxout_to_MaxoutConvC01B(rng=None):
@@ -86,8 +108,8 @@ def test_convert_Maxout_to_MaxoutConvC01B(rng=None):
 
     maxout = Maxout(layer_name='test_maxout_layer_name',
                     irange=.05,
-                    num_units=40,
-                    num_pieces=4,
+                    num_units=16,
+                    num_pieces=1,
                     min_zero=True,
                     max_col_norm=1.9)
 
