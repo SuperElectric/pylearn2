@@ -7,7 +7,7 @@ import theano
 from pylearn2.space import Conv2DSpace
 from pylearn2.utils import safe_zip
 from pylearn2.models.mlp import Layer, MLP, Softmax
-from pylearn2.models.maxout import Maxout
+from pylearn2.models.maxout import Maxout, MaxoutConvC01B
 from pylearn2.scripts.papers.maxout.norb.resize_input_of_model import (
     resize_mlp_input)
 
@@ -73,8 +73,6 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
     def get_original_conv_output_space(conv_layer):
         output_space = conv_layer.get_output_space()
         assert output_space.axes == ('c', 0, 1, 'b')
-
-        conv_weights = conv_layer.get_params()[0].get_value()
 
         return Conv2DSpace(shape=(1, 1),
                            num_channels=output_space.num_channels,
@@ -178,3 +176,54 @@ def test_convert_Softmax_to_SoftmaxConvC01B(rng=None):
 
     # test_equivalence(maxout, maxout_conv, batch_size, rng)
     _test_equivalence(softmax_mlp, conv_mlp, batch_size, rng)
+
+
+def test_convert_stack():
+    layers = [MaxoutConvC01B(num_channels=4,
+                             num_pieces=4,
+                             kernel_shape=(2, 2),
+                             pool_shape=(1, 1),  # change
+                             pool_stride=(1, 1),  # change
+                             layer_name='h1',
+                             irange=.05,
+                             W_lr_scale=.05,
+                             b_lr_scale=.05,
+                             pad=0,  # change
+                             fix_pool_shape=False,
+                             fix_pool_stride=False,
+                             fix_kernel_shape=False,
+                             tied_b=True,
+                             max_kernel_norm=1.9,
+                             min_zero=True,
+                             kernel_stride=(1, 1)),  # change
+              Maxout(layer_name='h2, maxout',
+                     irange=0.5,
+                     num_units=8,
+                     num_pieces=2,
+                     min_zero=False,
+                     max_col_norm=1.9),
+              Softmax(n_classes=16,
+                      layer_name='h3, softmax',
+                      irange=0.5,
+                      max_col_norm=1.9)]
+
+    input_space = Conv2DSpace(shape=(4, 4),
+                              num_channels=3,
+                              dtype=theano.config.floatX,  # change to 'int32'
+                              axes=('c', 0, 1, 'b'))  # change to b01c
+
+    batch_size = 3
+    mlp = MLP(layers=layers,
+              batch_size=batch_size,
+              input_space=input_space,
+              seed=1234)
+
+    input_shape = input_space.shape
+    size_increase = 2
+    resized_mlp = resize_mlp_input(mlp,
+                                   (input_shape[0] + size_increase,
+                                    input_shape[1] + size_increase))
+
+    rng = numpy.random.RandomState(4321)
+
+    _test_equivalence(mlp, resized_mlp, batch_size, rng=rng)

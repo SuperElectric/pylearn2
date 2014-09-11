@@ -1,12 +1,24 @@
 #! /usr/bin/env python
 
-import sys, argparse, functools
+import sys, argparse, functools, copy
 import os.path
 import theano, numpy
 from pylearn2.utils import serial, safe_zip
 from pylearn2.space import VectorSpace, Conv2DSpace
 from pylearn2.models.mlp import MLP, Layer, Softmax
 from pylearn2.models.maxout import Maxout, MaxoutConvC01B
+
+
+def _get_conv2d_space(input_space, axes):
+    if isinstance(input_space, Conv2DSpace):
+        return input_space
+    else:
+        assert isinstance(input_space, VectorSpace)
+
+        return Conv2DSpace(shape=(1, 1),
+                           num_channels=input_space.dim,
+                           axes=axes,
+                           dtype=input_space.dtype)
 
 
 def instantiate_SoftmaxConvC01B_from_Softmax(softmax):
@@ -18,7 +30,9 @@ def instantiate_SoftmaxConvC01B_from_Softmax(softmax):
       Weights are uninitialized.
     """
     assert isinstance(softmax, Softmax)
-    assert isinstance(softmax.get_input_space(), Conv2DSpace)
+    conv_input_space = _get_conv2d_space(softmax.get_input_space(),
+                                         ('c', 0, 1, 'b'))
+    # assert isinstance(softmax.get_input_space(), Conv2DSpace)
 
     assert softmax.get_output_space().dim >= 16, \
         "cuda-convnet requires at least 16 output channels (classes)."
@@ -29,14 +43,13 @@ def instantiate_SoftmaxConvC01B_from_Softmax(softmax):
     # Prohibit Softmax'es instantiated with no_affine=True
     assert hasattr(softmax, 'b') and softmax.b is not None
 
-    old_input_space = softmax.get_input_space()
+    # old_input_space = softmax.get_input_space()
     layer_name = softmax.layer_name + "_convolutionalized"
 
-    print("num_channels: %d" % softmax.get_input_space().num_channels)
     return SoftmaxConvC01B(n_classes=softmax.get_output_space().dim,
                            layer_name=layer_name,
                            irange=1.0,  # needed for set_input_space
-                           kernel_shape=old_input_space.shape,
+                           kernel_shape=conv_input_space.shape,
                            W_lr_scale=softmax.W_lr_scale,
                            b_lr_scale=softmax.b_lr_scale,
                            max_kernel_norm=softmax.max_col_norm)
@@ -54,13 +67,16 @@ def instantiate_MaxoutConvC01B_from_Maxout(maxout):
     assert maxout.mask_weights is None
     assert maxout.pool_stride == maxout.num_pieces
     assert not maxout.randomize_pools
-    assert isinstance(maxout.get_input_space(), Conv2DSpace)
+    # assert isinstance(maxout.get_input_space(), Conv2DSpace)
 
-    old_input_space = maxout.get_input_space()
+    conv_input_space = _get_conv2d_space(maxout.get_input_space(),
+                                         ('c', 0, 1, 'b'))
+
+    # old_input_space = maxout.get_input_space()
 
     return MaxoutConvC01B(num_channels=maxout.num_units,
                           num_pieces=maxout.num_pieces,
-                          kernel_shape=old_input_space.shape,
+                          kernel_shape=conv_input_space.shape,
                           pool_shape=(1, 1),
                           pool_stride=(1, 1),
                           layer_name=maxout.layer_name + "_convolutionalized",
@@ -191,11 +207,21 @@ def copy_params_from_Maxout_to_MaxoutConvC01B(maxout, maxout_conv):
     theano_conv_biases.set_value(biases)  # no need to reshape biases.
 
 
+def copy_params_between_same_class(old_layer, conv_layer):
+    assert type(old_layer) == type(conv_layer)
+    for old_param, new_param in safe_zip(old_layer.get_params(),
+                                         conv_layer.get_params()):
+        assert old_param is not new_param
+        new_param.set_value(old_param.get_value())
+
+
 def copy_params(old_layer, conv_layer):
     if isinstance(old_layer, Maxout):
         copy_params_from_Maxout_to_MaxoutConvC01B(old_layer, conv_layer)
     elif isinstance(old_layer, Softmax):
         copy_params_from_Softmax_to_SoftmaxConvC01B(old_layer, conv_layer)
+    elif isinstance(old_layer, (MaxoutConvC01B, SoftmaxConvC01B)):
+        copy_params_between_same_class(old_layer, conv_layer)
     else:
         raise NotImplementedError("copy_params not yet implemented for "
                                   "copying from %s to %s." %
@@ -280,10 +306,10 @@ def instantiate_convolutional_equivalent(layer):
 
     assert isinstance(layer, Layer)
 
-    if isinstance(layer, MaxoutConvC01B):
-        pass  # return a copy, don't return as-is
-    if isinstance(layer, SoftmaxConvC01B):
-        pass  # return a copy, don't return as-is
+    if isinstance(layer, (MaxoutConvC01B, SoftmaxConvC01B)):
+        result = copy.deepcopy(layer)
+        result.mlp = None
+        return result
     elif isinstance(layer, Maxout):
         return instantiate_MaxoutConvC01B_from_Maxout(layer)
     elif isinstance(layer, Softmax):
