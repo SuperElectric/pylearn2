@@ -12,6 +12,10 @@ from pylearn2.scripts.papers.maxout.norb.resize_input_of_model import (
     resize_mlp_input, SoftmaxConvC01B, SoftmaxConv)
 
 
+def _convert_axes(from_axes, from_batch, to_axes):
+    return from_batch.transpose(tuple(from_axes.index(a) for a in to_axes))
+
+
 def _test_equivalence(original_layer, conv_layer, batch_size, rng):
     """
     Test that original_layer and conv_layer perform equivalent calculations.
@@ -49,22 +53,55 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
     print("big_images.shape: %s" % str(big_images.shape))
     print("conv_layer.weights.shape %s" %
           str(conv_layer.layers[0].get_params()[0].get_value().shape))
-    small_images[...] = rng.uniform(low=-4.0,
-                                    high=4.0,
-                                    size=small_images.shape)
-    big_images[...] = rng.uniform(low=-4.0,
-                                  high=4.0,
-                                  size=big_images.shape)
+    small_images.flat[:] = numpy.arange(small_images.size)
+    big_images.flat[:] = rng.uniform(low=-4.0,
+                                     high=4.0,
+                                     size=big_images.size)
+
+    # temporarily transpose to a predetermined axis order
+    b01c = ('b', 0, 1, 'c')
+    print("original_layer.get_input_space().axes: %s" %
+          str(original_layer.get_input_space().axes))
+    print("small_images.shape: %s" % str(small_images.shape))
+
+    small_images = _convert_axes(original_layer.get_input_space().axes,
+                                 small_images,
+                                 b01c)
+    print("after transpose to b01c, small_images.shape: %s" % str(small_images.shape))
+    big_images = _convert_axes(conv_layer.get_input_space().axes,
+                               big_images,
+                               b01c)
+    # small_images = small_images.transpose(tuple(b01c.index(a)
+    #                                             for a in original_layer.get_input_space().axes))
+    # big_images = big_images.transpose(tuple(b01c.index(a)
+    #                                         for a in conv_layer.get_input_space().axes))
+
+    # Copy small image to upper-left corner of big image
     big_images[:,
                :small_images.shape[1],
                :small_images.shape[2],
                :] = small_images
 
+    # restore original axis order
+    small_images = _convert_axes(b01c,
+                                 small_images,
+                                 original_layer.get_input_space().axes)
+    big_images = _convert_axes(b01c,
+                               big_images,
+                               conv_layer.get_input_space().axes)
+
+    # small_images = small_images.transpose(tuple(original_layer.get_input_space().axes.index(a)
+    #                                             for a in b01c))
+    # big_images = big_images.transpose(tuple(conv_layer.get_input_space().axes.index(a)
+    #                                         for a in b01c))
+
     print("original input space axes: %s" %
           str(original_layer.get_input_space().axes))
     print("conv input space axes: %s" % str(conv_layer.get_input_space().axes))
 
+    print("small_images.shape: %s" % str(small_images.shape))
     original_output = original_func(small_images)
+    print("big_images.shape: %s" % str(big_images.shape))
     conv_output = conv_func(big_images)
 
     print("original output shape: %s" % str(original_output.shape))
@@ -93,9 +130,12 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
     #                        dtype=output_space.dtype)
 
     # transposes conv output to C01B order, if it isn't already
-    conv_output = conv_output.transpose(tuple(conv_layer.get_output_space().axes.index(a)
-                                              for a
-                                              in ('c', 0, 1, 'b')))
+    conv_output = _convert_axes(conv_layer.get_output_space().axes,
+                                conv_output,
+                                ('c', 0, 1, 'b'))
+    # conv_output = conv_output.transpose(tuple(conv_layer.get_output_space().axes.index(a)
+    #                                           for a
+    #                                           in ('c', 0, 1, 'b')))
     # conv_c01b_output_space = get_conv_c01b_output_space(conv_layer)
     # conv_output = conv_layer.get_output_space().np_format_as(
     #     conv_output,
@@ -111,7 +151,7 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
                                                abs_difference.max())
 
 
-def test_convert_Maxout_to_MaxoutConvC01B(rng=None):
+def _test_convert_Maxout_to_MaxoutConvC01B(rng=None):
     input_shape = (2, 2, 12)
     assert input_shape[0] == input_shape[1], ("Bug in test setup: Image not "
                                               "square. MaxoutConvC01B requires"
@@ -166,8 +206,8 @@ def test_convert_Softmax_to_SoftmaxConvC01B(rng=None):
 
     input_space = Conv2DSpace(shape=input_shape[:2],
                               num_channels=input_shape[2],
-                              #axes=('b', 0, 1, 'c'))
-                              axes=('c', 0, 1, 'b'))
+                              axes=('b', 0, 1, 'c'))
+                              #axes=('c', 0, 1, 'b'))
     softmax = Softmax(n_classes=16,  # must be divisible by 16
                       layer_name='test_softmax_layer_name',
                       irange=.05,

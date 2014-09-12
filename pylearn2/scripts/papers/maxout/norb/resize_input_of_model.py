@@ -566,6 +566,7 @@ class SoftmaxConvC01B(MaxoutConvC01B):
     @functools.wraps(MaxoutConvC01B.fprop)  # Layer.fprop?
     def fprop(self, state_below):
         result = super(SoftmaxConvC01B, self).fprop(state_below)
+        assert self.get_output_space().axes == ('c', 0, 1, 'b')
 
         original_shape = result.shape                            # C, 0, 1, B
         flat_shape = (result.shape[0], result.shape[1:].prod())  # C, 01B
