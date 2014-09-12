@@ -243,7 +243,7 @@ def test_convert_Softmax_to_SoftmaxConvC01B(rng=None):
     _test_equivalence(softmax_mlp, conv_mlp, batch_size, rng)
 
 
-def _test_convert_Softmax_to_SoftmaxConv(rng=None):
+def test_convert_Softmax_to_SoftmaxConv(rng=None):
     input_shape = (1, 2, 3)
     #input_shape = (1, 1, 8)
     # assert input_shape[0] == input_shape[1], ("Bug in test setup: Image not "
