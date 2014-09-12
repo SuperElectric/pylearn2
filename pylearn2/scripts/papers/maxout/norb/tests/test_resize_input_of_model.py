@@ -9,7 +9,7 @@ from pylearn2.utils import safe_zip
 from pylearn2.models.mlp import Layer, MLP, Softmax
 from pylearn2.models.maxout import Maxout, MaxoutConvC01B
 from pylearn2.scripts.papers.maxout.norb.resize_input_of_model import (
-    resize_mlp_input)
+    resize_mlp_input, SoftmaxConvC01B, SoftmaxConv)
 
 
 def _test_equivalence(original_layer, conv_layer, batch_size, rng):
@@ -23,8 +23,8 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
 
     assert isinstance(original_layer.get_input_space(), Conv2DSpace)
     assert isinstance(conv_layer.get_input_space(), Conv2DSpace)
-    assert original_layer.get_input_space().axes == ('c', 0, 1, 'b')
-    assert conv_layer.get_input_space().axes == ('c', 0, 1, 'b')
+    # assert original_layer.get_input_space().axes == ('c', 0, 1, 'b')
+    # assert conv_layer.get_input_space().axes == ('c', 0, 1, 'b')
 
     def get_func(input_name, layer):
         """
@@ -69,19 +69,37 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
 
     print("original output shape: %s" % str(original_output.shape))
 
-    # reshape original output to conv output
-    def get_original_conv_output_space(conv_layer):
+    def get_original_c01b_output_space(conv_layer):
         output_space = conv_layer.get_output_space()
-        assert output_space.axes == ('c', 0, 1, 'b')
+        # assert output_space.axes == ('c', 0, 1, 'b')
 
         return Conv2DSpace(shape=(1, 1),
                            num_channels=output_space.num_channels,
-                           axes=output_space.axes,
+                           # this need not be the same as output_space.axes
+                           axes=('c', 0, 1, 'b'),
+                           #axes=output_space.axes,
                            dtype=output_space.dtype)
 
+    # reshape original output to conv output
     original_output = original_layer.get_output_space().np_format_as(
         original_output,
-        get_original_conv_output_space(conv_layer))
+        get_original_c01b_output_space(conv_layer))
+
+    # def get_conv_c01b_output_space(conv_layer):
+    #     output_space = conv_layer.get_output_space()
+    #     return Conv2DSpace(shape=output_space.shape,
+    #                        num_channels=output_space.num_channels,
+    #                        axes=('c', 0, 1, 'b'),
+    #                        dtype=output_space.dtype)
+
+    # transposes conv output to C01B order, if it isn't already
+    conv_output = conv_output.transpose(tuple(conv_layer.get_output_space().axes.index(a)
+                                              for a
+                                              in ('c', 0, 1, 'b')))
+    # conv_c01b_output_space = get_conv_c01b_output_space(conv_layer)
+    # conv_output = conv_layer.get_output_space().np_format_as(
+    #     conv_output,
+    #     conv_c01b_output_space)
 
     print("np_format_as'ed original output shape: %s" %
           str(original_output.shape))
@@ -148,6 +166,7 @@ def test_convert_Softmax_to_SoftmaxConvC01B(rng=None):
 
     input_space = Conv2DSpace(shape=input_shape[:2],
                               num_channels=input_shape[2],
+                              #axes=('b', 0, 1, 'c'))
                               axes=('c', 0, 1, 'b'))
     softmax = Softmax(n_classes=16,  # must be divisible by 16
                       layer_name='test_softmax_layer_name',
@@ -166,10 +185,56 @@ def test_convert_Softmax_to_SoftmaxConvC01B(rng=None):
                       input_space=input_space,
                       seed=seed)
 
+    print("mlp input space: %s" % softmax_mlp.get_input_space())
+    print("mlp.layers[0] input space: %s" % softmax_mlp.layers[0].get_input_space())
+
     size_increase = 1
     conv_mlp = resize_mlp_input(softmax_mlp,
                                 (input_shape[0] + size_increase,
                                  input_shape[1] + size_increase))
+
+    assert isinstance(conv_mlp.layers[0], SoftmaxConvC01B)
+
+    if rng is None:
+        rng = numpy.random.RandomState(1234)
+
+    # test_equivalence(maxout, maxout_conv, batch_size, rng)
+    _test_equivalence(softmax_mlp, conv_mlp, batch_size, rng)
+
+
+def _test_convert_Softmax_to_SoftmaxConv(rng=None):
+    input_shape = (1, 2, 3)
+    #input_shape = (1, 1, 8)
+    # assert input_shape[0] == input_shape[1], ("Bug in test setup: Image not "
+    #                                           "square. MaxoutConvC01B requires"
+    #                                           " square images.")
+
+    input_space = Conv2DSpace(shape=input_shape[:2],
+                              num_channels=input_shape[2],
+                              axes=('b', 'c', 0, 1)) #axes=('c', 0, 1, 'b'))  # change
+    softmax = Softmax(n_classes=4,  # not divisible by 16
+                      layer_name='test_softmax_layer_name',
+                      irange=.05,
+                      max_col_norm=1.9)
+
+    # Sadly, we need to wrap the layers in MLPs, because their
+    # set_input_space() methods call self.mlp.rng, and it's the MLP constructor
+    # that sets its layers' self.mlp fields.
+
+    batch_size = 1  # change
+    seed = 1234
+
+    softmax_mlp = MLP(layers=[softmax],
+                      batch_size=batch_size,
+                      input_space=input_space,
+                      seed=seed)
+
+    size_increase = 0
+    conv_mlp = resize_mlp_input(softmax_mlp,
+                                (input_shape[0] + size_increase,
+                                 input_shape[1] + size_increase))
+
+    assert isinstance(conv_mlp.layers[0], SoftmaxConv)
 
     if rng is None:
         rng = numpy.random.RandomState(1234)
