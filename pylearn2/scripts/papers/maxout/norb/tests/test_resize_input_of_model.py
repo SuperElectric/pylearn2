@@ -150,7 +150,7 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
 
 
 def test_convert_Maxout_to_MaxoutConvC01B(rng=None):
-    input_shape = (2, 2, 12)
+    input_shape = (1, 1, 12)
     assert input_shape[0] == input_shape[1], ("Bug in test setup: Image not "
                                               "square. MaxoutConvC01B requires"
                                               " square images.")
@@ -159,7 +159,7 @@ def test_convert_Maxout_to_MaxoutConvC01B(rng=None):
                               num_channels=input_shape[2],
                               axes=('b', 0, 1, 'c'))
                               # axes=('c', 0, 1, 'b'))
-    batch_size = 1
+    batch_size = 2
     seed = 1234
 
     maxout = Maxout(layer_name='test_maxout_layer_name',
@@ -185,7 +185,7 @@ def test_convert_Maxout_to_MaxoutConvC01B(rng=None):
                      input_space=input_space,
                      seed=seed)
 
-    size_increase = 3  # change
+    size_increase = 0  # change
     conv_mlp = resize_mlp_input(maxout_mlp,
                                 (input_shape[0] + size_increase,
                                  input_shape[1] + size_increase))
