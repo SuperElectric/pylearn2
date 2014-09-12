@@ -108,13 +108,11 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
 
     def get_original_c01b_output_space(conv_layer):
         output_space = conv_layer.get_output_space()
-        # assert output_space.axes == ('c', 0, 1, 'b')
 
         return Conv2DSpace(shape=(1, 1),
                            num_channels=output_space.num_channels,
                            # this need not be the same as output_space.axes
                            axes=('c', 0, 1, 'b'),
-                           #axes=output_space.axes,
                            dtype=output_space.dtype)
 
     # reshape original output to conv output
@@ -151,7 +149,7 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
                                                abs_difference.max())
 
 
-def _test_convert_Maxout_to_MaxoutConvC01B(rng=None):
+def test_convert_Maxout_to_MaxoutConvC01B(rng=None):
     input_shape = (2, 2, 12)
     assert input_shape[0] == input_shape[1], ("Bug in test setup: Image not "
                                               "square. MaxoutConvC01B requires"
@@ -159,8 +157,9 @@ def _test_convert_Maxout_to_MaxoutConvC01B(rng=None):
 
     input_space = Conv2DSpace(shape=input_shape[:2],
                               num_channels=input_shape[2],
-                              axes=('c', 0, 1, 'b'))
-    batch_size = 5
+                              axes=('b', 0, 1, 'c'))
+                              # axes=('c', 0, 1, 'b'))
+    batch_size = 1
     seed = 1234
 
     maxout = Maxout(layer_name='test_maxout_layer_name',
@@ -186,7 +185,7 @@ def _test_convert_Maxout_to_MaxoutConvC01B(rng=None):
                      input_space=input_space,
                      seed=seed)
 
-    size_increase = 3
+    size_increase = 3  # change
     conv_mlp = resize_mlp_input(maxout_mlp,
                                 (input_shape[0] + size_increase,
                                  input_shape[1] + size_increase))
@@ -194,7 +193,6 @@ def _test_convert_Maxout_to_MaxoutConvC01B(rng=None):
     if rng is None:
         rng = numpy.random.RandomState(1234)
 
-    # test_equivalence(maxout, maxout_conv, batch_size, rng)
     _test_equivalence(maxout_mlp, conv_mlp, batch_size, rng)
 
 
@@ -204,10 +202,12 @@ def test_convert_Softmax_to_SoftmaxConvC01B(rng=None):
                                               "square. MaxoutConvC01B requires"
                                               " square images.")
 
+    # Choose axes different from C01B, but still has the 'c' at the beginning
+    # or end.
     input_space = Conv2DSpace(shape=input_shape[:2],
                               num_channels=input_shape[2],
                               axes=('b', 0, 1, 'c'))
-                              #axes=('c', 0, 1, 'b'))
+
     softmax = Softmax(n_classes=16,  # must be divisible by 16
                       layer_name='test_softmax_layer_name',
                       irange=.05,
