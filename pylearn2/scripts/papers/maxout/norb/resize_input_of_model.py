@@ -134,7 +134,10 @@ def instantiate_MaxoutConvC01B_from_Maxout(maxout):
 
     conv_input_space = _get_conv2d_space(maxout.get_input_space(),
                                          ('c', 0, 1, 'b'))
-
+    print("in instantiate_MaxoutConvC01B, \n"
+          "\tinput_space: %s, \n"
+          "\tconv_input_space: %s"
+          % (maxout.get_input_space(), conv_input_space))
     # old_input_space = maxout.get_input_space()
 
     return MaxoutConvC01B(num_channels=maxout.num_units,
