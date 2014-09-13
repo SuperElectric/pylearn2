@@ -4,7 +4,7 @@ Tests ../resize_input_of_model.py
 
 import numpy
 import theano
-from pylearn2.space import Conv2DSpace
+from pylearn2.space import Conv2DSpace, VectorSpace
 from pylearn2.utils import safe_zip
 from pylearn2.models.mlp import Layer, MLP, Softmax
 from pylearn2.models.maxout import Maxout, MaxoutConvC01B
@@ -53,7 +53,7 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
     print("big_images.shape: %s" % str(big_images.shape))
     print("conv_layer.weights.shape %s" %
           str(conv_layer.layers[0].get_params()[0].get_value().shape))
-    small_images.flat[:] = numpy.arange(small_images.size)
+    small_images.flat[:] = numpy.arange(small_images.size) + 1
     big_images.flat[:] = rng.uniform(low=-4.0,
                                      high=4.0,
                                      size=big_images.size)
@@ -94,6 +94,11 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
     #                                             for a in b01c))
     # big_images = big_images.transpose(tuple(conv_layer.get_input_space().axes.index(a)
     #                                         for a in b01c))
+
+    # DEBUG
+    # softmax_inputs = original_layer.get_input_space().np_format_as(small_images,
+    #                                                                original_layer.layers[0].desired_space)
+    # print("softmax inputs:\n%s" % str(softmax_inputs))
 
     print("original input space axes: %s" %
           str(original_layer.get_input_space().axes))
@@ -142,6 +147,9 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
     print("np_format_as'ed original output shape: %s" %
           str(original_output.shape))
     print("conv output shape: %s" % str(conv_output.shape))
+
+    # print("orig. output (c01b):\n%s" % str(original_output))
+    # print("conv output[:, :1, :1, :] (c01b):\n%s" % str(conv_output[:, :1, :1, :]))
 
     # compare original_output vector with the 0, 0'th pixel of the conv output
     abs_difference = numpy.abs(original_output - conv_output[:, :1, :1, :])
@@ -244,25 +252,20 @@ def test_convert_Softmax_to_SoftmaxConvC01B(rng=None):
 
 
 def test_convert_Softmax_to_SoftmaxConv(rng=None):
-    input_shape = (1, 2, 3)
-    #input_shape = (1, 1, 8)
-    # assert input_shape[0] == input_shape[1], ("Bug in test setup: Image not "
-    #                                           "square. MaxoutConvC01B requires"
-    #                                           " square images.")
+    input_shape = (2, 2, 3)
+
+    if rng is None:
+        rng = numpy.random.RandomState(1234)
 
     input_space = Conv2DSpace(shape=input_shape[:2],
                               num_channels=input_shape[2],
-                              axes=('b', 'c', 0, 1)) #axes=('c', 0, 1, 'b'))  # change
+                              axes=('c', 0, 1, 'b'))  # not bc01
     softmax = Softmax(n_classes=4,  # not divisible by 16
                       layer_name='test_softmax_layer_name',
                       irange=.05,
                       max_col_norm=1.9)
 
-    # Sadly, we need to wrap the layers in MLPs, because their
-    # set_input_space() methods call self.mlp.rng, and it's the MLP constructor
-    # that sets its layers' self.mlp fields.
-
-    batch_size = 1  # change
+    batch_size = 2  # change
     seed = 1234
 
     softmax_mlp = MLP(layers=[softmax],
@@ -270,38 +273,45 @@ def test_convert_Softmax_to_SoftmaxConv(rng=None):
                       input_space=input_space,
                       seed=seed)
 
-    size_increase = 0
+    size_increase = 1
     conv_mlp = resize_mlp_input(softmax_mlp,
                                 (input_shape[0] + size_increase,
                                  input_shape[1] + size_increase))
 
+    # DEBUG
+    convW = conv_mlp.layers[0].get_params()[0]
+    convweights = convW.get_value()
+    print "convweights (bc01): \n%s" % str(convweights)
+
     assert isinstance(conv_mlp.layers[0], SoftmaxConv)
 
-    if rng is None:
-        rng = numpy.random.RandomState(1234)
-
-    # test_equivalence(maxout, maxout_conv, batch_size, rng)
     _test_equivalence(softmax_mlp, conv_mlp, batch_size, rng)
 
 
+# Note that this test can be somewhat brittle w.r.t. the pooling geometry of
+# MaxoutConvC01B, since it produces different outputs between the small image
+# and large image, if the large image introduces pixels that change the max
+# pooling output around the edges of the original (small) image boundary.
+#
+# For example, pad=0, pool_shape=(2, 2),
 def test_convert_stack():
     layers = [MaxoutConvC01B(num_channels=4,
                              num_pieces=4,
                              kernel_shape=(2, 2),
-                             pool_shape=(1, 1),  # change
-                             pool_stride=(1, 1),  # change
+                             pool_shape=(2, 2),
+                             pool_stride=(2, 2),
                              layer_name='h1',
                              irange=.05,
                              W_lr_scale=.05,
                              b_lr_scale=.05,
-                             pad=0,  # change
+                             pad=0,  # No padding for now. See comment* below.
                              fix_pool_shape=False,
                              fix_pool_stride=False,
                              fix_kernel_shape=False,
                              tied_b=True,
                              max_kernel_norm=1.9,
                              min_zero=True,
-                             kernel_stride=(1, 1)),  # change
+                             kernel_stride=(1, 1)),  # change from (1, 1)
               Maxout(layer_name='h2, maxout',
                      irange=0.5,
                      num_units=8,
@@ -313,12 +323,12 @@ def test_convert_stack():
                       irange=0.5,
                       max_col_norm=1.9)]
 
-    input_space = Conv2DSpace(shape=(4, 4),
+    input_space = Conv2DSpace(shape=(5, 5),
                               num_channels=3,
                               dtype=theano.config.floatX,  # change to 'int32'
                               axes=('c', 0, 1, 'b'))  # change to b01c
 
-    batch_size = 3
+    batch_size = 1
     mlp = MLP(layers=layers,
               batch_size=batch_size,
               input_space=input_space,
@@ -330,6 +340,26 @@ def test_convert_stack():
                                    (input_shape[0] + size_increase,
                                     input_shape[1] + size_increase))
 
-    rng = numpy.random.RandomState(4321)
+    # * If we start using padding, this test setup check will have to be
+    # updated.  See pylearn2.lienar.conv2d_c01b.setup_detector_layer_c01b(),
+    # specifically where it defines output_shape (which becomes the
+    # detector_space shape).
+
+    # Check that we haven't set up the network geometry such that the input
+    # space's pooling footprint exceeds the small image's boundary. If that
+    # happens, the pooling for the small image and large image will return
+    # different results, and the test will fail, even if the code is sound.
+    layer_0 = mlp.layers[0]
+    # Detector shape takes kernel stride & shape into account.
+    detector_shape = numpy.asarray(layer_0.detector_space.shape)
+    output_shape = numpy.asarray(layer_0.get_output_space().shape)
+    pooling_footprint = output_shape * numpy.asarray(layer_0.pool_stride)
+    if numpy.any(pooling_footprint > detector_shape):
+        raise ValueError("Improper model geometry for test. Test may fail "
+                         "even when the code is fine. The first layer's "
+                         "pooling footprint exceeds the size of the input "
+                         "image.")
+
+    rng = numpy.random.RandomState(7321)
 
     _test_equivalence(mlp, resized_mlp, batch_size, rng=rng)

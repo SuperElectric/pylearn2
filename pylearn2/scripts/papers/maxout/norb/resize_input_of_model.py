@@ -107,10 +107,9 @@ def instantiate_SoftmaxConvC01B_from_Softmax(softmax):
     assert hasattr(softmax, 'b') and softmax.b is not None
 
     # old_input_space = softmax.get_input_space()
-    layer_name = softmax.layer_name + "_convolutionalized"
 
     return SoftmaxConvC01B(n_classes=softmax.get_output_space().dim,
-                           layer_name=layer_name,
+                           layer_name=softmax.layer_name + "_convolutionalized",
                            irange=1.0,  # needed for set_input_space
                            kernel_shape=conv_input_space.shape,
                            W_lr_scale=softmax.W_lr_scale,
@@ -134,10 +133,10 @@ def instantiate_MaxoutConvC01B_from_Maxout(maxout):
 
     conv_input_space = _get_conv2d_space(maxout.get_input_space(),
                                          ('c', 0, 1, 'b'))
-    print("in instantiate_MaxoutConvC01B, \n"
-          "\tinput_space: %s, \n"
-          "\tconv_input_space: %s"
-          % (maxout.get_input_space(), conv_input_space))
+    # print("in instantiate_MaxoutConvC01B, \n"
+    #       "\tinput_space: %s, \n"
+    #       "\tconv_input_space: %s"
+    #       % (maxout.get_input_space(), conv_input_space))
     # old_input_space = maxout.get_input_space()
 
     return MaxoutConvC01B(num_channels=maxout.num_units,
@@ -215,6 +214,7 @@ def copy_params_from_Softmax_to_SoftmaxConv(softmax, softmax_conv):
     print("softmax.desired_space: %s" % softmax.desired_space)
     conv_weights[...] = softmax.desired_space.np_format_as(weights.transpose(),
                                                            kernel_space)
+    conv_weights = conv_weights[:, :, ::-1, ::-1]  # flip 0, 1 axes
     # print("conv_weights:\n%s" % str(conv_weights))
     theano_conv_weights, theano_conv_biases = softmax_conv.get_params()
 
@@ -387,9 +387,8 @@ class SoftmaxConv(ConvElemwise):
                                           kernel_stride=(1, 1))
 
     def fprop(self, state_below):
+        # print("WARNING!!!!!! softmax turned off!!! (This is just a convolution)")
         result = super(SoftmaxConv, self).fprop(state_below)
-
-        # output_shape = result.shape
 
         assert self.get_output_space().axes == ('b', 'c', 0, 1)
 
@@ -397,13 +396,21 @@ class SoftmaxConv(ConvElemwise):
                            num_channels=self.get_output_space().num_channels,
                            axes=('b', 0, 1, 'c'),
                            dtype=self.get_output_space().dtype)
-        result = self.get_output_space().format_as(result, b01c)
+        result = self.get_output_space().format_as(result, b01c)  # B01C
         b01c_shape = result.shape
         result = result.reshape((result.shape[:3].prod(),
-                                 result.shape[3]))  # B01, C
+                                 result.shape[3]))                # B01, C
         softmaxes = theano.tensor.nnet.softmax(result)
+        # softmaxes = result
         softmaxes = softmaxes.reshape(b01c_shape)
-        return b01c.format_as(softmaxes, self.get_output_space())
+        softmaxes = b01c.format_as(softmaxes, self.get_output_space())  # BC01
+        self.get_output_space().validate(softmaxes)
+
+        # Softmax vectors should sum to 1.0
+        #DEBUG: uncomment #
+        assert (theano.tensor.abs_(softmaxes.sum(axis=1) - 1.0) < .00001).all()
+        return softmaxes
+
         # # Temporarily reshapes output feature map into a matrix where each row
         # # contains a single pixel's feature vector. This is the format that
         # # theano.nnet.softmax() expects.
@@ -578,7 +585,9 @@ class SoftmaxConvC01B(MaxoutConvC01B):
         result = result.transpose()                              # 01B, C
         softmaxes = theano.tensor.nnet.softmax(result)           # 01B, C
         softmaxes = softmaxes.transpose()                        # C, 01B
-        return softmaxes.reshape(original_shape)                 # C, 0, 1, B
+        softmaxes = softmaxes.reshape(original_shape)            # C, 0, 1, B
+        self.get_output_space().validate(softmaxes)
+        return softmaxes
 
     @functools.wraps(Layer.cost)
     def cost(self, Y, Y_hat):
