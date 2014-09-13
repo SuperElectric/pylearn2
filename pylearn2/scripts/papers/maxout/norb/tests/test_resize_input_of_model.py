@@ -13,6 +13,9 @@ from pylearn2.scripts.papers.maxout.norb.resize_input_of_model import (
 
 
 def _convert_axes(from_axes, from_batch, to_axes):
+    """
+    Converts a 4-D batch tensor from one axis ordering to another.
+    """
     return from_batch.transpose(tuple(from_axes.index(a) for a in to_axes))
 
 
@@ -27,8 +30,6 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
 
     assert isinstance(original_layer.get_input_space(), Conv2DSpace)
     assert isinstance(conv_layer.get_input_space(), Conv2DSpace)
-    # assert original_layer.get_input_space().axes == ('c', 0, 1, 'b')
-    # assert conv_layer.get_input_space().axes == ('c', 0, 1, 'b')
 
     def get_func(input_name, layer):
         """
@@ -67,14 +68,9 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
     small_images = _convert_axes(original_layer.get_input_space().axes,
                                  small_images,
                                  b01c)
-    print("after transpose to b01c, small_images.shape: %s" % str(small_images.shape))
     big_images = _convert_axes(conv_layer.get_input_space().axes,
                                big_images,
                                b01c)
-    # small_images = small_images.transpose(tuple(b01c.index(a)
-    #                                             for a in original_layer.get_input_space().axes))
-    # big_images = big_images.transpose(tuple(b01c.index(a)
-    #                                         for a in conv_layer.get_input_space().axes))
 
     # Copy small image to upper-left corner of big image
     big_images[:,
@@ -89,16 +85,6 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
     big_images = _convert_axes(b01c,
                                big_images,
                                conv_layer.get_input_space().axes)
-
-    # small_images = small_images.transpose(tuple(original_layer.get_input_space().axes.index(a)
-    #                                             for a in b01c))
-    # big_images = big_images.transpose(tuple(conv_layer.get_input_space().axes.index(a)
-    #                                         for a in b01c))
-
-    # DEBUG
-    # softmax_inputs = original_layer.get_input_space().np_format_as(small_images,
-    #                                                                original_layer.layers[0].desired_space)
-    # print("softmax inputs:\n%s" % str(softmax_inputs))
 
     print("original input space axes: %s" %
           str(original_layer.get_input_space().axes))
@@ -125,31 +111,14 @@ def _test_equivalence(original_layer, conv_layer, batch_size, rng):
         original_output,
         get_original_c01b_output_space(conv_layer))
 
-    # def get_conv_c01b_output_space(conv_layer):
-    #     output_space = conv_layer.get_output_space()
-    #     return Conv2DSpace(shape=output_space.shape,
-    #                        num_channels=output_space.num_channels,
-    #                        axes=('c', 0, 1, 'b'),
-    #                        dtype=output_space.dtype)
-
     # transposes conv output to C01B order, if it isn't already
     conv_output = _convert_axes(conv_layer.get_output_space().axes,
                                 conv_output,
                                 ('c', 0, 1, 'b'))
-    # conv_output = conv_output.transpose(tuple(conv_layer.get_output_space().axes.index(a)
-    #                                           for a
-    #                                           in ('c', 0, 1, 'b')))
-    # conv_c01b_output_space = get_conv_c01b_output_space(conv_layer)
-    # conv_output = conv_layer.get_output_space().np_format_as(
-    #     conv_output,
-    #     conv_c01b_output_space)
 
     print("np_format_as'ed original output shape: %s" %
           str(original_output.shape))
     print("conv output shape: %s" % str(conv_output.shape))
-
-    # print("orig. output (c01b):\n%s" % str(original_output))
-    # print("conv output[:, :1, :1, :] (c01b):\n%s" % str(conv_output[:, :1, :1, :]))
 
     # compare original_output vector with the 0, 0'th pixel of the conv output
     abs_difference = numpy.abs(original_output - conv_output[:, :1, :1, :])

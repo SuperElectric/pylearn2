@@ -20,335 +20,6 @@ from pylearn2.models.mlp import (MLP,
                                  IdentityConvNonlinearity)
 
 
-def _get_conv2d_space(input_space, axes):
-    """
-    Returns an "equivalent" Conv2DSpace.
-
-    Used for converting VectorSpace input spaces to Conv2DSpaces when
-    convolutionalizing fully-connected layers.
-    """
-    if isinstance(input_space, Conv2DSpace):
-        return input_space
-    else:
-        assert isinstance(input_space, VectorSpace)
-
-        return Conv2DSpace(shape=(1, 1),
-                           num_channels=input_space.dim,
-                           axes=axes,
-                           dtype=input_space.dtype)
-
-
-def instantiate_SoftmaxConv_from_Softmax(softmax):
-    """
-    Takes a Softmax layer and returns a compatibly-shaped SoftmaxConv.
-
-    SoftmaxConv uses a more flexible convolution implementation than
-    SoftmaxConvC01B.
-
-    According to the latest benchmarks (2014 Sept 11), it can be expected to be
-    ~6x slower than SoftmaxConvC01B:
-
-      https://github.com/soumith/convnet-benchmarks
-
-    Its major advantage is that the number of classes need not be divisible by
-    16. Also, the axis order need not be C01B. It can be anything, so long as
-    the 'c' axis comes first or last.
-
-    Parameters
-    ----------
-
-    softmax: Softmax
-
-    returns: SoftmaxConv
-      Weights are uninitialized.
-    """
-
-    assert isinstance(softmax, Softmax)
-    assert softmax.max_row_norm is None
-
-    conv_input_space = _get_conv2d_space(softmax.get_input_space(),
-                                         ('c', 0, 1, 'b'))
-
-    return SoftmaxConv(n_classes=softmax.n_classes,
-                       layer_name=softmax.layer_name + "_convolutionalized",
-                       irange=1.0,  # weights will get overwritten anyway
-                       W_lr_scale=softmax.W_lr_scale,
-                       b_lr_scale=softmax.b_lr_scale,
-                       max_col_norm=softmax.max_col_norm,
-                       kernel_shape=conv_input_space.shape)
-
-
-def instantiate_SoftmaxConvC01B_from_Softmax(softmax):
-    """
-    Takes a Softmax layer and returns a compatibly-shaped SoftmaxConvC01B.
-
-    Parameters
-    ----------
-
-    softmax: Softmax
-    returns: SoftmaxConvC01B
-      Weights are uninitialized.
-    """
-    assert isinstance(softmax, Softmax)
-    conv_input_space = _get_conv2d_space(softmax.get_input_space(),
-                                         ('c', 0, 1, 'b'))
-    # assert isinstance(softmax.get_input_space(), Conv2DSpace)
-
-    assert softmax.get_output_space().dim % 16 == 0, \
-        ("cuda-convnet requires that the # of output channels (i.e. # of "
-         "classes) be divisible by 16 (%d %% 16 = %d)."
-         % (softmax.get_output_space().dim,
-            softmax.get_output_space().dim % 16))
-
-    # Prohibits Softmax'es instantiated with binary_target_dim
-    assert not softmax._has_binary_target
-
-    # Prohibit Softmax'es instantiated with no_affine=True
-    assert hasattr(softmax, 'b') and softmax.b is not None
-
-    # old_input_space = softmax.get_input_space()
-
-    return SoftmaxConvC01B(n_classes=softmax.get_output_space().dim,
-                           layer_name=softmax.layer_name + "_convolutionalized",
-                           irange=1.0,  # needed for set_input_space
-                           kernel_shape=conv_input_space.shape,
-                           W_lr_scale=softmax.W_lr_scale,
-                           b_lr_scale=softmax.b_lr_scale,
-                           max_kernel_norm=softmax.max_col_norm)
-
-
-def instantiate_MaxoutConvC01B_from_Maxout(maxout):
-    """
-    Takes a Maxout layer and returns a compatibly-shaped MaxoutConvC01B.
-
-    maxout: Maxout
-    returns: MaxoutConvC01B
-      Weights are uninitialized.
-    """
-    assert isinstance(maxout, Maxout)
-    assert maxout.mask_weights is None
-    assert maxout.pool_stride == maxout.num_pieces
-    assert not maxout.randomize_pools
-    # assert isinstance(maxout.get_input_space(), Conv2DSpace)
-
-    conv_input_space = _get_conv2d_space(maxout.get_input_space(),
-                                         ('c', 0, 1, 'b'))
-    # print("in instantiate_MaxoutConvC01B, \n"
-    #       "\tinput_space: %s, \n"
-    #       "\tconv_input_space: %s"
-    #       % (maxout.get_input_space(), conv_input_space))
-    # old_input_space = maxout.get_input_space()
-
-    return MaxoutConvC01B(num_channels=maxout.num_units,
-                          num_pieces=maxout.num_pieces,
-                          kernel_shape=conv_input_space.shape,
-                          pool_shape=(1, 1),
-                          pool_stride=(1, 1),
-                          layer_name=maxout.layer_name + "_convolutionalized",
-                          irange=1.0,  # needed for set_input_space
-                          # init_bias,
-                          W_lr_scale=maxout.W_lr_scale,
-                          b_lr_scale=maxout.b_lr_scale,
-                          pad=0,
-                          fix_pool_shape=False,
-                          fix_pool_stride=False,
-                          fix_kernel_shape=False,
-                          # partial_sum=1,
-                          tied_b=True,
-                          # see pylearn2.linear.matrixmul.lmul. Matrix
-                          # multiplication is applied as T.dot(x,
-                          # self._W). This makes sense in retrospect;
-                          # since the batch vectors are stored in rows of
-                          # <x>, the corresponding weights are stored in
-                          # columns of W. So max_kernel_norm is set to
-                          # max_col_norm here.
-                          max_kernel_norm=maxout.max_col_norm,
-                          # input_normalization,
-                          # detector_normalization
-                          # output_normalization
-                          min_zero=maxout.min_zero,
-                          kernel_stride=(1, 1))
-
-
-def copy_params_from_Softmax_to_SoftmaxConv(softmax, softmax_conv):
-    assert isinstance(softmax, Softmax)
-    assert isinstance(softmax_conv, SoftmaxConv)
-    assert softmax_conv.detector_space.axes == ('b', 'c', 0, 1)
-
-    # Yes, softmax returns b, W instead of W, b like Maxout does. Wow.
-    biases, weights = [x.get_value() for x in softmax.get_params()]
-    print("original weights.shape: %s" % str(weights.shape))
-    # print("original weights:\n%s" % str(weights))
-
-    conv_params = tuple(p.get_value() for p in softmax_conv.get_params())
-
-    print("conv params to copy to are shaped as %s" %
-          str(conv_params[0].shape))
-
-    def get_kernel_input_space(softmax):
-        softmax_input_space = softmax.get_input_space()
-        if isinstance(softmax_input_space, VectorSpace):
-            shape = (1, 1)
-            num_channels = softmax_input_space.dim
-        elif isinstance(softmax_input_space, Conv2DSpace):
-            shape = softmax_input_space.shape
-            num_channels = softmax_input_space.num_channels
-        else:
-            raise TypeError()
-
-        return Conv2DSpace(shape=shape,
-                           num_channels=num_channels,
-                           axes=('b', 'c', 0, 1),  # ConvElemwise's axis order
-                           dtype=softmax_input_space.dtype)
-
-    kernel_space = get_kernel_input_space(softmax)
-    conv_weights = numpy.zeros((softmax.get_output_space().dim,  # B
-                                kernel_space.num_channels,       # C
-                                kernel_space.shape[0],           # 0
-                                kernel_space.shape[1]),          # 1
-                               dtype=weights.dtype)
-    assert conv_weights.shape == conv_params[0].shape, \
-        ("conv_weights.shape = %s, conv_params[0].shape = %s" %
-         (str(conv_weights.shape), str(conv_params[0].shape)))
-
-    print("softmax.desired_space: %s" % softmax.desired_space)
-    conv_weights[...] = softmax.desired_space.np_format_as(weights.transpose(),
-                                                           kernel_space)
-    conv_weights = conv_weights[:, :, ::-1, ::-1]  # flip 0, 1 axes
-    # print("conv_weights:\n%s" % str(conv_weights))
-    theano_conv_weights, theano_conv_biases = softmax_conv.get_params()
-
-    theano_conv_weights.set_value(conv_weights)
-    theano_conv_biases.set_value(biases)  # no need to reshape biases.
-
-
-def copy_params_from_Softmax_to_SoftmaxConvC01B(softmax, softmax_conv):
-    assert isinstance(softmax, Softmax)
-    assert isinstance(softmax_conv, SoftmaxConvC01B)
-
-    # Yes, softmax returns b, W instead of W, b like Maxout does. Wow.
-    biases, weights = [x.get_value() for x in softmax.get_params()]
-    print("original weights.shape: %s" % str(weights.shape))
-
-    conv_params = tuple(p.get_value() for p in softmax_conv.get_params())
-
-    def get_kernel_input_space(softmax):
-        softmax_input_space = softmax.get_input_space()
-        if isinstance(softmax_input_space, VectorSpace):
-            shape = (1, 1)
-            num_channels = softmax_input_space.dim
-        elif isinstance(softmax_input_space, Conv2DSpace):
-            shape = softmax_input_space.shape
-            num_channels = softmax_input_space.num_channels
-        else:
-            raise TypeError()
-
-        return Conv2DSpace(shape=shape,
-                           num_channels=num_channels,
-                           axes=('c', 0, 1, 'b'),
-                           dtype=softmax_input_space.dtype)
-
-    kernel_space = get_kernel_input_space(softmax)
-    actual_kernel_input_channels = (kernel_space.num_channels +
-                                    softmax_conv.dummy_channels)
-    actual_kernel_output_channels = softmax.get_output_space().dim
-    conv_weights = numpy.zeros((actual_kernel_input_channels,
-                                kernel_space.shape[0],
-                                kernel_space.shape[1],
-                                actual_kernel_output_channels),
-                               dtype=weights.dtype)
-    assert conv_weights.shape == conv_params[0].shape
-
-    print("softmax.desired_space: %s" % softmax.desired_space)
-    conv_weights[:kernel_space.num_channels, ...] = \
-        softmax.desired_space.np_format_as(weights.transpose(), kernel_space)
-
-    theano_conv_weights, theano_conv_biases = softmax_conv.get_params()
-
-    theano_conv_weights.set_value(conv_weights)
-    theano_conv_biases.set_value(biases)  # no need to reshape biases.
-
-
-def copy_params_from_Maxout_to_MaxoutConvC01B(maxout, maxout_conv):
-    assert isinstance(maxout, Maxout)
-    assert isinstance(maxout_conv, MaxoutConvC01B)
-
-    weights, biases = [x.get_value() for x in maxout.get_params()]
-    print("original weights.shape: %s" % str(weights.shape))
-    print("original biases.shape: %s" % str(biases.shape))
-    print("maxout layer's num_units: %d" % maxout.num_units)
-
-    conv_params = tuple(p.get_value() for p in maxout_conv.get_params())
-
-    print("conv layer's num_channels: %d" % maxout_conv.num_channels)
-    print("conv layer's num dummy channels: %d" % maxout_conv.dummy_channels)
-    print("conv weights' shape: %s" % str(conv_params[0].shape))
-    print("conv biases' shape: %s" % str(conv_params[1].shape))
-
-    def get_kernel_input_space(maxout):
-        maxout_input_space = maxout.get_input_space()
-        if isinstance(maxout_input_space, VectorSpace):
-            shape = (1, 1)
-            num_channels = maxout_input_space.dim
-        elif isinstance(maxout_input_space, Conv2DSpace):
-            shape = maxout_input_space.shape
-            num_channels = maxout_input_space.num_channels
-        else:
-            raise TypeError()
-
-        print("kernel_space's num_channels: %d" % num_channels)
-        return Conv2DSpace(shape=shape,
-                           num_channels=num_channels,
-                           axes=('c', 0, 1, 'b'),
-                           dtype=maxout_input_space.dtype)
-
-    kernel_space = get_kernel_input_space(maxout)
-    actual_kernel_input_channels = (kernel_space.num_channels +
-                                    maxout_conv.dummy_channels)
-    actual_kernel_output_channels = (maxout.get_output_space().dim *
-                                     maxout.num_pieces)
-    conv_weights = numpy.zeros((actual_kernel_input_channels,
-                                kernel_space.shape[0],
-                                kernel_space.shape[1],
-                                actual_kernel_output_channels),
-                               dtype=weights.dtype)
-    assert conv_weights.shape == conv_params[0].shape
-    conv_weights[:kernel_space.num_channels, ...] = \
-        maxout.desired_space.np_format_as(weights.transpose(), kernel_space)
-
-    print("conv_weights.shape: %s" % str(conv_weights.shape))
-
-    theano_conv_weights, theano_conv_biases = maxout_conv.get_params()
-
-    theano_conv_weights.set_value(conv_weights)
-    theano_conv_biases.set_value(biases)  # no need to reshape biases.
-
-
-def copy_params_between_same_class(old_layer, conv_layer):
-    assert type(old_layer) == type(conv_layer)
-    for old_param, new_param in safe_zip(old_layer.get_params(),
-                                         conv_layer.get_params()):
-        assert old_param is not new_param
-        new_param.set_value(old_param.get_value())
-
-
-def copy_params(old_layer, conv_layer):
-    if isinstance(old_layer, Maxout):
-        copy_params_from_Maxout_to_MaxoutConvC01B(old_layer, conv_layer)
-    elif isinstance(old_layer, Softmax):
-        if isinstance(conv_layer, SoftmaxConvC01B):
-            copy_params_from_Softmax_to_SoftmaxConvC01B(old_layer, conv_layer)
-        else:
-            assert isinstance(conv_layer, SoftmaxConv)
-            copy_params_from_Softmax_to_SoftmaxConv(old_layer, conv_layer)
-    elif isinstance(old_layer, (MaxoutConvC01B, SoftmaxConvC01B)):
-        copy_params_between_same_class(old_layer, conv_layer)
-    else:
-        raise NotImplementedError("copy_params not yet implemented for "
-                                  "copying from %s to %s." %
-                                  (type(old_layer), type(conv_layer)))
-
-
 class SoftmaxConv(ConvElemwise):
 
     def __init__(self,
@@ -387,7 +58,6 @@ class SoftmaxConv(ConvElemwise):
                                           kernel_stride=(1, 1))
 
     def fprop(self, state_below):
-        # print("WARNING!!!!!! softmax turned off!!! (This is just a convolution)")
         result = super(SoftmaxConv, self).fprop(state_below)
 
         assert self.get_output_space().axes == ('b', 'c', 0, 1)
@@ -401,139 +71,13 @@ class SoftmaxConv(ConvElemwise):
         result = result.reshape((result.shape[:3].prod(),
                                  result.shape[3]))                # B01, C
         softmaxes = theano.tensor.nnet.softmax(result)
-        # softmaxes = result
         softmaxes = softmaxes.reshape(b01c_shape)
         softmaxes = b01c.format_as(softmaxes, self.get_output_space())  # BC01
         self.get_output_space().validate(softmaxes)
 
         # Softmax vectors should sum to 1.0
-        #DEBUG: uncomment #
         assert (theano.tensor.abs_(softmaxes.sum(axis=1) - 1.0) < .00001).all()
         return softmaxes
-
-        # # Temporarily reshapes output feature map into a matrix where each row
-        # # contains a single pixel's feature vector. This is the format that
-        # # theano.nnet.softmax() expects.
-        # if 'c' == self.get_output_space().axes[0]:
-        #     result = result.reshape(output_shape[0], output_shape[1:].prod())
-        #     result = result.transpose()
-        # elif 'c' == self.get_output_space().axes[-1]:
-        #     result = result.reshape(output_shape[:3].prod(), output_shape[3])
-        # else:
-        #     raise NotImplementedError("fprop not yet implemented for "
-        #                               "Conv2DSpace axes where the 'c' axis"
-        #                               "isn't the first or last axis, e.g. %s"
-        #                               % str(self.get_output_space().axes))
-
-        # softmaxes = theano.tensor.nnet.softmax(result)
-        # if 'c' == self.get_output_space().axes[0]:
-        #     softmaxes = softmaxes.transpose()
-
-        # # Restore original shape
-        # return softmaxes.reshape(output_shape)
-
-
-class SoftmaxConv1x1(Softmax):
-    """
-    A Softmax designed to be applied to each pixel of a feature map.
-
-    Unlike Softmax, which concatenates the incoming feature map into a giant
-    feature vector to softmax, this softmaxes each pixel (feature vector) of
-    the feature map independently.
-    """
-
-    def __init__(self,
-                 n_classes,
-                 layer_name,
-                 irange=None,
-                 istdev=None,
-                 sparse_init=None,
-                 W_lr_scale=None,
-                 b_lr_scale=None,
-                 max_row_norm=None,
-                 no_affine=False,
-                 max_col_norm=None,
-                 init_bias_target_marginals=None,
-                 binary_target_dim=None):
-
-        super(SoftmaxConv1x1, self).__init__(n_classes,
-                                             layer_name,
-                                             irange=None,
-                                             istdev=None,
-                                             sparse_init=None,
-                                             W_lr_scale=None,
-                                             b_lr_scale=None,
-                                             max_row_norm=None,
-                                             no_affine=False,
-                                             max_col_norm=None,
-                                             init_bias_target_marginals=None,
-                                             binary_target_dim=None)
-
-    @functools.wraps(Softmax.set_input_space)
-    def set_input_space(self, input_space):
-        if not isinstance(input_space, Conv2DSpace):
-            raise TypeError("input space must be a Conv2DSpace, but got a %s."
-                            % type(input_space))
-
-        self.flat_input_space = VectorSpace(dim=input_space.num_channels,
-                                            dtype=input_space.dtype)
-
-        super(SoftmaxConv1x1, self).set_input_space(flat_input_space)
-        self.flat_output_space = self.output_space
-
-        self.input_space = input_space
-        self.output_space = Conv2DSpace(shape=input_space.shape,
-                                        num_channels=self.n_classes,
-                                        axes=input_space.axes,
-                                        dtype=input_space.dtype)
-
-    @functools.wraps(Softmax.fprop)
-    def fprop(self, state_below):
-        self.input_space.validate(state_below)
-
-        input_shape = state_below.shape
-
-        # Reshapes the feature map state_below into a matrix where each
-        # row corresponds to one pixel's features.
-        if 'c' == self.input_space.axes[0]:
-            state_below = state_below.reshape(state_below.shape[0],
-                                              state_below.shape[1:].prod())
-            state_below = state_below.transpose()
-        elif 'c' == self.input_space.axes[-1]:
-            state_below = state_below.reshape(state_below.shape[:3].prod(),
-                                              state_below.shape[3])
-        else:
-            raise NotImplementedError("fprop not yet implemented for "
-                                      "Conv2DSpace axes where the 'c' axis"
-                                      "isn't the first or last axis, e.g. %s"
-                                      % str(self.input_space.axes))
-
-        # Temporarily swaps out the input and output Conv2DSpaces for
-        # VectorSpaces, so that this object can masquerade as a plane
-        # Softmax object. That way we can call Softmax'es fprop method.
-        conv_input_space = self.input_space
-        self.input_space = self.flat_input_space
-
-        conv_output_space = self.output_space
-        self.output_space = self.flat_output_space
-
-        result = super(SoftmaxConv1x1, self).fprop(state_below)
-
-        # Restore the convolutional input and output spaces.
-        self.input_space = conv_input_space
-        self.output_space = conv_output_space
-
-        # Reshape the result to suit self.output_space
-        if 'c' == self.input_space.axes[0]:
-            result = result.transpose()
-
-        output_shape = copy.deepcopy(input_shape)
-        c_index = self.output_space.axes.index('c')
-        output_shape[c_index] = self.n_classes
-        result = result.reshape(output_shape)
-        self.output_space.validate(result)
-
-        return result
 
 
 class SoftmaxConvC01B(MaxoutConvC01B):
@@ -600,6 +144,148 @@ class SoftmaxConvC01B(MaxoutConvC01B):
                                   "Softmax.cost_matrix() not yet implemented.")
 
 
+def _get_conv2d_space(input_space, axes):
+    """
+    Returns an "equivalent" Conv2DSpace.
+
+    Used for converting VectorSpace input spaces to Conv2DSpaces when
+    convolutionalizing fully-connected layers.
+    """
+    if isinstance(input_space, Conv2DSpace):
+        return input_space
+    else:
+        assert isinstance(input_space, VectorSpace)
+
+        return Conv2DSpace(shape=(1, 1),
+                           num_channels=input_space.dim,
+                           axes=axes,
+                           dtype=input_space.dtype)
+
+
+def _instantiate_SoftmaxConv_from_Softmax(softmax):
+    """
+    Takes a Softmax layer and returns a compatibly-shaped SoftmaxConv.
+
+    SoftmaxConv uses a more flexible convolution implementation than
+    SoftmaxConvC01B.
+
+    According to the latest benchmarks (2014 Sept 11), it can be expected to be
+    ~6x slower than SoftmaxConvC01B:
+
+      https://github.com/soumith/convnet-benchmarks
+
+    Its major advantage is that the number of classes need not be divisible by
+    16. Also, the axis order need not be C01B. It can be anything, so long as
+    the 'c' axis comes first or last.
+
+    Parameters
+    ----------
+
+    softmax: Softmax
+
+    returns: SoftmaxConv
+      Weights are uninitialized.
+    """
+
+    assert isinstance(softmax, Softmax)
+    assert softmax.max_row_norm is None
+
+    conv_input_space = _get_conv2d_space(softmax.get_input_space(),
+                                         ('c', 0, 1, 'b'))
+
+    return SoftmaxConv(n_classes=softmax.n_classes,
+                       layer_name=softmax.layer_name + "_convolutionalized",
+                       irange=1.0,  # weights will get overwritten anyway
+                       W_lr_scale=softmax.W_lr_scale,
+                       b_lr_scale=softmax.b_lr_scale,
+                       max_col_norm=softmax.max_col_norm,
+                       kernel_shape=conv_input_space.shape)
+
+
+def _instantiate_SoftmaxConvC01B_from_Softmax(softmax):
+    """
+    Takes a Softmax layer and returns a compatibly-shaped SoftmaxConvC01B.
+
+    Parameters
+    ----------
+
+    softmax: Softmax
+    returns: SoftmaxConvC01B
+      Weights are uninitialized.
+    """
+    assert isinstance(softmax, Softmax)
+    conv_input_space = _get_conv2d_space(softmax.get_input_space(),
+                                         ('c', 0, 1, 'b'))
+
+    assert softmax.get_output_space().dim % 16 == 0, \
+        ("cuda-convnet requires that the # of output channels (i.e. # of "
+         "classes) be divisible by 16 (%d %% 16 = %d)."
+         % (softmax.get_output_space().dim,
+            softmax.get_output_space().dim % 16))
+
+    # Prohibits Softmax'es instantiated with binary_target_dim
+    assert not softmax._has_binary_target
+
+    # Prohibit Softmax'es instantiated with no_affine=True
+    assert hasattr(softmax, 'b') and softmax.b is not None
+
+    new_layer_name = softmax.layer_name + "_convolutionalized"
+    return SoftmaxConvC01B(n_classes=softmax.get_output_space().dim,
+                           layer_name=new_layer_name,
+                           irange=1.0,  # needed for set_input_space
+                           kernel_shape=conv_input_space.shape,
+                           W_lr_scale=softmax.W_lr_scale,
+                           b_lr_scale=softmax.b_lr_scale,
+                           max_kernel_norm=softmax.max_col_norm)
+
+
+def _instantiate_MaxoutConvC01B_from_Maxout(maxout):
+    """
+    Takes a Maxout layer and returns a compatibly-shaped MaxoutConvC01B.
+
+    maxout: Maxout
+    returns: MaxoutConvC01B
+      Weights are uninitialized.
+    """
+    assert isinstance(maxout, Maxout)
+    assert maxout.mask_weights is None
+    assert maxout.pool_stride == maxout.num_pieces
+    assert not maxout.randomize_pools
+
+    conv_input_space = _get_conv2d_space(maxout.get_input_space(),
+                                         ('c', 0, 1, 'b'))
+
+    return MaxoutConvC01B(num_channels=maxout.num_units,
+                          num_pieces=maxout.num_pieces,
+                          kernel_shape=conv_input_space.shape,
+                          pool_shape=(1, 1),
+                          pool_stride=(1, 1),
+                          layer_name=maxout.layer_name + "_convolutionalized",
+                          irange=1.0,  # needed for set_input_space
+                          # init_bias,
+                          W_lr_scale=maxout.W_lr_scale,
+                          b_lr_scale=maxout.b_lr_scale,
+                          pad=0,
+                          fix_pool_shape=False,
+                          fix_pool_stride=False,
+                          fix_kernel_shape=False,
+                          # partial_sum=1,
+                          tied_b=True,
+                          # see pylearn2.linear.matrixmul.lmul. Matrix
+                          # multiplication is applied as T.dot(x,
+                          # self._W). This makes sense in retrospect;
+                          # since the batch vectors are stored in rows of
+                          # <x>, the corresponding weights are stored in
+                          # columns of W. So max_kernel_norm is set to
+                          # max_col_norm here.
+                          max_kernel_norm=maxout.max_col_norm,
+                          # input_normalization,
+                          # detector_normalization
+                          # output_normalization
+                          min_zero=maxout.min_zero,
+                          kernel_stride=(1, 1))
+
+
 def instantiate_convolutional_equivalent(layer):
     """
     Returns an equivalent convolutional layer, with uninitialized weights.
@@ -622,19 +308,176 @@ def instantiate_convolutional_equivalent(layer):
         result.mlp = None
         return result
     elif isinstance(layer, Maxout):
-        return instantiate_MaxoutConvC01B_from_Maxout(layer)
+        return _instantiate_MaxoutConvC01B_from_Maxout(layer)
     elif isinstance(layer, Softmax):
-        # print("layer.mlp.get_input_space(): %s" % layer.mlp.get_input_space())
-        # print("is 'c' in 0 or 3? %s" % str(layer.mlp.get_input_space().axes.index('c') not in (0, 3)))
-        # print("'c' is index? %s" % str(layer.mlp.get_input_space().axes.index('c')))
         if layer.get_output_space().dim % 16 != 0 or \
            layer.mlp.get_input_space().axes.index('c') not in (0, 3):
-            return instantiate_SoftmaxConv_from_Softmax(layer)
+            return _instantiate_SoftmaxConv_from_Softmax(layer)
         else:
-            return instantiate_SoftmaxConvC01B_from_Softmax(layer)
+            return _instantiate_SoftmaxConvC01B_from_Softmax(layer)
 
     raise NotImplementedError("Conversion of layer type %s not implemented." %
                               type(layer))
+
+
+def _copy_params_from_Softmax_to_SoftmaxConv(softmax, softmax_conv):
+    assert isinstance(softmax, Softmax)
+    assert isinstance(softmax_conv, SoftmaxConv)
+    assert softmax_conv.detector_space.axes == ('b', 'c', 0, 1)
+
+    # Yes, softmax returns b, W instead of W, b like Maxout does. Wow.
+    biases, weights = [x.get_value() for x in softmax.get_params()]
+
+    conv_params = tuple(p.get_value() for p in softmax_conv.get_params())
+
+    def get_kernel_input_space(softmax):
+        softmax_input_space = softmax.get_input_space()
+        if isinstance(softmax_input_space, VectorSpace):
+            shape = (1, 1)
+            num_channels = softmax_input_space.dim
+        elif isinstance(softmax_input_space, Conv2DSpace):
+            shape = softmax_input_space.shape
+            num_channels = softmax_input_space.num_channels
+        else:
+            raise TypeError()
+
+        return Conv2DSpace(shape=shape,
+                           num_channels=num_channels,
+                           axes=('b', 'c', 0, 1),  # ConvElemwise's axis order
+                           dtype=softmax_input_space.dtype)
+
+    kernel_space = get_kernel_input_space(softmax)
+    conv_weights = numpy.zeros((softmax.get_output_space().dim,  # B
+                                kernel_space.num_channels,       # C
+                                kernel_space.shape[0],           # 0
+                                kernel_space.shape[1]),          # 1
+                               dtype=weights.dtype)
+    assert conv_weights.shape == conv_params[0].shape, \
+        ("conv_weights.shape = %s, conv_params[0].shape = %s" %
+         (str(conv_weights.shape), str(conv_params[0].shape)))
+
+    conv_weights[...] = softmax.desired_space.np_format_as(weights.transpose(),
+                                                           kernel_space)
+    conv_weights = conv_weights[:, :, ::-1, ::-1]  # flip 0, 1 axes
+
+    theano_conv_weights, theano_conv_biases = softmax_conv.get_params()
+
+    theano_conv_weights.set_value(conv_weights)
+    theano_conv_biases.set_value(biases)  # no need to reshape biases.
+
+
+def _copy_params_from_Softmax_to_SoftmaxConvC01B(softmax, softmax_conv):
+    assert isinstance(softmax, Softmax)
+    assert isinstance(softmax_conv, SoftmaxConvC01B)
+
+    # Yes, softmax returns b, W instead of W, b like Maxout does. Wow.
+    biases, weights = [x.get_value() for x in softmax.get_params()]
+
+    conv_params = tuple(p.get_value() for p in softmax_conv.get_params())
+
+    def get_kernel_input_space(softmax):
+        softmax_input_space = softmax.get_input_space()
+        if isinstance(softmax_input_space, VectorSpace):
+            shape = (1, 1)
+            num_channels = softmax_input_space.dim
+        elif isinstance(softmax_input_space, Conv2DSpace):
+            shape = softmax_input_space.shape
+            num_channels = softmax_input_space.num_channels
+        else:
+            raise TypeError()
+
+        return Conv2DSpace(shape=shape,
+                           num_channels=num_channels,
+                           axes=('c', 0, 1, 'b'),
+                           dtype=softmax_input_space.dtype)
+
+    kernel_space = get_kernel_input_space(softmax)
+    actual_kernel_input_channels = (kernel_space.num_channels +
+                                    softmax_conv.dummy_channels)
+    actual_kernel_output_channels = softmax.get_output_space().dim
+    conv_weights = numpy.zeros((actual_kernel_input_channels,
+                                kernel_space.shape[0],
+                                kernel_space.shape[1],
+                                actual_kernel_output_channels),
+                               dtype=weights.dtype)
+    assert conv_weights.shape == conv_params[0].shape
+
+    conv_weights[:kernel_space.num_channels, ...] = \
+        softmax.desired_space.np_format_as(weights.transpose(), kernel_space)
+
+    theano_conv_weights, theano_conv_biases = softmax_conv.get_params()
+
+    theano_conv_weights.set_value(conv_weights)
+    theano_conv_biases.set_value(biases)  # no need to reshape biases.
+
+
+def _copy_params_from_Maxout_to_MaxoutConvC01B(maxout, maxout_conv):
+    assert isinstance(maxout, Maxout)
+    assert isinstance(maxout_conv, MaxoutConvC01B)
+
+    weights, biases = [x.get_value() for x in maxout.get_params()]
+
+    conv_params = tuple(p.get_value() for p in maxout_conv.get_params())
+
+    def get_kernel_input_space(maxout):
+        maxout_input_space = maxout.get_input_space()
+        if isinstance(maxout_input_space, VectorSpace):
+            shape = (1, 1)
+            num_channels = maxout_input_space.dim
+        elif isinstance(maxout_input_space, Conv2DSpace):
+            shape = maxout_input_space.shape
+            num_channels = maxout_input_space.num_channels
+        else:
+            raise TypeError()
+
+        return Conv2DSpace(shape=shape,
+                           num_channels=num_channels,
+                           axes=('c', 0, 1, 'b'),
+                           dtype=maxout_input_space.dtype)
+
+    kernel_space = get_kernel_input_space(maxout)
+    actual_kernel_input_channels = (kernel_space.num_channels +
+                                    maxout_conv.dummy_channels)
+    actual_kernel_output_channels = (maxout.get_output_space().dim *
+                                     maxout.num_pieces)
+    conv_weights = numpy.zeros((actual_kernel_input_channels,
+                                kernel_space.shape[0],
+                                kernel_space.shape[1],
+                                actual_kernel_output_channels),
+                               dtype=weights.dtype)
+    assert conv_weights.shape == conv_params[0].shape
+    conv_weights[:kernel_space.num_channels, ...] = \
+        maxout.desired_space.np_format_as(weights.transpose(), kernel_space)
+
+    theano_conv_weights, theano_conv_biases = maxout_conv.get_params()
+
+    theano_conv_weights.set_value(conv_weights)
+    theano_conv_biases.set_value(biases)  # no need to reshape biases.
+
+
+def _copy_params_between_same_class(old_layer, conv_layer):
+    assert type(old_layer) == type(conv_layer)
+    for old_param, new_param in safe_zip(old_layer.get_params(),
+                                         conv_layer.get_params()):
+        assert old_param is not new_param
+        new_param.set_value(old_param.get_value())
+
+
+def copy_params(old_layer, conv_layer):
+    if isinstance(old_layer, Maxout):
+        _copy_params_from_Maxout_to_MaxoutConvC01B(old_layer, conv_layer)
+    elif isinstance(old_layer, Softmax):
+        if isinstance(conv_layer, SoftmaxConvC01B):
+            _copy_params_from_Softmax_to_SoftmaxConvC01B(old_layer, conv_layer)
+        else:
+            assert isinstance(conv_layer, SoftmaxConv)
+            _copy_params_from_Softmax_to_SoftmaxConv(old_layer, conv_layer)
+    elif isinstance(old_layer, (MaxoutConvC01B, SoftmaxConvC01B)):
+        _copy_params_between_same_class(old_layer, conv_layer)
+    else:
+        raise NotImplementedError("copy_params not yet implemented for "
+                                  "copying from %s to %s." %
+                                  (type(old_layer), type(conv_layer)))
 
 
 def resize_mlp_input(old_mlp, new_image_shape):
@@ -746,8 +589,6 @@ def main():
 
     args = parse_args()
     mlp = serial.load(args.input)
-
-
 
     try:
         result = resize_mlp_input(mlp, args.image_shape)
