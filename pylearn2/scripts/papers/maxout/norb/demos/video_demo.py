@@ -32,7 +32,10 @@ def parse_args():
     parser.add_argument("-p",
                         "--preprocessor",
                         default=None,
-                        help=".pkl file of the data preprocessor.")
+                        help=("The .pkl file of the data preprocessor. "
+                              "If omitted, this will assume that the --model "
+                              "argument's preprocessor prefix (e.g. gcn-lcn7 "
+                              "is sufficient to specify the preprocessor."))
 
     parser.add_argument("--matplotlib",
                         default=False,
@@ -58,12 +61,12 @@ def parse_args():
             print("Exiting.")
             sys.exit(1)
 
-    if result.preprocessor is not None \
-       and not result.preprocessor.endswith('.pkl'):
-        print("Expected --preprocessor to end with '.pkl', but got %s." %
-              args.preprocessor)
-        print("Exiting.")
-        sys.exit(1)
+    # if result.preprocessor is not None \
+    #    and not result.preprocessor.endswith('.pkl'):
+    #     print("Expected --preprocessor to end with '.pkl', but got %s." %
+    #           result.preprocessor)
+    #     print("Exiting.")
+    #     sys.exit(1)
 
     return result
 
@@ -96,7 +99,7 @@ class VideoDisplay(object):
 
 class ClassifierDisplay(object):
 
-    def __init__(self, model_path, preprocessor_path, object_scale):
+    def __init__(self, model_path, preprocessor, object_scale):
 
         # # debug stuff
         # pyplot.ion()
@@ -134,7 +137,16 @@ class ClassifierDisplay(object):
 
         self.model_function = load_model_function(model_path)
 
-        self.preprocessor = serial.load(preprocessor_path)
+        def get_preprocessor(preprocessor):
+            if preprocessor_string.endswith('.pkl'):
+                return serial.load(preprocessor_path)
+            elif preprocessor.startswith('lcn7'):
+                return LeCunLCN(kernel_size=7)
+            else:
+                raise ValueError('unrecognized value "%s" for --preprocessor' %
+                                 preprocessor)
+
+        self.preprocessor = get_preprocessor(preprocessor)
 
         def get_example_images():
             small_norb = new_norb.NORB(which_norb='small', which_set='both')
