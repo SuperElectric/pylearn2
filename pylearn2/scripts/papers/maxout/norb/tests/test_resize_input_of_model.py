@@ -2,10 +2,12 @@
 Tests ../resize_input_of_model.py
 """
 
+import os
 import numpy
 import theano
 from pylearn2.space import Conv2DSpace, VectorSpace
 from pylearn2.utils import safe_zip
+from pylearn2.config import yaml_parse
 from pylearn2.models.mlp import Layer, MLP, Softmax
 from pylearn2.models.maxout import Maxout, MaxoutConvC01B
 from pylearn2.scripts.papers.maxout.norb.resize_input_of_model import (
@@ -204,7 +206,8 @@ def test_convert_Softmax_to_SoftmaxConvC01B(rng=None):
                       seed=seed)
 
     print("mlp input space: %s" % softmax_mlp.get_input_space())
-    print("mlp.layers[0] input space: %s" % softmax_mlp.layers[0].get_input_space())
+    print("mlp.layers[0] input space: %s" %
+          softmax_mlp.layers[0].get_input_space())
 
     size_increase = 1
     conv_mlp = resize_mlp_input(softmax_mlp,
@@ -264,71 +267,96 @@ def test_convert_Softmax_to_SoftmaxConv(rng=None):
 #
 # For example, pad=0, pool_shape=(2, 2),
 def test_convert_stack():
-    layers = [MaxoutConvC01B(num_channels=4,
-                             num_pieces=4,
-                             kernel_shape=(2, 2),
-                             pool_shape=(2, 2),
-                             pool_stride=(2, 2),
-                             layer_name='h1',
-                             irange=.05,
-                             W_lr_scale=.05,
-                             b_lr_scale=.05,
-                             pad=0,  # No padding for now. See comment* below.
-                             fix_pool_shape=False,
-                             fix_pool_stride=False,
-                             fix_kernel_shape=False,
-                             tied_b=True,
-                             max_kernel_norm=1.9,
-                             min_zero=True,
-                             kernel_stride=(1, 1)),  # change from (1, 1)
-              Maxout(layer_name='h2, maxout',
-                     irange=0.5,
-                     num_units=8,
-                     num_pieces=2,
-                     min_zero=False,
-                     max_col_norm=1.9),
-              Softmax(n_classes=16,
-                      layer_name='h3, softmax',
-                      irange=0.5,
-                      max_col_norm=1.9)]
+    def test_impl(n_classes):
+        layers = [MaxoutConvC01B(num_channels=4,
+                                 num_pieces=4,
+                                 kernel_shape=(2, 2),
+                                 pool_shape=(2, 2),
+                                 pool_stride=(2, 2),
+                                 layer_name='h1',
+                                 irange=.05,
+                                 W_lr_scale=.05,
+                                 b_lr_scale=.05,
+                                 pad=0,  # 0 for now. See comment (*) below.
+                                 fix_pool_shape=False,
+                                 fix_pool_stride=False,
+                                 fix_kernel_shape=False,
+                                 tied_b=True,
+                                 max_kernel_norm=1.9,
+                                 min_zero=True,
+                                 kernel_stride=(1, 1)),  # change from (1, 1)
+                  Maxout(layer_name='h2, maxout',
+                         irange=0.5,
+                         num_units=8,
+                         num_pieces=2,
+                         min_zero=False,
+                         max_col_norm=1.9),
+                  Softmax(n_classes=n_classes,
+                          layer_name='h3, softmax',
+                          irange=0.5,
+                          max_col_norm=1.9)]
 
-    input_space = Conv2DSpace(shape=(5, 5),
-                              num_channels=3,
-                              dtype=theano.config.floatX,  # change to 'int32'
-                              axes=('c', 0, 1, 'b'))  # change to b01c
+        input_space = Conv2DSpace(shape=(5, 5),
+                                  num_channels=3,
+                                  dtype=theano.config.floatX,  # cuda_convnet
+                                  axes=('c', 0, 1, 'b'))  # change to b01c
 
-    batch_size = 1
-    mlp = MLP(layers=layers,
-              batch_size=batch_size,
-              input_space=input_space,
-              seed=1234)
+        batch_size = 1
+        mlp = MLP(layers=layers,
+                  batch_size=batch_size,
+                  input_space=input_space,
+                  seed=1234)
 
-    input_shape = input_space.shape
-    size_increase = 2
-    resized_mlp = resize_mlp_input(mlp,
-                                   (input_shape[0] + size_increase,
-                                    input_shape[1] + size_increase))
+        input_shape = input_space.shape
+        size_increase = 2
+        resized_mlp = resize_mlp_input(mlp,
+                                       (input_shape[0] + size_increase,
+                                        input_shape[1] + size_increase))
 
-    # * If we start using padding, this test setup check will have to be
-    # updated.  See pylearn2.lienar.conv2d_c01b.setup_detector_layer_c01b(),
-    # specifically where it defines output_shape (which becomes the
-    # detector_space shape).
+        if n_classes % 16 == 0:
+            assert isinstance(resized_mlp.layers[-1], SoftmaxConvC01B)
+        else:
+            assert isinstance(resized_mlp.layers[-1], SoftmaxConv)
 
-    # Check that we haven't set up the network geometry such that the input
-    # space's pooling footprint exceeds the small image's boundary. If that
-    # happens, the pooling for the small image and large image will return
-    # different results, and the test will fail, even if the code is sound.
-    layer_0 = mlp.layers[0]
-    # Detector shape takes kernel stride & shape into account.
-    detector_shape = numpy.asarray(layer_0.detector_space.shape)
-    output_shape = numpy.asarray(layer_0.get_output_space().shape)
-    pooling_footprint = output_shape * numpy.asarray(layer_0.pool_stride)
-    if numpy.any(pooling_footprint > detector_shape):
-        raise ValueError("Improper model geometry for test. Test may fail "
-                         "even when the code is fine. The first layer's "
-                         "pooling footprint exceeds the size of the input "
-                         "image.")
+        # * If we start using padding, this test setup check will have to be
+        # updated. See pylearn2.lienar.conv2d_c01b.setup_detector_layer_c01b(),
+        # specifically where it defines output_shape (which becomes the
+        # detector_space shape).
 
-    rng = numpy.random.RandomState(7321)
+        # Check that we haven't set up the network geometry such that the input
+        # space's pooling footprint exceeds the small image's boundary. If that
+        # happens, the pooling for the small image and large image will return
+        # different results, and the test will fail, even if the code is sound.
+        layer_0 = mlp.layers[0]
+        # Detector shape takes kernel stride & shape into account.
+        detector_shape = numpy.asarray(layer_0.detector_space.shape)
+        output_shape = numpy.asarray(layer_0.get_output_space().shape)
+        pooling_footprint = output_shape * numpy.asarray(layer_0.pool_stride)
+        if numpy.any(pooling_footprint > detector_shape):
+            raise ValueError("Improper model geometry for test. Test may fail "
+                             "even when the code is fine. The first layer's "
+                             "pooling footprint exceeds the size of the input "
+                             "image.")
 
-    _test_equivalence(mlp, resized_mlp, batch_size, rng=rng)
+        rng = numpy.random.RandomState(7321)
+
+        _test_equivalence(mlp, resized_mlp, batch_size, rng=rng)
+
+    test_impl(n_classes=16)
+    test_impl(n_classes=3)
+
+
+def test_yaml_model():
+    """
+    Tests resizing input on a realistically sized model.
+
+    Model defined in ./test_model.yaml
+    """
+    test_dir = os.path.split(os.path.abspath(__file__))[0]
+    yaml_path = os.path.join(test_dir, 'test_model.yaml')
+    model = yaml_parse.load_path(yaml_path)
+    assert isinstance(model, MLP)
+
+    bigger_shape = (640, 640)
+    bigger_model = resize_mlp_input(model, bigger_shape)
+    assert bigger_model.get_input_space().shape == bigger_shape
