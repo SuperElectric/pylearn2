@@ -464,10 +464,14 @@ def _copy_params_from_Maxout_to_MaxoutConvC01B(maxout, maxout_conv):
                  :num_real_detector_channels] = \
         maxout.desired_space.np_format_as(weights.transpose(), kernel_space)
 
+    conv_biases = numpy.zeros(actual_kernel_output_channels,
+                              dtype=biases.dtype)
+    conv_biases[:num_real_detector_channels] = biases
+
     theano_conv_weights, theano_conv_biases = maxout_conv.get_params()
 
     theano_conv_weights.set_value(conv_weights)
-    theano_conv_biases.set_value(biases)  # no need to reshape biases.
+    theano_conv_biases.set_value(conv_biases)
 
 
 def _copy_params_between_same_class(old_layer, conv_layer):

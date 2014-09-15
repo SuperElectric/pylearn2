@@ -7,7 +7,7 @@ http://docs.opencv.org/trunk/doc/py_tutorials/py_gui/py_video_display/py_video_d
 """
 
 from __future__ import print_function
-import sys, argparse, os, shutil, time
+import sys, argparse, os, shutil, time, pdb
 import numpy, matplotlib, cv2, theano
 from matplotlib import pyplot
 from pylearn2.utils import serial, safe_zip
@@ -140,6 +140,7 @@ class ClassifierDisplay(object):
         # self.figure = pyplot.figure()
         # self.axes = self.figure.add_subplot(111)
 
+        self.object_scale = object_scale  # scales object detection region size
         self.output_dir = '/tmp/video_demo/'
 
         if os.path.isdir(self.output_dir):
@@ -156,11 +157,14 @@ class ClassifierDisplay(object):
                 return serial.load(preprocessor)
             elif preprocessor.startswith('lcn7'):
                 assert image_shape is not None
+                print("image_shape given to LeCunLCN: %s" % str(image_shape))
                 return LeCunLCN(img_shape=image_shape, kernel_size=7)
             else:
                 raise ValueError('unrecognized value "%s" for --preprocessor' %
                                  preprocessor)
 
+        # scaled_image_shape = (numpy.asarray(input_space.shape, dtype=int) //
+        #                       object_scale)
         self.preprocessor = get_preprocessor(preprocessor, input_space.shape)
 
         def get_example_images():
@@ -192,7 +196,6 @@ class ClassifierDisplay(object):
         self.example_images = get_example_images()
 
         self.margin = 10  # space between images in self.status_pixels
-        self.object_scale = object_scale  # scales object detection region size
 
         # self.norb_image_shape = input_space.shape
         # assert len(self.norb_image_shape) == 2
@@ -267,7 +270,7 @@ class ClassifierDisplay(object):
 
     def _preprocess(self, model_input):
         image_shape = model_input.shape
-
+        print("model_input.shape in _preprocess: %s" % str(model_input.shape))
         assert str(model_input.dtype) == 'uint8'
 
         # flatten into a design matrix
@@ -322,14 +325,14 @@ class ClassifierDisplay(object):
         # TODO: display their examples, probabilities
         num_candidates = len(self.candidate_pixels_list)
         sorted_ids = numpy.argsort(softmax_vector)[-1:-(num_candidates + 1):-1]
-        message = "Category/probability: "
+        # message = "Category/probability: "
         for (sorted_id,
              candidate_pixels,
              probability_pixels) in safe_zip(sorted_ids,
                                              self.candidate_pixels_list,
                                              self.probability_pixels_list):
-            category = new_norb.get_category_value(sorted_id / 10)
-            instance = sorted_id % 10
+            # category = new_norb.get_category_value(sorted_id / 10)
+            # instance = sorted_id % 10
             probability = softmax_vector[sorted_id]
 
             example_image = self.example_images[sorted_id]
@@ -399,15 +402,30 @@ class LocalizerDisplay(ClassifierDisplay):
         model = serial.load(model_path)
         assert isinstance(model, MLP)
 
-        input_dim = min(self.video_frame_shape[:2])  # TODO: switch to max?
+        input_dim = min(numpy.asarray(self.video_frame_shape[:2]) //
+                        self.object_scale)  # TODO: switch to max?
         model = resize_mlp_input(model, (input_dim, input_dim))
+        def get_model_scale(model):
+            def get_scale(layer):
+                def get_stride(square_stride):
+                    if square_stride is None:
+                        return 1
 
-        # DEBUG
-        for i, layer in enumerate(model.layers):
-            print("layer %d type: %s # output channels: %d" %
-                  (i,
-                   type(layer),
-                   layer.get_output_space().num_channels))
+                    assert len(square_stride) == 2
+                    assert square_stride[0] == square_stride[1]
+                    return square_stride[0]
+
+                if isinstance(layer.get_output_space(), Conv2DSpace):
+                    return (get_stride(layer.kernel_stride) *
+                            get_stride(layer.pool_stride))
+                else:
+                    return 1
+
+            scales = numpy.asarray([get_scale(x) for x in model.layers])
+            scale = numpy.prod(scales)
+            return scale
+
+        self.model_scale = get_model_scale(model)
 
         input_space = model.get_input_space()
         floatX = theano.config.floatX
@@ -416,6 +434,7 @@ class LocalizerDisplay(ClassifierDisplay):
                                                      batch_size=1)
         output_symbol = model.fprop(input_symbol)
         function = theano.function([input_symbol, ], output_symbol)
+
         return function, input_space
 
     def _get_object_shape(self):
@@ -425,15 +444,6 @@ class LocalizerDisplay(ClassifierDisplay):
     def _init_pixels(self, video_frame):
         super(LocalizerDisplay, self)._init_pixels(video_frame)
         #del self.model_input_pixels
-
-    def get_model_scale(self, model):
-        convolutional_layers = [x for x in model.layers
-                                if isinstance(x.get_output_space(),
-                                              Conv2DSpace)]
-        scales = numpy.asarray([get_scale(x) for x in model.layers])
-        scale = numpy.prod(scales, axis=0)
-        assert scale[0] == scale[1]
-        return scale
 
     def update(self, video_frame):
         if self.all_pixels is None:
@@ -452,31 +462,31 @@ class LocalizerDisplay(ClassifierDisplay):
                       (0, 0, 0),  # color
                       2)  # thickness
 
-        scaled_object_shape = self._get_object_shape // self.object_scale
-        scaled_object_shape.append
-        assert len(scaled_object_shape) == 3
+        scaled_object_shape = self._get_object_shape() // self.object_scale
+
+        assert len(scaled_object_shape) == 2
         assert scaled_object_shape.dtype == numpy.dtype('int')
         assert (scaled_object_shape > 0).all()
 
         model_input = cv2.resize(gray_object, tuple(scaled_object_shape))
         model_input = self._preprocess(model_input)
         model_input = model_input[numpy.newaxis, :, :, numpy.newaxis]
-
+        # pdb.set_trace()
         softmax_map = self.model_function(model_input)
         no_bkg_softmax_map = softmax_map[..., :50]
         no_bkg_max_location = numpy.unravel_index(no_bkg_softmax_map.argmax(),
                                                   no_bkg_softmax_map.shape)
 
         # only bother showing classification if it beats out the background.
-        if no_bkg_max_location[-1] != 50:
-            softmax_map_shape = numpy.asarray(softmax_map.shape[:2],
+        if no_bkg_max_location[1] != 50:
+            softmax_map_shape = numpy.asarray(softmax_map.shape[2:],  # bc01
                                               dtype=float)
 
-            centered_max_location = (no_bkg_max_location[:2] -
+            centered_max_location = (no_bkg_max_location[2:] -  # bc01
                                      (softmax_map_shape // 2))
 
-            softmax_map_scale = get_model_scale(model)
-            centered_max_location *= softmax_map_scale
+            # softmax_map_scale = self.model_scaleget_model_scale(model)
+            centered_max_location *= (self.model_scale * self.object_scale)
             input_center = (self.object_min_corner +
                             self.object_max_corner) // 2
 
@@ -489,26 +499,36 @@ class LocalizerDisplay(ClassifierDisplay):
             norb_image_shape = numpy.asarray((96, 96), dtype=int) #self.norb_image_shape
             max_min_corner = max_location - norb_image_shape // 2
             max_max_corner = max_min_corner + norb_image_shape
+            max_max_corner[0] = min(max_max_corner[0], self.video_pixels.shape[0])
+            max_max_corner[1] = min(max_max_corner[1], self.video_pixels.shape[1])
+            max_max_corner[0] = max(max_max_corner[0], 0)
+            max_max_corner[1] = max(max_max_corner[1], 0)
+
+            # pdb.set_trace()
             self.model_input_pixels[...] = \
                 self.video_pixels[max_min_corner[0]:max_max_corner[0],
                                   max_min_corner[1]:max_max_corner[1]]
 
             # Draw a red square around the object bounding box.
             cv2.rectangle(self.video_pixels,
-                          tuple(reversed(self.object_min_corner)),
-                          tuple(reversed(self.object_max_corner)),
-                          (255, 0, 0),  # color
+                          tuple(reversed(max_min_corner)),
+                          tuple(reversed(max_max_corner)),
+                          (0, 255, 0),  # color
                           2)  # thickness
 
-            softmax_vector = softmax_map[no_bkg_max_location[0],
-                                         no_bkg_max_location[1],
-                                         :]
+            # softmax_map & no_bkg_max_location are BC01
+            assert softmax_map.shape[0] == 1
+            softmax_vector = softmax_map[0,
+                                         :,
+                                         no_bkg_max_location[2],
+                                         no_bkg_max_location[3]]
 
             # TODO: This whole chunk was copied from ClassifierWindow.
             #       Refactor to avoid this code duplication.
             num_candidates = len(self.candidate_pixels_list)
             sorted_ids = \
                 numpy.argsort(softmax_vector)[-1:-(num_candidates + 1):-1]
+
             message = "Category/probability: "
             for (sorted_id,
                  candidate_pixels,
@@ -580,6 +600,8 @@ def main():
 
     if args.matplotlib:
         displays.append(MatplotlibDisplay())
+
+    keep_going = True
 
     while keep_going:
         # Capture frame-by-frame
