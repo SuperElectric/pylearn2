@@ -18,6 +18,8 @@ from pylearn2.datasets.preprocessing import ZCA, LeCunLCN
 from pylearn2.expr.preprocessing import global_contrast_normalize
 from pylearn2.datasets.dense_design_matrix import (DenseDesignMatrix,
                                                    DefaultViewConverter)
+from pylearn2.scripts.papers.maxout.norb.resize_input_of_model import \
+    resize_mlp_input
 
 
 def parse_args():
@@ -383,15 +385,38 @@ class ClassifierDisplay(object):
 
 class LocalizerDisplay(ClassifierDisplay):
 
-    def __init__(self, model_path, preprocessor, object_scale):
+    def __init__(self,
+                 model_path,
+                 preprocessor,
+                 object_scale,
+                 video_frame_shape):
+        self.video_frame_shape = video_frame_shape
         super(LocalizerDisplay, self).__init__(model_path,
                                                preprocessor,
                                                object_scale)
 
-    # def _load_model_function(self, model_path):
-    #     # this will be replaced by a bigger model
-    #     model = serial.load(model_path)
-    # def _get_bigger_model(self,
+    def _load_model_function(self, model_path):
+        model = serial.load(model_path)
+        assert isinstance(model, MLP)
+
+        input_dim = min(self.video_frame_shape[:2])  # TODO: switch to max?
+        model = resize_mlp_input(model, (input_dim, input_dim))
+
+        # DEBUG
+        for i, layer in enumerate(model.layers):
+            print("layer %d type: %s # output channels: %d" %
+                  (i,
+                   type(layer),
+                   layer.get_output_space().num_channels))
+
+        input_space = model.get_input_space()
+        floatX = theano.config.floatX
+        input_symbol = input_space.make_theano_batch(name='features',
+                                                     dtype=floatX,
+                                                     batch_size=1)
+        output_symbol = model.fprop(input_symbol)
+        function = theano.function([input_symbol, ], output_symbol)
+        return function, input_space
 
     def _get_object_shape(self):
         object_width = min(self.video_pixels.shape[:2])
@@ -524,11 +549,21 @@ def main():
 
     args = parse_args()
 
+    print("Press 'q' to quit.")
+
     cap = cv2.VideoCapture(0)
 
-    keep_going = True
+    # capture a video frame just to know its shape
+    def get_video_shape(cap):
+        keep_going, video_frame = cap.read()
 
-    print("Press 'q' to quit.")
+        if not keep_going:
+            print("Error in reading a frame. Exiting...")
+            cap.release()
+            cv2.destroyAllWindows()
+            sys.exit(0)
+
+        return video_frame.shape
 
     displays = []
     if args.model is None:
@@ -536,7 +571,8 @@ def main():
     elif args.localize:
         displays.append(LocalizerDisplay(args.model,
                                          args.preprocessor,
-                                         args.scale))
+                                         args.scale,
+                                         get_video_shape(cap)))
     else:
         displays.append(ClassifierDisplay(args.model,
                                           args.preprocessor,

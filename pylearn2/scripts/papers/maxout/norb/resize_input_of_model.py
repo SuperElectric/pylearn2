@@ -501,6 +501,8 @@ def resize_mlp_input(old_mlp, new_image_shape):
     """
     assert isinstance(old_mlp, MLP)
     assert len(new_image_shape) == 2
+    assert new_image_shape[0] == new_image_shape[1], \
+        "MaxoutConvC01B requires square images"
 
     old_input_space = old_mlp.get_input_space()
     assert isinstance(old_input_space, Conv2DSpace)
