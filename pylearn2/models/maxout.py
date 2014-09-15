@@ -714,8 +714,28 @@ class MaxoutConvC01B(Layer):
 
         detector_channels = num_channels * num_pieces
 
+        if detector_channels % 16 == 0:
+            dummy_detector_channels = 0
+        else:
+            dummy_detector_channels = 16 - (detector_channels % 16)
+            detector_channels += dummy_detector_channels
+
+        if dummy_detector_channels != 0:
+            warnings.warn('num_channels * num_pieces (%d * %d = %d) is not '
+                          'divisible by 16 (remainder = %d). %d dummy '
+                          'detector channels will be used, which will waste '
+                          'computation. Consider changing num_channels and/or '
+                          'num_pieces.' %
+                          (num_channels,
+                           num_pieces,
+                           num_channels * num_pieces,
+                           16 - dummy_detector_channels,
+                           dummy_detector_channels))
+
         self.__dict__.update(locals())
         del self.self
+
+        assert self.detector_channels % 16 == 0
 
     @functools.wraps(Model.get_lr_scalers)
     def get_lr_scalers(self):
@@ -755,6 +775,38 @@ class MaxoutConvC01B(Layer):
                                   rng=self.mlp.rng)
 
         rng = self.mlp.rng
+
+        if not hasattr(self, 'dummy_detector_channels'):
+            self.dummy_detector_channels = 0
+
+        # If we're using dummy output channels, zero the corresponding weights.
+        def zero_dummy_params():
+            """
+            Zeros weights and biases corresponding to dummy detector
+            channels.
+
+            This is not really necessary, but it will sanitize weight
+            visualiztions.
+            """
+            if self.dummy_detector_channels == 0:
+                return
+
+            weights_symbol, bias_symbol = self.get_params()
+            assert self.detector_space.axes.index('b') == 3
+            weights = weights_symbol.get_value()
+            assert weights.shape[-1] == self.detector_space.num_channels
+            weights[..., -self.dummy_detector_channels:] = 0.0
+            weights_symbol.set_value(weights)
+
+            bias = bias_symbol.get_value()
+            if self.tied_b:
+                assert len(bias.shape) == 1
+                bias[-self.dummy_detector_channels:] = 0.0
+            else:
+                assert len(bias.shape) == 3  # no batch axis
+                bias[-self.dummy_detector_channels:, :, :] = 0.0
+
+        zero_dummy_params()
 
         detector_shape = self.detector_space.shape
 
@@ -958,6 +1010,13 @@ class MaxoutConvC01B(Layer):
                         s = T.maximum(s, t)
                 z = s
             p = z
+
+        if not hasattr(self, 'dummy_detector_channels'):
+            self.dummy_detector_channels = 0
+
+        # crops away any dummy detector channels
+        if self.dummy_detector_channels > 0:
+            p = p[:-self.dummy_detector_channels, :, :, :]
 
         self.output_space.validate(p)
 

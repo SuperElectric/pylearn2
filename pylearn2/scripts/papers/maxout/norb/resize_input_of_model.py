@@ -7,7 +7,7 @@ MLP. Instead of outputing a single output vector, the resized MLP returns a
 grid of output vectors, for each possible subwindow of the input image.
 """
 
-import sys, argparse, functools, copy
+import sys, argparse, functools, copy, pdb
 import os.path
 import theano, numpy
 from pylearn2.utils import serial, safe_zip
@@ -254,7 +254,9 @@ def _instantiate_MaxoutConvC01B_from_Maxout(maxout):
 
     conv_input_space = _get_conv2d_space(maxout.get_input_space(),
                                          ('c', 0, 1, 'b'))
-
+    # pdb.set_trace()
+    print("converting to a MaxoutConvC01B with num_channels=%d" %
+          maxout.num_units)
     return MaxoutConvC01B(num_channels=maxout.num_units,
                           num_pieces=maxout.num_pieces,
                           kernel_shape=conv_input_space.shape,
@@ -394,7 +396,8 @@ def _copy_params_from_Softmax_to_SoftmaxConvC01B(softmax, softmax_conv):
     kernel_space = get_kernel_input_space(softmax)
     actual_kernel_input_channels = (kernel_space.num_channels +
                                     softmax_conv.dummy_channels)
-    actual_kernel_output_channels = softmax.get_output_space().dim
+    actual_kernel_output_channels = (softmax.get_output_space().dim +
+                                     softmax_conv.dummy_detector_channels)
     conv_weights = numpy.zeros((actual_kernel_input_channels,
                                 kernel_space.shape[0],
                                 kernel_space.shape[1],
@@ -402,7 +405,12 @@ def _copy_params_from_Softmax_to_SoftmaxConvC01B(softmax, softmax_conv):
                                dtype=weights.dtype)
     assert conv_weights.shape == conv_params[0].shape
 
-    conv_weights[:kernel_space.num_channels, ...] = \
+    num_real_detector_channels = (softmax_conv.detector_channels -
+                                  softmax_conv.dummy_detector_channels)
+    conv_weights[:kernel_space.num_channels,
+                 :,
+                 :,
+                 :num_real_detector_channels] = \
         softmax.desired_space.np_format_as(weights.transpose(), kernel_space)
 
     theano_conv_weights, theano_conv_biases = softmax_conv.get_params()
@@ -439,14 +447,21 @@ def _copy_params_from_Maxout_to_MaxoutConvC01B(maxout, maxout_conv):
     actual_kernel_input_channels = (kernel_space.num_channels +
                                     maxout_conv.dummy_channels)
     actual_kernel_output_channels = (maxout.get_output_space().dim *
-                                     maxout.num_pieces)
+                                     maxout.num_pieces +
+                                     maxout_conv.dummy_detector_channels)
     conv_weights = numpy.zeros((actual_kernel_input_channels,
                                 kernel_space.shape[0],
                                 kernel_space.shape[1],
                                 actual_kernel_output_channels),
                                dtype=weights.dtype)
     assert conv_weights.shape == conv_params[0].shape
-    conv_weights[:kernel_space.num_channels, ...] = \
+
+    num_real_detector_channels = (maxout_conv.detector_channels -
+                                  maxout_conv.dummy_detector_channels)
+    conv_weights[:kernel_space.num_channels,
+                 :,
+                 :,
+                 :num_real_detector_channels] = \
         maxout.desired_space.np_format_as(weights.transpose(), kernel_space)
 
     theano_conv_weights, theano_conv_biases = maxout_conv.get_params()
