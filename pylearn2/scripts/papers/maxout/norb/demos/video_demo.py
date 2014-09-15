@@ -6,6 +6,7 @@ Code copied over from OpenCV's tutorial at:
 http://docs.opencv.org/trunk/doc/py_tutorials/py_gui/py_video_display/py_video_display.html#display-video  # nopep8
 """
 
+from __future__ import print_function
 import sys, argparse, os, shutil, time
 import numpy, matplotlib, cv2, theano
 from matplotlib import pyplot
@@ -13,13 +14,17 @@ from pylearn2.utils import serial, safe_zip
 from pylearn2.space import VectorSpace, CompositeSpace
 from pylearn2.models.mlp import MLP
 from pylearn2.datasets import new_norb
-from pylearn2.datasets.preprocessing import ZCA
+from pylearn2.datasets.preprocessing import ZCA, LeCunLCN
 from pylearn2.expr.preprocessing import global_contrast_normalize
 from pylearn2.datasets.dense_design_matrix import (DenseDesignMatrix,
                                                    DefaultViewConverter)
 
 
 def parse_args():
+    """
+    Parses command-line arguments.
+    """
+
     parser = argparse.ArgumentParser(
         description=("Shows video input, and optionally classifies "
                      "frames using a loaded model"))
@@ -32,7 +37,10 @@ def parse_args():
     parser.add_argument("-p",
                         "--preprocessor",
                         default=None,
-                        help=".pkl file of the data preprocessor.")
+                        help=("The .pkl file of the data preprocessor. "
+                              "If omitted, this will assume that the --model "
+                              "argument's preprocessor prefix (e.g. gcn-lcn7 "
+                              "is sufficient to specify the preprocessor."))
 
     parser.add_argument("--matplotlib",
                         default=False,
@@ -52,18 +60,18 @@ def parse_args():
         print("Must provide --model and --preprocessor, or neither.")
         sys.exit(1)
 
-    if result.model is not None and not result.model.endswith('.pkl'):
-            print("Expected --model to end with '.pkl', but got %s." %
-                  args.model)
-            print("Exiting.")
-            sys.exit(1)
+    # if result.model is not None and not result.model.endswith('.pkl'):
+    #     print("Expected --model to end with '.pkl', but got %s." %
+    #           args.model)
+    #     print("Exiting.")
+    #     sys.exit(1)
 
-    if result.preprocessor is not None \
-       and not result.preprocessor.endswith('.pkl'):
-        print("Expected --preprocessor to end with '.pkl', but got %s." %
-              args.preprocessor)
-        print("Exiting.")
-        sys.exit(1)
+    # if result.preprocessor is not None \
+    #    and not result.preprocessor.endswith('.pkl'):
+    #     print("Expected --preprocessor to end with '.pkl', but got %s." %
+    #           result.preprocessor)
+    #     print("Exiting.")
+    #     sys.exit(1)
 
     return result
 
@@ -96,7 +104,7 @@ class VideoDisplay(object):
 
 class ClassifierDisplay(object):
 
-    def __init__(self, model_path, preprocessor_path, object_scale):
+    def __init__(self, model_path, preprocessor, object_scale):
 
         # # debug stuff
         # pyplot.ion()
@@ -119,29 +127,39 @@ class ClassifierDisplay(object):
             # expected to be true in the current use case.
             assert isinstance(model, MLP)
 
-            input_space = model.input_space
+            input_space = model.get_input_space()
             floatX = theano.config.floatX
             input_symbol = input_space.make_theano_batch(name='features',
                                                          dtype=floatX,
                                                          batch_size=1)
             output_symbol = model.fprop(input_symbol)
-            return theano.function([input_symbol, ], output_symbol)
+            return theano.function([input_symbol, ], output_symbol), input_space
 
             # specs = (model.input_space, 'features')
             # specs = (CompositeSpace((model.input_space,
             #                          VectorSpace(dim=test_set.y.shape[1]))),
             #          ('features', 'targets'))
 
-        self.model_function = load_model_function(model_path)
+        self.model_function, input_space = load_model_function(model_path)
 
-        self.preprocessor = serial.load(preprocessor_path)
+        def get_preprocessor(preprocessor, image_shape=None):
+            if preprocessor.endswith('.pkl'):
+                return serial.load(preprocessor)
+            elif preprocessor.startswith('lcn7'):
+                assert image_shape is not None
+                return LeCunLCN(img_shape=image_shape, kernel_size=7)
+            else:
+                raise ValueError('unrecognized value "%s" for --preprocessor' %
+                                 preprocessor)
+
+        self.preprocessor = get_preprocessor(preprocessor, input_space.shape)
 
         def get_example_images():
             small_norb = new_norb.NORB(which_norb='small', which_set='both')
 
-            result = [None, ] * 50
+            result = [None, ] * 51
 
-            # Select image examples whose labels end in this
+            # Select image examples whose labels end in [0, 0, 0]
             label_end = numpy.zeros(3, dtype='int32')
 
             labels = small_norb.y
@@ -153,7 +171,12 @@ class ClassifierDisplay(object):
                     assert result[object_id] is None
                     result[object_id] = row_image.reshape([96, 96])
 
-            assert not any(example is None for example in result)
+            assert not any(example is None for example in result[:-1])
+            assert result[-1] is None
+
+            # Add an example of 'background'
+            result[-1] = result[-2].copy()
+            result[-1].flat[...] = 1.0
 
             return result
 
@@ -257,6 +280,7 @@ class ClassifierDisplay(object):
                                         dtype=theano.config.floatX)
             model_input /= 255.0
 
+            # if isinstance(self.preprocessor, ZCA):
             # TODO: in create_instance_dataset.py, use the GCN preprocessor
             # class rather than the GCN funtion as below, and save it along
             # with the ZCA preprocessor. This will require you to add an
@@ -368,13 +392,12 @@ def main():
     if args.matplotlib:
         displays.append(MatplotlibDisplay())
 
-
-    while(keep_going):
+    while keep_going:
         # Capture frame-by-frame
         keep_going, video_frame = cap.read()
 
         if not keep_going:
-            print "Error in reading a frame. Exiting..."
+            print("Error in reading a frame. Exiting...")
         else:
 
             assert len(video_frame.shape) == 3
@@ -385,7 +408,7 @@ def main():
                 display.update(video_frame)
 
             duration = time.time() - start_time
-            print "%g fps" % (1.0 / duration)
+            print("%g fps" % (1.0 / duration))
 
             # Checks whether user quit
             if cv2.waitKey(1) & 0xFF == ord('q'):
