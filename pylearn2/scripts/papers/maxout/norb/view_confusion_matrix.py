@@ -4,6 +4,7 @@ A script for viewing the confusion matrix of softmax labels computed with
 ./compute_softmax_instance_labels.py
 """
 
+import pdb
 import sys, argparse, os.path
 import numpy, matplotlib
 from matplotlib import pyplot
@@ -84,7 +85,9 @@ class DatasetPair(object):
                 norb_labels_to_object_ids(self.dataset.y,
                                           self.dataset.label_name_to_index)
 
-            unique_ids = frozenset(object_ids)
+            assert len(object_ids.shape) == 2
+            assert object_ids.shape[1] == 1
+            unique_ids = frozenset(object_ids[:, 0])
             result = [(), ] * (max(unique_ids) + 1)
 
             for unique_id in unique_ids:
@@ -98,6 +101,7 @@ class DatasetPair(object):
         for row_index, label in enumerate(self.dataset.y):
             self.label_to_index[tuple(label)] = row_index
 
+        pdb.set_trace()
         assert len(self.label_to_index) == self.dataset.y.shape[0]
 
     def get_object_example(self, object_id, reference_label=None):

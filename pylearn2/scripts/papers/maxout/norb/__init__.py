@@ -11,6 +11,9 @@ from pylearn2.datasets.zca_dataset import ZCA_Dataset
 from pylearn2.datasets.norb import SmallNORB
 from pylearn2.datasets.dense_design_matrix import DenseDesignMatrix
 from pylearn2.space import IndexSpace, CompositeSpace
+from pylearn2.scripts.papers.maxout.norb import resize_input_of_model
+
+resize_mlp_input = resize_input_of_model.resize_mlp_input
 
 
 def human_readable_memory_size(size, precision=2):

@@ -1,0 +1,92 @@
+!obj:pylearn2.models.mlp.MLP {
+  batch_size: 10,
+  layers: [
+    # Input: 96 x 96 x 1
+    !obj:pylearn2.models.maxout.MaxoutConvC01B {
+      layer_name: 'h0',
+      pad: 0,
+      tied_b: 1,
+      W_lr_scale: .05,
+      b_lr_scale: .05,
+      num_channels: 96,
+      num_pieces: 1,
+      min_zero: True,
+      kernel_shape: [8, 8],
+      kernel_stride: [2, 2],
+      pool_shape: [4, 4],
+      pool_stride: [2, 2],
+      irange: &common_irange .05,
+      max_kernel_norm: .9,
+    },
+    # Input: 22 x 22 x 96
+    !obj:pylearn2.models.maxout.MaxoutConvC01B {
+      layer_name: 'h1',
+      pad: 3,
+      tied_b: 1,
+      W_lr_scale: .05,
+      b_lr_scale: .05,
+      num_channels: 192,
+      num_pieces: 1,
+      min_zero: True,
+      kernel_shape: [6, 6],
+      pool_shape: [4, 4],
+      pool_stride: [2, 2],
+      irange: *common_irange,
+      max_kernel_norm: 1.9365,
+    },
+    # Input: 11 x 11 x 192
+    !obj:pylearn2.models.maxout.MaxoutConvC01B {
+      pad: 3,
+      layer_name: 'h2',
+      tied_b: 1,
+      W_lr_scale: .05,
+      b_lr_scale: .05,
+      num_channels: 192,
+      num_pieces: 1,
+      min_zero: True,
+      kernel_shape: [6, 6],
+      pool_shape: [4, 4],
+      pool_stride: [2, 2],
+      irange: *common_irange,
+      max_kernel_norm: 1.9365,
+    },
+    # Input: 5 x 5 x 192
+    !obj:pylearn2.models.maxout.MaxoutConvC01B {
+      pad: 2,
+      layer_name: 'h3',
+      tied_b: 1,
+      W_lr_scale: .05,
+      b_lr_scale: .05,
+      num_channels: 192,
+      num_pieces: 1,
+      min_zero: True,
+      kernel_shape: [5, 5],
+      pool_shape: [4, 4],
+      pool_stride: [2, 2],
+      irange: *common_irange,
+      max_kernel_norm: 1.9365,
+    },
+    # Input: 3x3x192
+    !obj:pylearn2.models.maxout.Maxout {
+      layer_name: 'h4',
+      irange: *common_irange,
+      num_units: 500,
+      num_pieces: 1,
+      min_zero: True,
+      max_col_norm: 1.9
+    },
+    # Input: 500
+    !obj:pylearn2.models.mlp.Softmax {
+      max_col_norm: 1.9365,
+      layer_name: 'y',
+      n_classes: 50,
+      irange: *common_irange
+    }
+    # Output: 50
+  ],
+  input_space: !obj:pylearn2.space.Conv2DSpace {
+  shape: &window_shape [96, 96],
+    num_channels: 1,
+    axes: ['c', 0, 1, 'b']
+  },
+}
