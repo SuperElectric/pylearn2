@@ -14,9 +14,11 @@ import numpy
 import warnings
 
 try:
+    import matplotlib
     from matplotlib import pyplot
 except ImportError, import_error:
     warnings.warn("Can't use this script without matplotlib.")
+    matplotlib = None
     pyplot = None
 
 from pylearn2.datasets.new_norb import NORB
