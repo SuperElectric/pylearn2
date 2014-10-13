@@ -35,7 +35,8 @@ install:
 #we need an older numexpr version. numexpr is needed for pytables
   - "travis_retry pip install -q numexpr==1.4.2 --use-mirrors || (cat /home/travis/.pip/pip.log; false)"
 #cython is needed by pylearn2/utils/setup.py
-  - "travis_retry pip install -q cython --use-mirrors || (cat /home/travis/.pip/pip.log; false)"
+#pytables doesn't like the recent cython 0.21. Force use of cython 0.20.
+  - "travis_retry pip install -q cython==0.20 --use-mirrors || (cat /home/travis/.pip/pip.log; false)"
   - "travis_retry pip install -q tables==2.4.0 --use-mirrors || (cat /home/travis/.pip/pip.log; false)"
   - "travis_retry pip install -q pyyaml --use-mirrors || (cat /home/travis/.pip/pip.log; false)"
   - "travis_retry pip install -q sphinx --use-mirrors || (cat /home/travis/.pip/pip.log; false)"
@@ -44,7 +45,6 @@ install:
   - "travis_retry pip install argparse --use-mirrors || (cat /home/travis/.pip/pip.log; false)"
 #More recent version then the one in the os
   - "travis_retry pip install -q pyflakes --use-mirrors || (cat /home/travis/.pip/pip.log; false)"
-
   - "travis_retry pip install -q git+git://git.assembla.com/jobman.git || (cat /home/travis/.pip/pip.log; false)"
   - "travis_retry pip install -q --no-deps git+git://github.com/Theano/Theano.git || (cat /home/travis/.pip/pip.log ; false)"
   - "travis_retry pip install nose-timelimit --use-mirrors"
@@ -53,10 +53,10 @@ install:
 
 # command to run tests
 env:
-  - FLAGS=floatX=float64 PART="-e test_autoencoder.py -e test_convelemwise_rect.py -e test_convelemwise_sigm.py -e test_convelemwise_tanh.py -e test_dbm.py -e test_dropout.py -e test_gsn.py -e test_maxout.py -e test_mlp.py -e test_mnd.py -e test_rbm.py -e test_reflection_clip.py -e test_s3c_inference.py -e test_s3c_misc.py -e test_svm.py -e test_windowlayer.py"
+  - FLAGS=floatX=float64 PART="-e test_autoencoder.py -e test_convelemwise_rect.py -e test_convelemwise_sigm.py -e test_convelemwise_tanh.py -e test_dbm.py -e test_dropout.py -e test_gsn.py -e test_maxout.py -e test_mlp.py -e test_mnd.py -e test_rbm.py -e test_reflection_clip.py -e test_s3c_inference.py -e test_s3c_misc.py -e test_svm.py -e test_windowlayer.py -e test_vae.py"
   - FLAGS=floatX=float64 PART=pylearn2/models
 #Exclude file inside pylearn2/models, sadly I didn't found a better way.
-  - FLAGS=floatX=float32 PART="-e test_autoencoder.py -e test_convelemwise_rect.py -e test_convelemwise_sigm.py -e test_convelemwise_tanh.py -e test_dbm.py -e test_dropout.py -e test_gsn.py -e test_maxout.py -e test_mlp.py -e test_mnd.py -e test_rbm.py -e test_reflection_clip.py -e test_s3c_inference.py -e test_s3c_misc.py -e test_svm.py -e test_windowlayer.py"
+  - FLAGS=floatX=float32 PART="-e test_autoencoder.py -e test_convelemwise_rect.py -e test_convelemwise_sigm.py -e test_convelemwise_tanh.py -e test_dbm.py -e test_dropout.py -e test_gsn.py -e test_maxout.py -e test_mlp.py -e test_mnd.py -e test_rbm.py -e test_reflection_clip.py -e test_s3c_inference.py -e test_s3c_misc.py -e test_svm.py -e test_windowlayer.py -e test_vae.py"
   - FLAGS=floatX=float32 PART=pylearn2/models
   - TEST_DOC=YES
 

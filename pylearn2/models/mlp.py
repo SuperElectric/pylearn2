@@ -421,13 +421,18 @@ class MLP(Layer):
     layer_name : name of the MLP layer. Should be None if the MLP is
         not part of another MLP.
     seed : WRITEME
+    monitor_targets : bool, optional
+        Default: True
+        If true, includes monitoring channels that are functions of the
+        targets. This can be disabled to allow monitoring on monitoring
+        datasets that do not include targets.
     kwargs : dict
         Passed on to the superclass.
     """
 
     def __init__(self, layers, batch_size=None, input_space=None,
                  input_source='features', nvis=None, seed=None,
-                 layer_name=None, **kwargs):
+                 layer_name=None, monitor_targets=True, **kwargs):
         super(MLP, self).__init__(**kwargs)
 
         self.seed = seed
@@ -455,6 +460,8 @@ class MLP(Layer):
         self.force_batch_size = batch_size
 
         self._input_source = input_source
+
+        self.monitor_targets = monitor_targets
 
         if input_space is not None or nvis is not None:
             self._nested = False
@@ -518,7 +525,7 @@ class MLP(Layer):
 
     @wraps(Layer.get_target_space)
     def get_target_space(self):
-        
+
         return self.layers[-1].get_target_space()
 
     @wraps(Layer.set_input_space)
@@ -569,7 +576,10 @@ class MLP(Layer):
         for layer in layers:
             assert layer.get_mlp() is None
             layer.set_mlp(self)
-            layer.set_input_space(existing_layers[-1].get_output_space())
+            # In the case of nested MLPs, input/output spaces may have not yet
+            # been initialized
+            if not self._nested or hasattr(self, 'input_space'):
+                layer.set_input_space(existing_layers[-1].get_output_space())
             existing_layers.append(layer)
             assert layer.layer_name not in self.layer_names
             self.layer_names.add(layer.layer_name)
@@ -593,7 +603,11 @@ class MLP(Layer):
         # if the MLP is the outer MLP \
         # (ie MLP is not contained in another structure)
 
-        X, Y = data
+        if self.monitor_targets:
+            X, Y = data
+        else:
+            X = data
+            Y = None
         state = X
         rval = self.get_layer_monitoring_channels(state_below=X,
                                                     targets=Y)
@@ -687,6 +701,9 @@ class MLP(Layer):
         data_specs: TODO
             The data specifications for both inputs and targets.
         """
+
+        if not self.monitor_targets:
+            return (self.get_input_space(), self.get_input_source())
         space = CompositeSpace((self.get_input_space(),
                                 self.get_target_space()))
         source = (self.get_input_source(), self.get_target_source())
@@ -1152,7 +1169,7 @@ class Softmax(Layer):
     layer_name : string
         Name of Softmax layers.
     irange : float
-        If specified, initialized each weight randomly in 
+        If specified, initialized each weight randomly in
         U(-irange, irange).
     istdev : float
         If specified, initialize each weight randomly from
@@ -1171,7 +1188,9 @@ class Softmax(Layer):
         inputs.
     max_col_norm : float
         Maximum norm for a column of the weight matrix.
-    init_bias_target_marginals : WRITEME
+    init_bias_target_marginals : dataset
+        Take the probability distribution of the targets into account to
+        intelligently initialize biases.
     binary_target_dim : int, optional
         If your targets are class labels (i.e. a binary vector) then set the
         number of targets here so that an IndexSpace of the proper dimension
@@ -1202,16 +1221,28 @@ class Softmax(Layer):
         if binary_target_dim is not None:
             assert isinstance(binary_target_dim, py_integer_types)
             self._has_binary_target = True
-            self._target_space = IndexSpace(dim=binary_target_dim, 
+            self._target_space = IndexSpace(dim=binary_target_dim,
                                             max_labels=n_classes)
         else:
             self._has_binary_target = False
-    
+
         self.output_space = VectorSpace(n_classes)
         if not no_affine:
             self.b = sharedX(np.zeros((n_classes,)), name='softmax_b')
             if init_bias_target_marginals:
-                marginals = init_bias_target_marginals.y.mean(axis=0)
+
+                y = init_bias_target_marginals.y
+                if init_bias_target_marginals.y_labels is None:
+                    marginals = y.mean(axis=0)
+                else:
+                    # compute class frequencies
+                    if np.max(y.shape) != np.prod(y.shape):
+                        raise AssertionError("Use of "
+                                             "`init_bias_target_marginals` "
+                                             "requires that each example has "
+                                             "a single label.")
+                    marginals = np.bincount(y.flat)/float(y.shape[0])
+
                 assert marginals.ndim == 1
                 b = pseudoinverse_softmax_numpy(marginals).astype(self.b.dtype)
                 assert b.ndim == 1
@@ -1492,12 +1523,12 @@ class Softmax(Layer):
         z = z - z.max(axis=1).dimshuffle(0, 'x')
         log_prob = z - T.log(T.exp(z).sum(axis=1).dimshuffle(0, 'x'))
         # we use sum and not mean because this is really one variable per row
-        
+
         if self._has_binary_target:
             # The following code is the equivalent of accessing log_prob by the
-            # indices in Y, but it is written such that the computation can 
+            # indices in Y, but it is written such that the computation can
             # happen on the GPU rather than CPU.
-            
+
             flat_Y = Y.flatten()
             flat_log_prob = log_prob.flatten()
             flat_indices = flat_Y + T.arange(Y.shape[0])*self.n_classes
@@ -1507,7 +1538,7 @@ class Softmax(Layer):
             log_prob_of = (Y * log_prob)
 
         return log_prob_of
-        
+
 
     @wraps(Layer.cost)
     def cost(self, Y, Y_hat):
@@ -4434,7 +4465,7 @@ class CompositeLayer(Layer):
                                                  for layer in self.layers))
         self._target_space = CompositeSpace(tuple(layer.get_target_space()
                                                   for layer in self.layers))
-        
+
     @wraps(Layer.get_params)
     def get_params(self):
         rval = []
@@ -4628,8 +4659,8 @@ class FlattenerLayer(Layer):
                                       state=None, targets=None):
         return self.raw_layer.get_layer_monitoring_channels(
             state_below=state_below,
-            state=state,
-            targets=targets
+            state=self.get_output_space().format_as(state, self.raw_layer.get_output_space()),
+            targets=self.get_target_space().format_as(targets, self.raw_layer.get_target_space())
             )
 
     @wraps(Layer.get_monitoring_data_specs)

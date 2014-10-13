@@ -6,18 +6,18 @@ import pickle
 import warnings
 import exceptions
 import numpy
-import matplotlib
-from matplotlib import pyplot
+try:
+    from matplotlib import pyplot
+except ImportError, import_error:
+    warnings.warn("Can't use this script without matplotlib.")
+    pyplot = None
+
 from pylearn2.datasets import norb
-from pylearn2.utils import safe_zip
 
 warnings.warn("This script is deprecated. Please use ./browse_norb.py "
               "instead. It is kept around as a tester for deprecated class "
-              "datasets.norb.SmallNORB", exceptions.DeprecationWarning)
-
-warnings.warn("This script is deprecated. Please use ./browse_norb.py "
-              "instead. It is kept around as a tester for deprecated class "
-              "datasets.norb.SmallNORB", exceptions.DeprecationWarning)
+              "datasets.norb.SmallNORB",
+              exceptions.DeprecationWarning)
 
 
 def main():
@@ -117,6 +117,7 @@ def main():
     assert not numpy.any(label_to_index == -1)  # all elements have been set
 
     figure, axes = pyplot.subplots(1, 2, squeeze=True)
+
     figure.canvas.set_window_title('Small NORB dataset (%sing set)' %
                                    which_set)
 
